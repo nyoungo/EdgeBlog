@@ -1,0 +1,44 @@
+# Cloudflare Pages project configuration.
+# Docs: https://developers.cloudflare.com/pages/functions/wrangler-configuration/
+name = "edge-blog"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Where Vite emits the static build. Pages serves this directory.
+pages_build_output_dir = "dist"
+
+# ---------------------------------------------------------------------------
+# Bindings
+# Run the `wrangler` setup commands in README.md, then paste the real IDs here.
+# ---------------------------------------------------------------------------
+
+# D1 — relational data (posts, comments, settings, ...)
+[[d1_databases]]
+binding = "DB"
+database_name = "edge-blog"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# R2 — media library / image uploads
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "edge-blog-media"
+
+# KV — config cache + rate limiting counters
+[[kv_namespaces]]
+binding = "CACHE"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# ---------------------------------------------------------------------------
+# Non-secret variables. SECRETS (JWT_SECRET, ...) must be set via
+# `wrangler pages secret put` or the dashboard, never committed.
+# ---------------------------------------------------------------------------
+[vars]
+ENVIRONMENT = "production"
+SITE_URL = "https://example.pages.dev"
+# Public base URL that uploaded R2 objects are served from.
+# Either an R2 custom domain or the Pages `/media` proxy (see functions/media).
+MEDIA_PUBLIC_BASE = "https://media.example.com"
+# Cookie name for the admin session.
+SESSION_COOKIE = "eb_session"
+# Comma separated list of allowed CORS origins (front-end on same origin => "*" is fine).
+ALLOWED_ORIGINS = "*"

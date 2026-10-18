@@ -1,0 +1,51 @@
+{
+  "name": "edge-blog",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A fully dynamic, highly customizable blog system for Cloudflare Pages (React + Hono + D1 + R2 + KV).",
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run typecheck && vite build",
+    "build:only": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.functions.json",
+    "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
+    "dev:pages": "wrangler pages dev ./dist --live-reload",
+    "deploy": "npm run build && wrangler pages deploy ./dist",
+    "db:migrate": "wrangler d1 execute edge-blog --remote --file=./migrations/0001_init.sql && wrangler d1 execute edge-blog --remote --file=./migrations/0002_fts.sql",
+    "db:migrate:local": "wrangler d1 execute edge-blog --local --file=./migrations/0001_init.sql && wrangler d1 execute edge-blog --local --file=./migrations/0002_fts.sql",
+    "db:seed": "wrangler d1 execute edge-blog --remote --file=./seed/seed.sql",
+    "db:seed:local": "wrangler d1 execute edge-blog --local --file=./seed/seed.sql",
+    "db:reset:local": "wrangler d1 execute edge-blog --local --file=./migrations/0001_init.sql --file=./migrations/0002_fts.sql --file=./seed/seed.sql",
+    "hash-password": "node ./scripts/hash-password.mjs"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "dompurify": "^3.2.3",
+    "highlight.js": "^11.11.0",
+    "hono": "^4.6.14",
+    "marked": "^15.0.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "xf-music-player": "^1.0.7",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "wrangler": "^3.99.0"
+  }
+}

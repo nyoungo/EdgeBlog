@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="ink">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>Edge Blog</title>
+    <!--seo-->
+    <!--boot-->
+
+    <!--
+      Critical, blocking snippet: resolve theme mode before first paint so the
+      page never flashes the wrong palette. Server-provided settings refine
+      everything else afterwards (see SettingsProvider).
+    -->
+    <script>
+      (function () {
+        try {
+          var boot = document.getElementById('eb-boot-settings');
+          var s = boot && boot.textContent ? JSON.parse(boot.textContent) : null;
+          var mode =
+            localStorage.getItem('eb:mode') || (s && s.theme && s.theme.mode) || 'system';
+          var dark =
+            mode === 'dark' ||
+            (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.mode = dark ? 'dark' : 'light';
+          var theme = (s && s.theme && s.theme.preset) || localStorage.getItem('eb:theme');
+          if (theme) document.documentElement.dataset.theme = theme;
+        } catch (e) {}
+      })();
+    </script>
+
+    <!-- Minimal critical CSS to avoid a white flash before the bundle loads. -->
+    <style>
+      :root {
+        --boot-bg: #ffffff;
+        --boot-fg: #18181b;
+      }
+      html[data-mode='dark'] {
+        --boot-bg: #0a0a0a;
+        --boot-fg: #ededf0;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--boot-bg);
+        color: var(--boot-fg);
+      }
+      #root {
+        min-height: 100dvh;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

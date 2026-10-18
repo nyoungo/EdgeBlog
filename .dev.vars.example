@@ -1,0 +1,12 @@
+# Local Pages Functions secrets. Copy to `.dev.vars` and fill in real values.
+# THIS FILE IS A TEMPLATE — `.dev.vars` itself is git-ignored.
+
+# 32+ char random string used to sign JWTs. Generate: openssl rand -base64 48
+JWT_SECRET = "change-me-to-a-long-random-string-at-least-32-chars"
+
+# Optional: override for local dev so cookies work over http://localhost
+ENVIRONMENT = "development"
+SITE_URL = "http://localhost:8788"
+MEDIA_PUBLIC_BASE = "http://localhost:8788/media"
+SESSION_COOKIE = "eb_session"
+ALLOWED_ORIGINS = "*"
