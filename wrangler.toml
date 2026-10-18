@@ -34,10 +34,12 @@ id = "17f2c666debb4590be75cfa7d8879ede"
 # ---------------------------------------------------------------------------
 [vars]
 ENVIRONMENT = "production"
-SITE_URL = "https://edge-blog-cmx.pages.dev"
-# Public base URL that uploaded R2 objects are served from.
-# Either an R2 custom domain or the Pages `/media` proxy (see functions/media).
-MEDIA_PUBLIC_BASE = "https://edge-blog-cmx.pages.dev/media"
+# 站点对外地址：用于 canonical / RSS / sitemap / OG。绑定自定义域名后改成自己的域名。
+SITE_URL = "https://www.068800.xyz"
+# 上传图片的公开前缀，**默认留空**：图片以相对路径 /media/<key> 保存，
+# 链接自动跟随访问域名（换域名、绑自定义域名都无需改数据）。
+# 仅当把 R2 桶绑定了独立的自定义域名（例如 https://media.example.com）时才需要设置。
+# MEDIA_PUBLIC_BASE = "https://media.example.com"
 # Cookie name for the admin session.
 SESSION_COOKIE = "eb_session"
 # Comma separated list of allowed CORS origins (front-end on same origin => "*" is fine).

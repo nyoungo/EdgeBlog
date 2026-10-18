@@ -69,7 +69,10 @@ export function MediaAdminPage() {
 
   const copyUrl = async (item: MediaItem) => {
     try {
-      await navigator.clipboard.writeText(item.url);
+      const absolute = /^https?:\/\//i.test(item.url)
+        ? item.url
+        : new URL(item.url, window.location.origin).toString();
+      await navigator.clipboard.writeText(absolute);
       success('链接已复制');
     } catch {
       error('复制失败');

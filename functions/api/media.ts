@@ -28,6 +28,15 @@ const EXT_BY_MIME: Record<string, string> = {
   'image/bmp': 'bmp',
 };
 
+/**
+ * Public URL stored in `media.url`.
+ *
+ * Default (MEDIA_PUBLIC_BASE unset) is the **relative** path `/media/<key>`:
+ * it works on any hostname, so binding/renaming a custom domain never
+ * invalidates existing records (and RSS/sitemap/OG absolutize it against
+ * SITE_URL via `absoluteUrl` in lib/seo.ts).
+ * Set MEDIA_PUBLIC_BASE only when R2 is fronted by its own custom domain.
+ */
 function publicUrl(env: Env, key: string): string {
   const base = (env.MEDIA_PUBLIC_BASE ?? '').replace(/\/+$/, '');
   return base ? `${base}/${key}` : `/media/${key}`;

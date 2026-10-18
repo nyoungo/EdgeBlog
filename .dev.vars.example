@@ -7,6 +7,7 @@ JWT_SECRET = "change-me-to-a-long-random-string-at-least-32-chars"
 # Optional: override for local dev so cookies work over http://localhost
 ENVIRONMENT = "development"
 SITE_URL = "http://localhost:8788"
-MEDIA_PUBLIC_BASE = "http://localhost:8788/media"
+# 留空（默认）即可：图片以相对路径 /media/<key> 保存，本地/生产行为一致。
+# MEDIA_PUBLIC_BASE = "http://localhost:8788/media"
 SESSION_COOKIE = "eb_session"
 ALLOWED_ORIGINS = "*"

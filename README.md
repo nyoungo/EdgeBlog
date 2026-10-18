@@ -133,7 +133,8 @@ npx wrangler d1 create edge-blog
 
 # R2 存储桶
 npx wrangler r2 bucket create edge-blog-media
-#   → 建议给桶绑定自定义域名，并填入 wrangler.toml 的 MEDIA_PUBLIC_BASE
+#   → 默认无需配置：上传的图片以相对路径 /media/<key> 保存，自动跟随访问域名
+#   （仅当给桶绑定了独立的自定义域名时，才把该域名填进 wrangler.toml 的 MEDIA_PUBLIC_BASE）
 
 # KV 命名空间
 npx wrangler kv namespace create CACHE
@@ -180,6 +181,18 @@ npx wrangler pages secret put JWT_SECRET --project-name edge-blog
 npm run deploy
 ```
 
+### 7. 绑定自定义域名
+
+1. Cloudflare 控制台 → Pages → `edge-blog` → **自定义域** → 添加你的域名（如 `www.example.com`）。
+2. 把 `wrangler.toml` 的 `SITE_URL` 改成该域名（canonical / RSS / sitemap / OG 用它）后重新部署。
+3. 图片**无需任何处理**：上传时存的就是相对路径 `/media/<key>`，绑定域名后自动跟随，
+   库里也不会残留旧域名（`MEDIA_PUBLIC_BASE` 默认留空即可）。
+
+> 若已存在旧数据（早期版本写入了绝对地址），改写一次即可：
+> ```bash
+> npx wrangler d1 execute edge-blog --remote --command "UPDATE media SET url = '/media/' || key;"
+> ```
+
 ---
 
 ## 默认账号
@@ -204,8 +217,8 @@ npm run deploy
 | --- | --- | --- |
 | `JWT_SECRET` | Secret | 签署 JWT 的密钥，≥ 32 字符 |
 | `ENVIRONMENT` | vars | `production` / `development`（`development` 时 Cookie 不加 `Secure`） |
-| `SITE_URL` | vars | 站点对外地址，用于 RSS / sitemap / canonical |
-| `MEDIA_PUBLIC_BASE` | vars | R2 对象的公开访问前缀 |
+| `SITE_URL` | vars | 站点对外地址（**绑自定义域名后改成自己的域名**），用于 canonical / RSS / sitemap / OG |
+| `MEDIA_PUBLIC_BASE` | vars | 上传图片的公开前缀，**默认留空**：图片存相对路径 `/media/<key>`，自动跟随访问域名；仅当 R2 绑定了独立自定义域名时才设置 |
 | `SESSION_COOKIE` | vars | 会话 Cookie 名称，默认 `eb_session` |
 | `ALLOWED_ORIGINS` | vars | CORS 白名单，同源部署填 `*` 即可 |
 
