@@ -17,10 +17,20 @@ const ALLOWED_TAGS = [
   'a', 'p', 'br', 'hr', 'strong', 'em', 'del', 'code', 'pre', 'span',
   'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
   'img', 'figure', 'figcaption', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
-  'div', 'sup', 'sub', 'kbd', 'mark',
+  'div', 'sup', 'sub', 'kbd', 'mark', 'input',
 ];
 
-const ALLOWED_ATTR = ['href', 'title', 'alt', 'src', 'class', 'id', 'target', 'rel', 'colspan', 'rowspan', 'loading'];
+const ALLOWED_ATTR = [
+  'href', 'title', 'alt', 'src', 'class', 'id', 'target', 'rel', 'colspan', 'rowspan',
+  'loading', 'type', 'checked', 'disabled',
+];
+
+// GFM task lists render `<input type="checkbox" disabled>`; drop every other input.
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.nodeName === 'INPUT' && node.getAttribute('type') !== 'checkbox') {
+    node.parentNode?.removeChild(node);
+  }
+});
 
 function slugifyHeading(text: string): string {
   return (
@@ -62,8 +72,8 @@ export function renderMarkdown(md: string): string {
   return DOMPurify.sanitize(raw, {
     ALLOWED_TAGS,
     ALLOWED_ATTR,
-    ADD_ATTR: ['target', 'rel', 'loading'],
-    FORBID_TAGS: ['script', 'style', 'iframe', 'form', 'input'],
+    ADD_ATTR: ['target', 'rel', 'loading', 'type', 'checked', 'disabled'],
+    FORBID_TAGS: ['script', 'style', 'iframe', 'form'],
     FORBID_ATTR: ['style', 'onerror', 'onload'],
   });
 }

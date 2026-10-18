@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { AiSettingsView, MediaItem, PostDetail, PostStatus } from '@shared/types';
 import { ApiError, api } from '../../lib/api';
 import { parseSqlDate } from '../../lib/format';
-import { markdownToPlainText } from '../../lib/markdown';
 import { useAsync, useDocumentTitle } from '../../hooks';
 import { useSettings } from '../../providers/SettingsProvider';
 import { useToast } from '../../providers/ToastProvider';
@@ -13,7 +12,7 @@ import { Switch } from '../../components/ui/Switch';
 import { Card, Centered, Spinner } from '../../components/ui/Feedback';
 import { Icon } from '../../components/ui/icons';
 import { MediaPicker } from '../../components/admin/MediaPicker';
-import { Prose } from '../../components/blog/Prose';
+import { MarkdownEditor } from '../../components/admin/MarkdownEditor';
 
 interface FormState {
   title: string;
@@ -81,11 +80,9 @@ export function PostEditorPage() {
   const [postId, setPostId] = useState<number | null>(null);
   const [loaded, setLoaded] = useState(!editing);
   const [saving, setSaving] = useState(false);
-  const [preview, setPreview] = useState(false);
   const [picker, setPicker] = useState<null | 'cover' | 'og'>(null);
   const [aiReady, setAiReady] = useState(false);
   const [aiBusy, setAiBusy] = useState<null | 'excerpt' | 'content'>(null);
-  const contentRef = useRef<HTMLTextAreaElement>(null);
 
   useDocumentTitle(editing ? '编辑文章' : '新建文章', settings.site.name);
 
@@ -122,24 +119,6 @@ export function PostEditorPage() {
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  const wordInfo = useMemo(() => {
-    const text = markdownToPlainText(form.contentMd, 100000);
-    return { chars: form.contentMd.length, words: text ? text.split(/\s+/).length : 0 };
-  }, [form.contentMd]);
-
-  const insert = (before: string, after = '', placeholder = '') => {
-    const el = contentRef.current;
-    if (!el) return;
-    const { selectionStart: start, selectionEnd: end, value } = el;
-    const selected = value.slice(start, end) || placeholder;
-    const next = `${value.slice(0, start)}${before}${selected}${after}${value.slice(end)}`;
-    set('contentMd', next);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.selectionStart = el.selectionEnd = start + before.length + selected.length + after.length;
-    });
-  };
-
   const generateAi = async (mode: 'excerpt' | 'content') => {
     if (mode === 'content' && !form.title.trim() && !form.contentMd.trim()) {
       error('请先填写标题或一些要点，再生成正文');
@@ -163,7 +142,6 @@ export function PostEditorPage() {
       } else {
         const next = form.contentMd.trim() ? `${form.contentMd.trimEnd()}\n\n${text}\n` : `${text}\n`;
         set('contentMd', next);
-        setPreview(false);
         success('正文已生成');
       }
     } catch (err) {
@@ -173,8 +151,8 @@ export function PostEditorPage() {
     }
   };
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const submit = async (e?: FormEvent) => {
+    e?.preventDefault();
     if (!form.title.trim()) {
       error('标题不能为空');
       return;
@@ -226,15 +204,20 @@ export function PostEditorPage() {
     );
   }
 
-  const toolbar = [
-    { label: 'H2', before: '## ', after: '', placeholder: '标题' },
-    { label: 'B', before: '**', after: '**', placeholder: '粗体' },
-    { label: 'I', before: '*', after: '*', placeholder: '斜体' },
-    { label: '链接', before: '[', after: '](https://)', placeholder: '文字' },
-    { label: '代码', before: '`', after: '`', placeholder: 'code' },
-    { label: '引用', before: '> ', after: '', placeholder: '引用' },
-    { label: '列表', before: '- ', after: '', placeholder: '项目' },
-  ];
+  const aiToolbar = aiReady ? (
+    <>
+      <button
+        type="button"
+        disabled={aiBusy !== null}
+        onClick={() => void generateAi('content')}
+        title="让 AI 依据标题/要点撰写正文，生成内容会追加到末尾"
+        className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-brand transition-colors hover:bg-brand/10 disabled:opacity-60"
+      >
+        <Icon name="sparkles" size={13} />
+        {aiBusy === 'content' ? '生成中…' : 'AI 生成正文'}
+      </button>
+    </>
+  ) : null;
 
   return (
     <form onSubmit={submit} className="w-full pb-24">
@@ -246,10 +229,6 @@ export function PostEditorPage() {
           <h1 className="text-xl font-bold tracking-tight text-fg">{editing ? '编辑文章' : '新建文章'}</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button type="button" variant="ghost" onClick={() => setPreview((v) => !v)}>
-            <Icon name={preview ? 'pencil' : 'eye'} size={16} />
-            {preview ? '编辑' : '预览'}
-          </Button>
           <Button type="submit" loading={saving}>
             <Icon name="save" size={16} />
             保存
@@ -267,50 +246,12 @@ export function PostEditorPage() {
             required
           />
 
-          <Card className="overflow-hidden">
-            {!preview && (
-              <div className="flex flex-wrap items-center gap-1 border-b border-border bg-surface-2/50 px-2 py-1.5">
-                {toolbar.map((tool) => (
-                  <button
-                    key={tool.label}
-                    type="button"
-                    onClick={() => insert(tool.before, tool.after, tool.placeholder)}
-                    className="rounded px-2 py-1 text-xs font-medium text-muted transition-colors hover:bg-surface hover:text-fg"
-                  >
-                    {tool.label}
-                  </button>
-                ))}
-                {aiReady && (
-                  <button
-                    type="button"
-                    disabled={aiBusy !== null}
-                    onClick={() => void generateAi('content')}
-                    title="让 AI 依据标题/要点撰写正文，生成内容会追加到末尾"
-                    className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-brand transition-colors hover:bg-brand/10 disabled:opacity-60"
-                  >
-                    <Icon name="sparkles" size={13} />
-                    {aiBusy === 'content' ? '生成中…' : 'AI 生成正文'}
-                  </button>
-                )}
-                <span className="ml-auto px-2 text-xs text-faint">
-                  {wordInfo.words} 字 · {wordInfo.chars} 字符
-                </span>
-              </div>
-            )}
-            {preview ? (
-              <div className="p-8">
-                <Prose markdown={form.contentMd || '*（暂无内容）*'} />
-              </div>
-            ) : (
-              <textarea
-                ref={contentRef}
-                value={form.contentMd}
-                onChange={(e) => set('contentMd', e.target.value)}
-                placeholder="使用 Markdown 写作…"
-                className="min-h-[60vh] w-full resize-y border-0 bg-transparent p-4 font-mono text-sm leading-relaxed focus:outline-none"
-              />
-            )}
-          </Card>
+          <MarkdownEditor
+            value={form.contentMd}
+            onChange={(next) => set('contentMd', next)}
+            onSave={() => void submit()}
+            extraToolbar={aiToolbar}
+          />
         </div>
 
         <aside className="space-y-4">

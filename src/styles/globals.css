@@ -112,6 +112,14 @@
   .prose-article th {
     @apply bg-surface-2 font-semibold;
   }
+  /* GitHub-style task lists (marked emits a bare disabled checkbox). */
+  .prose-article li:has(> input[type='checkbox']) {
+    list-style: none;
+    margin-left: -1.25rem;
+  }
+  .prose-article input[type='checkbox'] {
+    @apply mr-2 h-4 w-4 translate-y-0.5 accent-brand;
+  }
 }
 
 @layer utilities {

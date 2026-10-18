@@ -224,6 +224,64 @@ const icons = {
       <path d="M17 21v-8H7v8M7 3v5h8" />
     </>
   ),
+  bold: <path d="M7 4h6.5a4 4 0 0 1 0 8H7zM7 12h7.5a4 4 0 0 1 0 8H7z" />,
+  italic: <path d="M19 4h-8M13 20H5M15 4 9 20" />,
+  strikethrough: <path d="M16 5H9.5a3.5 3.5 0 0 0-2.6 5.9M14.5 19H7.8a3.5 3.5 0 0 1-1-6.8M4 12h16" />,
+  heading: <path d="M6 20V4M18 20V4M6 12h12" />,
+  quote: (
+    <>
+      <path d="M10 6H4v6h6V6ZM20 6h-6v6h6V6Z" />
+      <path d="M10 12v1.5A4.5 4.5 0 0 1 5.5 18M20 12v1.5A4.5 4.5 0 0 1 15.5 18" />
+    </>
+  ),
+  code: <path d="m16 18 6-6-6-6M8 6l-6 6 6 6" />,
+  codeBlock: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m10 10-2 2 2 2M14 10l2 2-2 2" />
+    </>
+  ),
+  listOrdered: <path d="M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h3M4 14H3l3 4H3" />,
+  listCheck: <path d="M11 6h10M11 12h10M11 18h10M3 6l1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17" />,
+  table: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 10h18M9 10v10M15 10v10" />
+    </>
+  ),
+  minus: <path d="M5 12h14" />,
+  columns: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M12 4v16" />
+    </>
+  ),
+  maximize: <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />,
+  minimize: <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />,
+  undo: (
+    <>
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+    </>
+  ),
+  redo: (
+    <>
+      <path d="m15 14 5-5-5-5" />
+      <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" />
+    </>
+  ),
+  help: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4M12 17h.01" />
+    </>
+  ),
+  keyboard: (
+    <>
+      <rect x="2" y="6" width="20" height="12" rx="2" />
+      <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6" />
+    </>
+  ),
 } as const;
 
 export type IconName = keyof typeof icons;
