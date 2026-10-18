@@ -16,7 +16,7 @@ pages_build_output_dir = "dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "edge-blog"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "055686f4-1e23-4d09-9036-d511d5f02de4"
 
 # R2 — media library / image uploads
 [[r2_buckets]]
@@ -26,7 +26,7 @@ bucket_name = "edge-blog-media"
 # KV — config cache + rate limiting counters
 [[kv_namespaces]]
 binding = "CACHE"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+id = "17f2c666debb4590be75cfa7d8879ede"
 
 # ---------------------------------------------------------------------------
 # Non-secret variables. SECRETS (JWT_SECRET, ...) must be set via
@@ -34,10 +34,10 @@ id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
 # ---------------------------------------------------------------------------
 [vars]
 ENVIRONMENT = "production"
-SITE_URL = "https://example.pages.dev"
+SITE_URL = "https://edge-blog-cmx.pages.dev"
 # Public base URL that uploaded R2 objects are served from.
 # Either an R2 custom domain or the Pages `/media` proxy (see functions/media).
-MEDIA_PUBLIC_BASE = "https://media.example.com"
+MEDIA_PUBLIC_BASE = "https://edge-blog-cmx.pages.dev/media"
 # Cookie name for the admin session.
 SESSION_COOKIE = "eb_session"
 # Comma separated list of allowed CORS origins (front-end on same origin => "*" is fine).
