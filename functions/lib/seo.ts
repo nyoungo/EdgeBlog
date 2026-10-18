@@ -8,8 +8,20 @@
  */
 import type { Env } from './env';
 import type { PublicSettings } from '@shared/types';
+import { renderFaviconSvg } from './favicon';
 import { getPostBySlug } from './posts-repo';
 import { getSettings } from './settings';
+
+/**
+ * Icon href for the shell: an explicit `site.favicon` wins, otherwise the brand
+ * icon (accent + site initial) is generated and inlined as a data URI — no extra
+ * route, and it follows the current settings without any cache invalidation.
+ */
+function resolveFavicon(settings: PublicSettings): string {
+  const configured = settings.site.favicon?.trim();
+  if (configured) return configured;
+  return `data:image/svg+xml,${encodeURIComponent(renderFaviconSvg(settings))}`;
+}
 
 export interface SeoMeta {
   title: string;
@@ -19,6 +31,8 @@ export interface SeoMeta {
   type: 'website' | 'article';
   siteName: string;
   locale: string;
+  /** Absolute path or URL of the tab icon (`site.favicon`, else the generated one). */
+  favicon: string;
   publishedAt?: string | null;
   author?: string | null;
   jsonLd?: Record<string, unknown> | null;
@@ -67,6 +81,7 @@ export async function buildSeo(env: Env, url: URL): Promise<SeoMeta> {
     type: 'website',
     siteName,
     locale,
+    favicon: resolveFavicon(settings),
   };
 
   const postMatch = path.match(/^\/posts\/([^/]+)$/);
@@ -140,8 +155,13 @@ function propertyTag(property: string, content: string): string {
 
 /** Replace the title + `<!--seo-->` placeholder inside the app shell. */
 export function injectSeo(html: string, seo: SeoMeta): string {
+  const iconType =
+    seo.favicon.startsWith('data:image/svg') || /\.svg(?:[?#]|$)/i.test(seo.favicon)
+      ? ' type="image/svg+xml"'
+      : '';
   const tags: string[] = [
     `<title>${escapeHtml(seo.title)}</title>`,
+    `<link rel="icon" href="${escapeHtml(seo.favicon)}"${iconType} />`,
     metaTag('description', seo.description),
     `<link rel="canonical" href="${escapeHtml(seo.canonical)}" />`,
     propertyTag('og:site_name', seo.siteName),
@@ -170,11 +190,14 @@ export function injectSeo(html: string, seo: SeoMeta): string {
   }
 
   const block = tags.join('\n    ');
-  const withoutTitle = html.replace(/<title>[\s\S]*?<\/title>/i, '');
-  if (withoutTitle.includes('<!--seo-->')) {
-    return withoutTitle.replace('<!--seo-->', block);
+  // Drop the static defaults before injecting the resolved ones.
+  const cleaned = html
+    .replace(/<title>[\s\S]*?<\/title>/i, '')
+    .replace(/<link\s+rel="icon"[^>]*>\s*/i, '');
+  if (cleaned.includes('<!--seo-->')) {
+    return cleaned.replace('<!--seo-->', block);
   }
-  return withoutTitle.replace('</head>', `    ${block}\n  </head>`);
+  return cleaned.replace('</head>', `    ${block}\n  </head>`);
 }
 
 /** Id of the inline JSON payload the client hydrates from before first paint. */

@@ -806,6 +806,32 @@ export function AppearancePage() {
             ) : (
               <Input label="Logo 图片地址" value={site.logo.imageUrl} onChange={(e) => setSite({ logo: { ...site.logo, imageUrl: e.target.value } })} />
             )}
+            <div className="space-y-1.5">
+              <span className="text-sm font-medium text-fg">站点图标（favicon）</span>
+              <div className="flex items-center gap-2">
+                <span
+                  aria-hidden
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-sm font-bold text-white"
+                  style={{ background: 'rgb(var(--c-brand))' }}
+                >
+                  {(site.logo.text || site.name || 'E').slice(0, 1).toUpperCase()}
+                </span>
+                <Input
+                  value={site.favicon}
+                  wrapperClassName="flex-1"
+                  placeholder="https://example.com/icon.png（留空自动生成）"
+                  onChange={(e) => setSite({ favicon: e.target.value })}
+                />
+                {site.favicon ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setSite({ favicon: '' })}>
+                    重置
+                  </Button>
+                ) : null}
+              </div>
+              <p className="text-xs text-muted">
+                留空则自动生成：品牌主色圆角块 + 站点名首字母。也可填图片地址（支持上传到媒体库后的链接）。
+              </p>
+            </div>
             <Textarea label="页脚版权文字" value={site.footerText} onChange={(e) => setSite({ footerText: e.target.value })} rows={2} />
             <div className="space-y-2">
               <div className="flex items-center justify-between">

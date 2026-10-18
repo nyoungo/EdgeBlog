@@ -31,7 +31,7 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
   "tagline": "在边缘写作，与世界相连",
   "description": "一个部署在 Cloudflare Pages 上的现代化动态博客，React + Hono + D1。",
   "logo": { "type": "text", "text": "Edge", "imageUrl": "" },
-  "favicon": "/favicon.svg",
+  "favicon": "",
   "footerText": "© 2026 Edge Blog. 保留所有权利。",
   "footerLinks": [
     { "label": "RSS", "href": "/rss.xml" },
