@@ -481,3 +481,9 @@ curl -s localhost:8788/robots.txt
 - 评论内容纯文本转义后存储/展示，`email` 永不对外暴露
 - 上传接口校验 MIME 白名单与体积上限
 - 统一安全响应头（CSP / nosniff / HSTS 等，见 `public/_headers` 与 API 中间件）
+
+---
+
+## 许可证
+
+本项目基于 [MIT License](LICENSE) 开源，© 2026 nyoung。
