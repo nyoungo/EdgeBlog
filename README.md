@@ -12,6 +12,26 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 
 ---
 
+## 界面预览
+
+### 前台
+
+| 首页 | 通栏 Hero + 叠图卡片 | 沉浸式全屏 Hero |
+| :---: | :---: | :---: |
+| [![首页](docs/screenshots/home.jpg)](docs/screenshots/home.jpg) | [![通栏 Hero](docs/screenshots/home-hero-fullwidth.jpg)](docs/screenshots/home-hero-fullwidth.jpg) | [![全屏 Hero](docs/screenshots/home-hero-fullscreen.jpg)](docs/screenshots/home-hero-fullscreen.jpg) |
+
+> 同一套代码的三种排版：首页模块、Hero 宽度与背景、卡片样式均在后台「外观设置」中可视化调整，无需改动代码。
+
+### 后台
+
+| 概览 | 外观设置 | AI 设置 |
+| :---: | :---: | :---: |
+| [![后台概览](docs/screenshots/admin-dashboard.png)](docs/screenshots/admin-dashboard.png) | [![外观设置](docs/screenshots/admin-appearance.png)](docs/screenshots/admin-appearance.png) | [![AI 设置](docs/screenshots/admin-ai.png)](docs/screenshots/admin-ai.png) |
+
+> 文章 / 评论 / 媒体管理、可视化外观定制与 AI 辅助写作（API Key 仅保存在服务端）。
+
+---
+
 ## 目录结构
 
 ```
@@ -44,6 +64,7 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 ├─ seed/seed.sql              # 种子数据（默认设置 / 示例文章 / 管理员）
 ├─ scripts/hash-password.mjs  # 生成 PBKDF2 密码哈希
 ├─ public/                    # 静态资源（_headers / favicon 等）
+├─ docs/screenshots/          # README 界面截图
 ├─ index.html                 # SPA 外壳（含首屏防闪烁脚本 + SEO / 配置注入占位）
 ├─ wrangler.toml              # Pages + D1/R2/KV 绑定配置
 ├─ tailwind.config.ts         # 颜色 / 圆角 / 字体全部映射到 CSS 变量
