@@ -1296,7 +1296,7 @@ export function AppearancePage() {
                 checked={draft.music.autoplay}
                 onChange={(autoplay) => setMusic({ autoplay })}
                 label="自动播放"
-                description="加载后自动开始播放；浏览器可能要求先有一次点击"
+                description="进入页面即尝试播放；受浏览器策略限制，通常需要访客首次点击后才出声"
                 className="rounded-lg border border-border p-3"
               />
               <Switch
