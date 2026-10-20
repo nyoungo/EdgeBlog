@@ -47,6 +47,57 @@ const SERIF_STACK = [
   'serif',
 ].join(', ');
 
+export const BACKGROUND_LAYOUT: Record<
+  ThemeSettings['backgroundLayout'],
+  { size: string; repeat: string; position: string }
+> = {
+  cover: { size: 'cover', repeat: 'no-repeat', position: 'center' },
+  contain: { size: 'contain', repeat: 'no-repeat', position: 'center' },
+  center: { size: 'auto', repeat: 'no-repeat', position: 'center' },
+  tile: { size: 'auto', repeat: 'repeat', position: 'left top' },
+  'repeat-x': { size: 'auto', repeat: 'repeat-x', position: 'center top' },
+  'repeat-y': { size: 'auto', repeat: 'repeat-y', position: 'center top' },
+};
+
+/** Quote a URL for safe use inside a CSS `url()` token. */
+function cssUrl(value: string): string {
+  const clean = value.replace(/[\r\n]+/g, '').replace(/"/g, '%22');
+  return `url("${clean}")`;
+}
+
+/**
+ * Global page background image: published as CSS variables consumed by `body`
+ * (see styles/globals.css). `--eb-bg-scrim` paints a theme-tinted layer above
+ * the image so foreground text keeps its contrast.
+ */
+function applyBackground(theme: ThemeSettings, style: CSSStyleDeclaration): void {
+  const url = theme.backgroundImage?.trim();
+  if (!url) {
+    for (const prop of [
+      '--eb-bg-image',
+      '--eb-bg-size',
+      '--eb-bg-repeat',
+      '--eb-bg-position',
+      '--eb-bg-attachment',
+      '--eb-bg-scrim',
+    ]) {
+      style.removeProperty(prop);
+    }
+    return;
+  }
+
+  const layout = BACKGROUND_LAYOUT[theme.backgroundLayout] ?? BACKGROUND_LAYOUT.cover;
+  style.setProperty('--eb-bg-image', cssUrl(url));
+  style.setProperty('--eb-bg-size', layout.size);
+  style.setProperty('--eb-bg-repeat', layout.repeat);
+  style.setProperty('--eb-bg-position', layout.position);
+  style.setProperty(
+    '--eb-bg-attachment',
+    theme.backgroundAttachment === 'scroll' ? 'scroll' : 'fixed',
+  );
+  style.setProperty('--eb-bg-scrim', String(Math.min(0.9, Math.max(0, theme.backgroundScrim ?? 0))));
+}
+
 /** Convert `#rrggbb` (or `#rgb`) to a space-separated RGB channel triple. */
 export function hexToRgbChannels(hex: string): string | null {
   const value = hex.trim().replace(/^#/, '');
@@ -106,6 +157,8 @@ export function applyTheme(theme: ThemeSettings): void {
   style.setProperty('--line-height', LINE_HEIGHT[theme.lineHeight] ?? LINE_HEIGHT.normal);
   style.setProperty('--font-body', theme.fontBody === 'serif' ? SERIF_STACK : SANS_STACK);
   style.setProperty('--font-heading', theme.fontHeading === 'serif' ? SERIF_STACK : SANS_STACK);
+
+  applyBackground(theme, style);
 
   injectStyle('eb-code-theme', codeThemeCss(theme.codeTheme));
 }

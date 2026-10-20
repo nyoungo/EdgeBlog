@@ -17,6 +17,18 @@
     font-size: var(--font-size-base);
     line-height: var(--line-height);
     overflow-x: clip;
+    /* Optional global background image (theme settings). The first layer is a
+       theme-tinted scrim that keeps text readable; vars are set in lib/theme.ts. */
+    background-image:
+      linear-gradient(
+        rgb(var(--c-bg) / var(--eb-bg-scrim, 0)),
+        rgb(var(--c-bg) / var(--eb-bg-scrim, 0))
+      ),
+      var(--eb-bg-image, none);
+    background-size: cover, var(--eb-bg-size, cover);
+    background-repeat: no-repeat, var(--eb-bg-repeat, no-repeat);
+    background-position: center, var(--eb-bg-position, center);
+    background-attachment: fixed, var(--eb-bg-attachment, fixed);
   }
 
   h1,

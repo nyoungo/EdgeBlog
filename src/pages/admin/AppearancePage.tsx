@@ -17,6 +17,7 @@ import { Card } from '../../components/ui/Feedback';
 import { Icon, type IconName } from '../../components/ui/icons';
 import { cn } from '../../lib/utils';
 import { CODE_THEMES } from '../../lib/code-themes';
+import { BACKGROUND_LAYOUT } from '../../lib/theme';
 import { api } from '../../lib/api';
 import { useDocumentTitle } from '../../hooks';
 import { useSettings } from '../../providers/SettingsProvider';
@@ -66,6 +67,15 @@ const MODULE_LABELS: Record<string, string> = {
   tags: '标签云',
   newsletter: '订阅',
 };
+
+const BG_LAYOUT_OPTIONS: Array<{ value: ThemeSettings['backgroundLayout']; label: string }> = [
+  { value: 'cover', label: '铺满裁剪' },
+  { value: 'contain', label: '完整显示' },
+  { value: 'center', label: '居中不重复' },
+  { value: 'tile', label: '平铺' },
+  { value: 'repeat-x', label: '横向平铺' },
+  { value: 'repeat-y', label: '纵向平铺' },
+];
 
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
@@ -267,6 +277,7 @@ export function AppearancePage() {
   const hero = layout.hero;
   const header = layout.header;
   const features = draft.features;
+  const bgPreview = BACKGROUND_LAYOUT[theme.backgroundLayout] ?? BACKGROUND_LAYOUT.cover;
 
   const setTheme = (patch: Partial<ThemeSettings>) => update('theme', { ...theme, ...patch });
   const setLayout = (patch: Partial<typeof layout>) => update('layout', { ...layout, ...patch });
@@ -450,105 +461,96 @@ export function AppearancePage() {
               ))}
             </Select>
           </Section>
+
+          <Section
+            title="背景图"
+            description="全站背景图片，支持多种布局方式；留空则不显示"
+            icon="image"
+            className="lg:col-span-2"
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2">
+                <Input
+                  label="图片地址"
+                  value={theme.backgroundImage}
+                  onChange={(e) => setTheme({ backgroundImage: e.target.value })}
+                  placeholder="https://example.com/bg.jpg"
+                  hint="支持外链或 /media/… 相对地址"
+                />
+                {theme.backgroundImage && (
+                  <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-2/40 p-3">
+                    <span
+                      aria-hidden="true"
+                      className="relative h-20 w-32 shrink-0 overflow-hidden rounded-md border border-border bg-surface"
+                      style={{
+                        backgroundImage: `url("${theme.backgroundImage.replace(/"/g, '%22')}")`,
+                        backgroundSize: bgPreview.size,
+                        backgroundRepeat: bgPreview.repeat,
+                        backgroundPosition: bgPreview.position,
+                      }}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-0"
+                        style={{ background: `rgb(var(--c-bg) / ${theme.backgroundScrim})` }}
+                      />
+                    </span>
+                    <div className="min-w-0 flex-1 text-xs text-muted">
+                      <p className="font-medium text-fg">预览</p>
+                      <p className="mt-0.5 break-all">{theme.backgroundImage}</p>
+                      <button
+                        type="button"
+                        onClick={() => setTheme({ backgroundImage: '' })}
+                        className="mt-2 inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 font-medium text-muted transition-colors hover:bg-surface hover:text-fg"
+                      >
+                        <Icon name="close" size={13} /> 清除背景图
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-2">
+                <span className="text-sm font-medium text-fg">布局方式</span>
+                <Segmented
+                  value={theme.backgroundLayout}
+                  onChange={(backgroundLayout) => setTheme({ backgroundLayout })}
+                  options={BG_LAYOUT_OPTIONS}
+                />
+                <p className="text-xs text-muted">
+                  「铺满裁剪」自动缩放填满屏幕；「平铺」适合纹理/花纹图，按原始尺寸重复。
+                </p>
+              </div>
+
+              <Row label="滚动方式" description="固定 = 背景不动，内容滚动（类视差）">
+                <Segmented
+                  value={theme.backgroundAttachment}
+                  onChange={(backgroundAttachment) => setTheme({ backgroundAttachment })}
+                  options={[
+                    { value: 'fixed', label: '固定' },
+                    { value: 'scroll', label: '跟随滚动' },
+                  ]}
+                />
+              </Row>
+              <Input
+                label="遮罩浓度（0–0.9）"
+                type="number"
+                min={0}
+                max={0.9}
+                step={0.05}
+                value={theme.backgroundScrim}
+                onChange={(e) =>
+                  setTheme({ backgroundScrim: Math.min(0.9, Math.max(0, Number(e.target.value) || 0)) })
+                }
+                hint="用主题背景色压暗/提亮图片，保证文字可读"
+              />
+            </div>
+          </Section>
         </div>
       )}
 
       {tab === 'layout' && (
         <div className="grid gap-4 lg:grid-cols-2">
-          <Section title="列表与卡片" description="文章列表的展示方式" icon="list">
-            <Row label="卡片风格">
-              <Segmented
-                value={layout.cardStyle}
-                onChange={(cardStyle) => setLayout({ cardStyle })}
-                options={[
-                  { value: 'magazine', label: '杂志' },
-                  { value: 'minimal', label: '极简' },
-                  { value: 'grid', label: '网格' },
-                  { value: 'overlay', label: '浮层' },
-                  { value: 'compact', label: '紧凑' },
-                ]}
-              />
-            </Row>
-            <Row label="尺寸" description="影响内边距、字号与列表密度">
-              <Segmented
-                value={layout.cardSize}
-                onChange={(cardSize) => setLayout({ cardSize })}
-                options={[
-                  { value: 'lg', label: '大' },
-                  { value: 'md', label: '中' },
-                  { value: 'sm', label: '小' },
-                ]}
-              />
-            </Row>
-            <Row label="模糊" description="卡片毛玻璃效果（极简风格不适用）">
-              <Segmented
-                value={layout.cardBlur}
-                onChange={(cardBlur) => setLayout({ cardBlur })}
-                options={[
-                  { value: 'none', label: '无' },
-                  { value: 'sm', label: '弱' },
-                  { value: 'md', label: '中' },
-                  { value: 'lg', label: '强' },
-                ]}
-              />
-            </Row>
-            <Row label="侧边栏">
-              <Segmented
-                value={layout.sidebar}
-                onChange={(sidebar) => setLayout({ sidebar })}
-                options={[
-                  { value: 'left', label: '居左' },
-                  { value: 'right', label: '居右' },
-                  { value: 'none', label: '无' },
-                ]}
-              />
-            </Row>
-            <Input
-              label="每页文章数"
-              type="number"
-              min={1}
-              max={50}
-              value={layout.postsPerPage}
-              onChange={(e) => setLayout({ postsPerPage: Number(e.target.value) || 1 })}
-            />
-          </Section>
-
-          <Section title="首页模块" description="顺序即为显示顺序，开关控制显示" icon="dashboard">
-            <ul className="space-y-2">
-              {layout.homeModules.map((module, index) => (
-                <li key={module.id} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
-                  <Icon name="drag" size={15} className="shrink-0 text-faint" />
-                  <span className="flex-1 text-sm font-medium text-fg">{MODULE_LABELS[module.id] ?? module.id}</span>
-                  <button
-                    type="button"
-                    disabled={index === 0}
-                    onClick={() => setLayout({ homeModules: swap(layout.homeModules, index - 1, index) })}
-                    className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 disabled:opacity-30"
-                    aria-label="上移"
-                  >
-                    <Icon name="chevronDown" size={15} className="rotate-180" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={index === layout.homeModules.length - 1}
-                    onClick={() => setLayout({ homeModules: swap(layout.homeModules, index, index + 1) })}
-                    className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 disabled:opacity-30"
-                    aria-label="下移"
-                  >
-                    <Icon name="chevronDown" size={15} />
-                  </button>
-                  <Switch
-                    checked={module.enabled}
-                    onChange={(enabled) => {
-                      const next = layout.homeModules.map((m) => (m.id === module.id ? { ...m, enabled } : m));
-                      setLayout({ homeModules: next });
-                    }}
-                  />
-                </li>
-              ))}
-            </ul>
-          </Section>
-
           <Section
             title="欢迎区域（Hero）"
             description="首页顶部欢迎区的尺寸、背景、遮罩与文字颜色"
@@ -649,6 +651,100 @@ export function AppearancePage() {
                 />
               </div>
             </div>
+          </Section>
+
+          <Section title="首页模块" description="顺序即为显示顺序，开关控制显示" icon="dashboard">
+            <ul className="space-y-2">
+              {layout.homeModules.map((module, index) => (
+                <li key={module.id} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
+                  <Icon name="drag" size={15} className="shrink-0 text-faint" />
+                  <span className="flex-1 text-sm font-medium text-fg">{MODULE_LABELS[module.id] ?? module.id}</span>
+                  <button
+                    type="button"
+                    disabled={index === 0}
+                    onClick={() => setLayout({ homeModules: swap(layout.homeModules, index - 1, index) })}
+                    className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 disabled:opacity-30"
+                    aria-label="上移"
+                  >
+                    <Icon name="chevronDown" size={15} className="rotate-180" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={index === layout.homeModules.length - 1}
+                    onClick={() => setLayout({ homeModules: swap(layout.homeModules, index, index + 1) })}
+                    className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 disabled:opacity-30"
+                    aria-label="下移"
+                  >
+                    <Icon name="chevronDown" size={15} />
+                  </button>
+                  <Switch
+                    checked={module.enabled}
+                    onChange={(enabled) => {
+                      const next = layout.homeModules.map((m) => (m.id === module.id ? { ...m, enabled } : m));
+                      setLayout({ homeModules: next });
+                    }}
+                  />
+                </li>
+              ))}
+            </ul>
+          </Section>
+
+          <Section title="列表与卡片" description="文章列表的展示方式" icon="list">
+            <Row label="卡片风格">
+              <Segmented
+                value={layout.cardStyle}
+                onChange={(cardStyle) => setLayout({ cardStyle })}
+                options={[
+                  { value: 'magazine', label: '杂志' },
+                  { value: 'minimal', label: '极简' },
+                  { value: 'grid', label: '网格' },
+                  { value: 'overlay', label: '浮层' },
+                  { value: 'compact', label: '紧凑' },
+                ]}
+              />
+            </Row>
+            <Row label="尺寸" description="影响内边距、字号与列表密度">
+              <Segmented
+                value={layout.cardSize}
+                onChange={(cardSize) => setLayout({ cardSize })}
+                options={[
+                  { value: 'lg', label: '大' },
+                  { value: 'md', label: '中' },
+                  { value: 'sm', label: '小' },
+                ]}
+              />
+            </Row>
+            <Row label="模糊" description="卡片毛玻璃效果（极简风格不适用）">
+              <Segmented
+                value={layout.cardBlur}
+                onChange={(cardBlur) => setLayout({ cardBlur })}
+                options={[
+                  { value: 'none', label: '无' },
+                  { value: 'sm', label: '弱' },
+                  { value: 'md', label: '中' },
+                  { value: 'lg', label: '强' },
+                ]}
+              />
+            </Row>
+            <Row label="侧边栏">
+              <Segmented
+                value={layout.sidebar}
+                onChange={(sidebar) => setLayout({ sidebar })}
+                options={[
+                  { value: 'left', label: '居左' },
+                  { value: 'right', label: '居右' },
+                  { value: 'none', label: '无' },
+                ]}
+              />
+            </Row>
+            <Input
+              label="每页文章数"
+              type="number"
+              min={1}
+              max={50}
+              value={layout.postsPerPage}
+              onChange={(e) => setLayout({ postsPerPage: Number(e.target.value) || 1 })}
+            />
           </Section>
         </div>
       )}

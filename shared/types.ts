@@ -140,6 +140,16 @@ export interface SiteSettings {
   locale: string;
 }
 
+export type BackgroundLayout =
+  | 'cover'
+  | 'contain'
+  | 'center'
+  | 'tile'
+  | 'repeat-x'
+  | 'repeat-y';
+
+export type BackgroundAttachment = 'fixed' | 'scroll';
+
 export interface ThemeSettings {
   preset: ThemePreset;
   mode: ThemeMode;
@@ -147,6 +157,14 @@ export interface ThemeSettings {
   primaryColor: string;
   /** Global page background (light mode). Empty string => use the preset's background. */
   backgroundColor: string;
+  /** Global background image URL. Empty string => none. */
+  backgroundImage: string;
+  /** How the background image is laid out (size + repeat preset). */
+  backgroundLayout: BackgroundLayout;
+  /** `fixed` keeps the image pinned to the viewport while scrolling. */
+  backgroundAttachment: BackgroundAttachment;
+  /** Scrim opacity over the image (0–0.9) so text stays readable. */
+  backgroundScrim: number;
   fontBody: FontChoice;
   fontHeading: FontChoice;
   fontScale: FontScale;
