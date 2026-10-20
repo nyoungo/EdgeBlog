@@ -162,6 +162,7 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
   "playMode": "order",
   "isAutoPopup": false,
   "isAutoPlaylist": false,
+  "autoplay": false,
   "colorfulLyric": false,
   "audioVisualizer": false,
   "rememberPlayback": true

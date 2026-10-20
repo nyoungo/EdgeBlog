@@ -1293,6 +1293,13 @@ export function AppearancePage() {
                 className="rounded-lg border border-border p-3"
               />
               <Switch
+                checked={draft.music.autoplay}
+                onChange={(autoplay) => setMusic({ autoplay })}
+                label="自动播放"
+                description="加载后自动开始播放；浏览器可能要求先有一次点击"
+                className="rounded-lg border border-border p-3"
+              />
+              <Switch
                 checked={draft.music.colorfulLyric}
                 onChange={(colorfulLyric) => setMusic({ colorfulLyric })}
                 label="彩色歌词"

@@ -184,6 +184,7 @@ export const musicSchema = z
     playMode: z.enum(['order', 'single', 'random']),
     isAutoPopup: z.boolean(),
     isAutoPlaylist: z.boolean(),
+    autoplay: z.boolean(),
     colorfulLyric: z.boolean(),
     audioVisualizer: z.boolean(),
     rememberPlayback: z.boolean(),

@@ -337,6 +337,9 @@ export interface MusicSettings {
   playMode: MusicPlayMode;
   isAutoPopup: boolean;
   isAutoPlaylist: boolean;
+  /** Start playing automatically once the player is ready (browsers may still
+   *  require a user gesture; the player then waits for the first interaction). */
+  autoplay: boolean;
   colorfulLyric: boolean;
   audioVisualizer: boolean;
   rememberPlayback: boolean;

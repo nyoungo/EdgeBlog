@@ -150,6 +150,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
     playMode: 'order',
     isAutoPopup: false,
     isAutoPlaylist: false,
+    autoplay: false,
     colorfulLyric: false,
     audioVisualizer: false,
     rememberPlayback: true,

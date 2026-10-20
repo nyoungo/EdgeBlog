@@ -126,11 +126,11 @@ export function MusicPlayerHost() {
             playMode: music.playMode,
             isAutoPopup: music.isAutoPopup,
             isAutoPlaylist: music.isAutoPlaylist,
+            autoplay: music.autoplay,
             colorfulLyric: music.colorfulLyric,
             audioVisualizer: music.audioVisualizer,
             rememberPlayback: music.rememberPlayback,
             memoryKey: MEMORY_KEY,
-            autoplay: false,
             environment: 'production',
             playlist:
               music.mode === 'local'
