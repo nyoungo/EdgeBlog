@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { PostDetail } from '@shared/types';
 import { ApiError, api } from '../lib/api';
@@ -7,13 +7,39 @@ import { useAsync, useDocumentTitle, useMetaDescription } from '../hooks';
 import { useSettings } from '../providers/SettingsProvider';
 import { Badge } from '../components/ui/Badge';
 import { buttonStyles } from '../components/ui/Button';
-import { Centered, Spinner } from '../components/ui/Feedback';
+import { Centered, ErrorState, Spinner } from '../components/ui/Feedback';
 import { Icon } from '../components/ui/icons';
 import { PostCard, cardGridClass } from '../components/blog/PostCard';
 import { TableOfContents } from '../components/blog/TableOfContents';
 import { ShareButtons } from '../components/blog/ShareButtons';
 import { CommentSection } from '../components/blog/CommentSection';
-import { useMarkdownToc } from '../components/blog/Prose';
+import { Prose, useMarkdownToc } from '../components/blog/Prose';
+
+/** Thin bar at the very top showing how far through the article you are. */
+function ReadingProgress() {
+  const [pct, setPct] = useState(0);
+
+  useEffect(() => {
+    const onScroll = () => {
+      const el = document.documentElement;
+      const max = el.scrollHeight - el.clientHeight;
+      setPct(max > 0 ? Math.min(100, Math.max(0, (el.scrollTop / max) * 100)) : 0);
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, []);
+
+  return (
+    <div className="fixed inset-x-0 top-0 z-50 h-0.5" aria-hidden="true">
+      <div className="h-full bg-brand transition-[width] duration-150 ease-out" style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
 
 export function PostDetailPage() {
   const { slug = '' } = useParams();
@@ -46,6 +72,20 @@ export function PostDetailPage() {
     void api.post(`/posts/${detail.slug}/view`).catch(() => undefined);
   }, [detail, features.views]);
 
+  // A failed request is not a missing article — say so and offer a retry.
+  if (post.error) {
+    return (
+      <div className="container-page py-24">
+        <ErrorState
+          className="mx-auto max-w-lg"
+          title="文章加载失败"
+          description={post.error}
+          onRetry={post.reload}
+        />
+      </div>
+    );
+  }
+
   if (post.loading && !detail) {
     return (
       <Centered className="py-32">
@@ -74,6 +114,7 @@ export function PostDetailPage() {
 
   return (
     <article className="container-page py-10">
+      <ReadingProgress />
       <nav className="mb-6 flex items-center gap-1.5 text-sm text-faint">
         <Link to="/" className="no-underline transition-colors hover:text-fg">
           首页
@@ -111,16 +152,30 @@ export function PostDetailPage() {
       </header>
 
       {detail.cover_url && (
-        <img
-          src={detail.cover_url}
-          alt={detail.title}
-          className="mt-8 w-full rounded-xl border border-border object-cover"
-        />
+        // Fixed aspect box reserves the space before the image loads (no CLS).
+        <div className="mt-8 aspect-[16/9] w-full overflow-hidden rounded-xl border border-border bg-surface-2">
+          <img src={detail.cover_url} alt={detail.title} className="h-full w-full object-cover" />
+        </div>
+      )}
+
+      {showToc && (
+        // Long reads used to have no navigation at all on phones.
+        <details className="mt-8 rounded-xl border border-border bg-surface p-4 lg:hidden">
+          <summary className="cursor-pointer list-none text-sm font-semibold text-fg">
+            <span className="inline-flex items-center gap-1.5">
+              <Icon name="list" size={15} />
+              目录（{toc.length}）
+            </span>
+          </summary>
+          <div className="mt-3">
+            <TableOfContents entries={toc} />
+          </div>
+        </details>
       )}
 
       <div className="mt-10 flex gap-10">
         <div className="min-w-0 flex-1">
-          <div className="prose-article max-w-content" dangerouslySetInnerHTML={{ __html: html }} />
+          <Prose markdown={detail.content_md ?? ''} html={html} className="max-w-content" />
 
           <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6">
             <div className="flex flex-wrap gap-1.5">

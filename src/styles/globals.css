@@ -71,6 +71,14 @@
   .prose-article > * + * {
     margin-top: 1.15em;
   }
+  /* Anchor targets must clear the sticky header, or TOC / #hash links land with
+     the heading hidden underneath it. `--eb-header-h` is written by Header.tsx. */
+  .prose-article h2,
+  .prose-article h3,
+  .prose-article h4,
+  .prose-article [id] {
+    scroll-margin-top: calc(var(--eb-header-h, 64px) + 1.5rem);
+  }
   .prose-article h2 {
     @apply mt-10 mb-4 text-2xl;
   }
@@ -107,6 +115,25 @@
   }
   .prose-article pre code {
     @apply bg-transparent p-0 font-mono;
+  }
+  /* Code block + its copy button (markup built in lib/markdown.ts). */
+  .prose-article .code-block {
+    @apply relative my-6;
+  }
+  .prose-article .code-block pre {
+    @apply my-0;
+  }
+  .prose-article .code-copy {
+    @apply absolute right-2 top-2 z-10 rounded-md border border-border bg-surface px-2 py-1 text-xs font-medium text-muted opacity-0 transition-opacity;
+  }
+  .prose-article .code-block:hover .code-copy,
+  .prose-article .code-copy:focus-visible {
+    @apply opacity-100;
+  }
+  @media (hover: none) {
+    .prose-article .code-copy {
+      @apply opacity-100;
+    }
   }
   .prose-article img {
     @apply my-6 rounded-lg border border-border;

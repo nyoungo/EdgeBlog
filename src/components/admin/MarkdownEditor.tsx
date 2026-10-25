@@ -110,10 +110,10 @@ export function MarkdownEditor({
   const stats = useMemo(() => editorStats(value), [value]);
   const ctx = useMemo(() => lineContext(value, caret.start), [value, caret.start]);
 
-  const readSel = () => {
+  const readSel = useCallback(() => {
     const node = textareaRef.current;
     return { start: node?.selectionStart ?? value.length, end: node?.selectionEnd ?? value.length };
-  };
+  }, [value.length]);
 
   const focusRange = (start: number, end: number) => {
     const node = textareaRef.current;
@@ -149,7 +149,7 @@ export function MarkdownEditor({
       const { start, end } = readSel();
       apply(fn(value, start, end));
     },
-    [apply, value],
+    [apply, readSel, value],
   );
 
   const setMode = (next: ViewMode) => {
@@ -201,7 +201,7 @@ export function MarkdownEditor({
         if (fileRef.current) fileRef.current.value = '';
       }
     },
-    [apply, compress, error, success, value],
+    [apply, compress, error, readSel, success, value],
   );
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {

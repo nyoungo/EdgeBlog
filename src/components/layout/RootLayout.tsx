@@ -10,10 +10,13 @@ import { Footer } from './Footer';
 import { MusicPlayerHost } from '../music/MusicPlayerHost';
 
 function ScrollToTop() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  // Pagination lives in the query string, so pathname alone misses it: picking
+  // page 2 used to leave the viewport parked at the bottom of the old list.
+  const page = new URLSearchParams(search).get('page') ?? '1';
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
-  }, [pathname]);
+  }, [pathname, page]);
   return null;
 }
 

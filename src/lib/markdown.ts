@@ -78,6 +78,13 @@ export function renderMarkdown(md: string): string {
   });
 }
 
+/**
+ * Wrapper markup for a code block plus its "copy" button. Built here (rather
+ * than at the call site) so every Markdown surface gets it for free.
+ */
+const COPY_BUTTON_CLASS = 'code-copy';
+export const COPY_BUTTON_SELECTOR = '[data-copy]';
+
 /** Render + syntax-highlight, returning final safe HTML. Call from a `useMemo`. */
 export function renderMarkdownHighlighted(md: string): string {
   const html = renderMarkdown(md);
@@ -90,6 +97,23 @@ export function renderMarkdownHighlighted(md: string): string {
       /* unknown language — leave as-is */
     }
   });
+
+  // Wrap each block with a copy button. Runs after sanitising, so the markup is
+  // entirely ours and never round-trips through DOMPurify.
+  container.querySelectorAll<HTMLElement>('pre').forEach((pre) => {
+    if (pre.parentElement?.classList.contains('code-block')) return;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'code-block';
+    pre.replaceWith(wrapper);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = COPY_BUTTON_CLASS;
+    button.setAttribute('data-copy', '');
+    button.setAttribute('aria-label', '复制代码');
+    button.textContent = '复制';
+    wrapper.append(button, pre);
+  });
+
   return container.innerHTML;
 }
 

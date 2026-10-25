@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { AiSettingsView, MediaItem, PostDetail, PostStatus } from '@shared/types';
 import { ApiError, api } from '../../lib/api';
@@ -46,6 +46,19 @@ const EMPTY: FormState = {
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
+/** Per-tab identity; `crypto.randomUUID()` needs a secure context. */
+function newTabId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
+
+/** Local autosave key per article ("new" for an unsaved draft). */
+const DRAFT_PREFIX = 'eb:post-draft:';
+const DRAFT_TTL_MS = 1000 * 60 * 60 * 24 * 14;
+
 function sqlToLocalInput(sql: string | null): string {
   const date = parseSqlDate(sql);
   if (!date) return '';
@@ -84,7 +97,67 @@ export function PostEditorPage() {
   const [aiReady, setAiReady] = useState(false);
   const [aiBusy, setAiBusy] = useState<null | 'excerpt' | 'content'>(null);
 
+  const draftKey = `${DRAFT_PREFIX}${routeSlug ?? 'new'}`;
+  const [baseline, setBaseline] = useState<string>(() => JSON.stringify(EMPTY));
+  const [stashed, setStashed] = useState<FormState | null>(null);
+  const dirty = loaded && JSON.stringify(form) !== baseline;
+
+  // Stashes are tagged with the tab that wrote them: a second, clean editor tab
+  // must never wipe another tab's unsaved work.
+  const ownerId = useRef(newTabId()).current;
+
   useDocumentTitle(editing ? '编辑文章' : '新建文章', settings.site.name);
+
+  // Warn before a reload / tab close would throw away unsaved writing.
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dirty]);
+
+  // Autosave a local copy so a crash, refresh or misclick is recoverable.
+  useEffect(() => {
+    if (!loaded) return;
+    const id = window.setTimeout(() => {
+      try {
+        if (!dirty) {
+          const existing = localStorage.getItem(draftKey);
+          if (existing) {
+            const owner = (JSON.parse(existing) as { owner?: string }).owner;
+            if (owner === undefined || owner === ownerId) localStorage.removeItem(draftKey);
+          }
+          return;
+        }
+        localStorage.setItem(draftKey, JSON.stringify({ owner: ownerId, savedAt: Date.now(), form }));
+      } catch {
+        /* private mode or quota exceeded — autosave is best effort */
+      }
+    }, 1200);
+    return () => window.clearTimeout(id);
+  }, [form, dirty, loaded, draftKey, ownerId]);
+
+  // Offer a stashed draft instead of silently showing the server copy.
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { savedAt?: number; form?: FormState };
+      if (!parsed?.form) return;
+      if (parsed.savedAt && Date.now() - parsed.savedAt > DRAFT_TTL_MS) {
+        localStorage.removeItem(draftKey);
+        return;
+      }
+      if (JSON.stringify(parsed.form) !== JSON.stringify(form)) setStashed(parsed.form);
+    } catch {
+      /* unreadable stash — ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, draftKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,7 +178,9 @@ export function PostEditorPage() {
     if (!editing || !routeSlug) return null;
     try {
       const { data } = await api.get<PostDetail>(`/posts/${routeSlug}`);
-      setForm(toForm(data));
+      const next = toForm(data);
+      setForm(next);
+      setBaseline(JSON.stringify(next));
       setPostId(data.id);
       return data;
     } catch (err) {
@@ -183,6 +258,16 @@ export function PostEditorPage() {
 
       if (editing && postId) {
         await api.put<PostDetail>(`/posts/${postId}`, payload);
+        setBaseline(JSON.stringify(form));
+        // Clear our own stash; a different tab's unsaved copy stays intact.
+        try {
+          const existing = localStorage.getItem(draftKey);
+          if (existing && (JSON.parse(existing) as { owner?: string }).owner === ownerId) {
+            localStorage.removeItem(draftKey);
+          }
+        } catch {
+          /* ignore unreadable entries */
+        }
         success('文章已保存');
       } else {
         const { data } = await api.post<PostDetail>('/posts', payload);
@@ -221,6 +306,37 @@ export function PostEditorPage() {
 
   return (
     <form onSubmit={submit} className="w-full pb-24">
+      {stashed && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 text-sm">
+          <Icon name="alert" size={16} className="text-warning" />
+          <span className="text-fg">检测到上次未保存的本地草稿。</span>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setForm(stashed);
+                setStashed(null);
+                success('已恢复本地草稿');
+              }}
+            >
+              恢复草稿
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setStashed(null);
+                localStorage.removeItem(draftKey);
+              }}
+            >
+              丢弃
+            </Button>
+          </div>
+        </div>
+      )}
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link to="/admin/posts" className="flex h-9 w-9 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-fg" aria-label="返回">
@@ -229,6 +345,12 @@ export function PostEditorPage() {
           <h1 className="text-xl font-bold tracking-tight text-fg">{editing ? '编辑文章' : '新建文章'}</h1>
         </div>
         <div className="flex items-center gap-2">
+          {dirty && (
+            <span className="hidden items-center gap-1.5 text-xs text-warning sm:inline-flex">
+              <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+              未保存
+            </span>
+          )}
           <Button type="submit" loading={saving}>
             <Icon name="save" size={16} />
             保存

@@ -25,17 +25,51 @@ import { useToast } from '../../providers/ToastProvider';
 
 type Namespace = 'site' | 'theme' | 'layout' | 'navigation' | 'social' | 'features' | 'comments' | 'pages' | 'advanced' | 'music';
 
-const TABS: Array<{ id: Namespace; label: string; icon: IconName }> = [
-  { id: 'theme', label: '主题', icon: 'palette' },
-  { id: 'layout', label: '布局', icon: 'dashboard' },
-  { id: 'navigation', label: '导航', icon: 'globe' },
-  { id: 'site', label: '站点', icon: 'home' },
-  { id: 'social', label: '社交', icon: 'link' },
-  { id: 'features', label: '功能', icon: 'settings' },
-  { id: 'comments', label: '评论', icon: 'message' },
-  { id: 'pages', label: '页面', icon: 'fileText' },
-  { id: 'music', label: '音乐', icon: 'music' },
-  { id: 'advanced', label: '高级', icon: 'sparkles' },
+interface TabDef {
+  id: Namespace;
+  label: string;
+  icon: IconName;
+}
+
+/**
+ * 设置项按「用户想改什么」分组，而不是按数据命名空间平铺。
+ * 每组是一块独立的入口，组内按改动频率从高到低排列：
+ *   站点信息 → 外观主题 → 内容与功能 → 系统。
+ * 命名空间与面板仍保持一一对应，保存 / 恢复默认的粒度不受分组影响。
+ */
+const GROUPS: Array<{ label: string; description: string; tabs: TabDef[] }> = [
+  {
+    label: '站点信息',
+    description: '博客的身份：名称、导航、社交',
+    tabs: [
+      { id: 'site', label: '基本信息', icon: 'home' },
+      { id: 'navigation', label: '导航菜单', icon: 'globe' },
+      { id: 'social', label: '社交链接', icon: 'link' },
+    ],
+  },
+  {
+    label: '外观主题',
+    description: '配色、字体、布局与卡片样式',
+    tabs: [
+      { id: 'theme', label: '配色与字体', icon: 'palette' },
+      { id: 'layout', label: '布局与卡片', icon: 'dashboard' },
+    ],
+  },
+  {
+    label: '内容与功能',
+    description: '站内功能开关与内容相关设置',
+    tabs: [
+      { id: 'features', label: '功能开关', icon: 'settings' },
+      { id: 'comments', label: '评论', icon: 'message' },
+      { id: 'pages', label: '页面', icon: 'fileText' },
+      { id: 'music', label: '音乐', icon: 'music' },
+    ],
+  },
+  {
+    label: '系统',
+    description: '自定义代码与统计埋点',
+    tabs: [{ id: 'advanced', label: '高级', icon: 'sparkles' }],
+  },
 ];
 
 const PRESETS = [
@@ -216,12 +250,12 @@ export function AppearancePage() {
   const { success, error: toastError } = useToast();
 
   const [draft, setDraft] = useState<PublicSettings>(settings);
-  const [tab, setTab] = useState<Namespace>('theme');
+  const [tab, setTab] = useState<Namespace>('site');
   const [dirty, setDirty] = useState<Set<Namespace>>(new Set());
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false);
 
-  useDocumentTitle('外观设置', settings.site.name);
+  useDocumentTitle('站点设置', settings.site.name);
 
   // Seed the draft once the server config has loaded.
   useEffect(() => {
@@ -297,8 +331,10 @@ export function AppearancePage() {
     <div className="pb-16">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-fg">外观设置</h1>
-          <p className="mt-1 text-sm text-muted">可视化定制站点外观与行为，修改实时预览、保存后永久生效</p>
+          <h1 className="text-xl font-bold tracking-tight text-fg">站点设置</h1>
+          <p className="mt-1 text-sm text-muted">
+            站点信息、外观主题与功能开关都集中在这里，修改实时预览、保存后永久生效
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {dirty.size > 0 && (
@@ -316,28 +352,42 @@ export function AppearancePage() {
         </div>
       </header>
 
-      <div className="mb-6 flex gap-1 overflow-x-auto rounded-xl border border-border bg-surface p-1">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={cn(
-              'relative flex items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium transition-colors',
-              tab === t.id ? 'bg-brand text-brand-fg' : 'text-muted hover:bg-surface-2 hover:text-fg',
-            )}
-          >
-            <Icon name={t.icon} size={16} />
-            {t.label}
-            {dirty.has(t.id) && (
-              <span
-                className={cn('h-1.5 w-1.5 rounded-full', tab === t.id ? 'bg-brand-fg' : 'bg-warning')}
-                aria-hidden="true"
-              />
-            )}
-          </button>
+      <nav
+        aria-label="设置分组"
+        className="mb-5 grid gap-3 rounded-xl border border-border bg-surface p-2 sm:mb-6 sm:gap-4 sm:p-3 sm:grid-cols-2 xl:grid-cols-4"
+      >
+        {GROUPS.map((group) => (
+          <div key={group.label} className="min-w-0">
+            <p className="px-2 text-[11px] font-semibold uppercase tracking-wider text-faint">{group.label}</p>
+            <p className="mb-1.5 hidden px-2 text-[11px] leading-tight text-faint/70 sm:block">
+              {group.description}
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {group.tabs.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTab(t.id)}
+                  aria-current={tab === t.id ? 'page' : undefined}
+                  className={cn(
+                    'relative flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-colors sm:gap-2 sm:px-3',
+                    tab === t.id ? 'bg-brand text-brand-fg' : 'text-muted hover:bg-surface-2 hover:text-fg',
+                  )}
+                >
+                  <Icon name={t.icon} size={16} />
+                  {t.label}
+                  {dirty.has(t.id) && (
+                    <span
+                      className={cn('h-1.5 w-1.5 rounded-full', tab === t.id ? 'bg-brand-fg' : 'bg-warning')}
+                      aria-hidden="true"
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
-      </div>
+      </nav>
 
       {tab === 'theme' && (
         <div className="grid gap-4 lg:grid-cols-2">

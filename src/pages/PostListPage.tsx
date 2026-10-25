@@ -2,7 +2,7 @@ import { useSearchParams } from 'react-router-dom';
 import type { ApiMeta, PostSummary, Tag } from '@shared/types';
 import { Badge } from '../components/ui/Badge';
 import { Select } from '../components/ui/Field';
-import { EmptyState, Skeleton } from '../components/ui/Feedback';
+import { EmptyState, ErrorState, Skeleton } from '../components/ui/Feedback';
 import { Icon } from '../components/ui/icons';
 import { Pagination } from '../components/ui/Pagination';
 import { PostCard, cardGridClass } from '../components/blog/PostCard';
@@ -112,7 +112,9 @@ export function PostListPage() {
         </Select>
       </div>
 
-      {result.loading && !result.data ? (
+      {result.error ? (
+        <ErrorState description={result.error} onRetry={result.reload} />
+      ) : result.loading && !result.data ? (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="overflow-hidden rounded-xl border border-border bg-surface">

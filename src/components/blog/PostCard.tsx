@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { CardBlur, CardSize, CardStyle, PostSummary } from '@shared/types';
 import { Badge } from '../ui/Badge';
@@ -96,10 +97,46 @@ function Meta({ post, className }: { post: PostSummary; className?: string }) {
 }
 
 /**
+ * Wrap query hits in <mark> so a search result shows *where* it matched.
+ * Case-insensitive, and a no-op when there is no query.
+ */
+function mark(text: string, query?: string) {
+  const q = query?.trim();
+  if (!q) return text;
+  const lower = text.toLowerCase();
+  const needle = q.toLowerCase();
+  const parts: ReactNode[] = [];
+  let from = 0;
+  let at = lower.indexOf(needle);
+  if (at === -1) return text;
+  while (at !== -1) {
+    if (at > from) parts.push(text.slice(from, at));
+    parts.push(
+      <mark key={`${at}-${from}`} className="rounded bg-brand/20 px-0.5 text-inherit">
+        {text.slice(at, at + needle.length)}
+      </mark>,
+    );
+    from = at + needle.length;
+    at = lower.indexOf(needle, from);
+  }
+  if (from < text.length) parts.push(text.slice(from));
+  return parts;
+}
+
+/**
  * A post card. The whole card is a single link so every area (cover, text,
  * padding) opens the article; `group` drives the hover states.
  */
-export function PostCard({ post, style }: { post: PostSummary; style?: CardStyle }) {
+export function PostCard({
+  post,
+  style,
+  highlight,
+}: {
+  post: PostSummary;
+  style?: CardStyle;
+  /** Search query to highlight in the title/excerpt. */
+  highlight?: string;
+}) {
   const { settings } = useSettings();
   const vt = settings.features.viewTransitions;
   const cardStyle = style ?? settings.layout.cardStyle;
@@ -124,9 +161,9 @@ export function PostCard({ post, style }: { post: PostSummary; style?: CardStyle
                 s.title,
               )}
             >
-              {post.title}
+              {mark(post.title, highlight)}
             </h3>
-            <p className={cn('mt-1.5 text-muted', s.excerpt)}>{post.excerpt}</p>
+            <p className={cn('mt-1.5 text-muted', s.excerpt)}>{mark(post.excerpt, highlight)}</p>
             <div className="mt-2.5">
               <Meta post={post} className="text-faint" />
             </div>
@@ -162,7 +199,7 @@ export function PostCard({ post, style }: { post: PostSummary; style?: CardStyle
               s.title,
             )}
           >
-            {post.title}
+            {mark(post.title, highlight)}
           </h3>
           <Meta post={post} className={cn('mt-1 text-faint', s.meta)} />
         </div>
@@ -200,7 +237,7 @@ export function PostCard({ post, style }: { post: PostSummary; style?: CardStyle
               ))}
             </div>
           )}
-          <h3 className={cn('font-semibold leading-snug text-white', s.title)}>{post.title}</h3>
+          <h3 className={cn('font-semibold leading-snug text-white', s.title)}>{mark(post.title, highlight)}</h3>
           <div className="mt-2">
             <Meta post={post} className="text-white/80" />
           </div>
@@ -227,9 +264,9 @@ export function PostCard({ post, style }: { post: PostSummary; style?: CardStyle
               s.title,
             )}
           >
-            {post.title}
+            {mark(post.title, highlight)}
           </h3>
-          <p className={cn('flex-1 text-muted', s.excerpt)}>{post.excerpt}</p>
+          <p className={cn('flex-1 text-muted', s.excerpt)}>{mark(post.excerpt, highlight)}</p>
           <Meta post={post} className="text-faint" />
         </div>
       </Link>
@@ -262,9 +299,9 @@ export function PostCard({ post, style }: { post: PostSummary; style?: CardStyle
           </div>
         )}
         <h3 className={cn('font-semibold leading-snug text-fg transition-colors group-hover:text-brand', s.title)}>
-          {post.title}
+          {mark(post.title, highlight)}
         </h3>
-        <p className={cn('flex-1 text-muted', s.excerpt)}>{post.excerpt}</p>
+        <p className={cn('flex-1 text-muted', s.excerpt)}>{mark(post.excerpt, highlight)}</p>
         <div className="pt-1">
           <Meta post={post} className="text-faint" />
         </div>

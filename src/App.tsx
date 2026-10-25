@@ -8,11 +8,18 @@ import { ToastProvider } from './providers/ToastProvider';
 
 import { HomePage } from './pages/HomePage';
 import { PostListPage } from './pages/PostListPage';
-import { PostDetailPage } from './pages/PostDetailPage';
 import { TagsPage } from './pages/TagsPage';
 import { ArchivePage } from './pages/ArchivePage';
 import { SearchPage } from './pages/SearchPage';
-import { AboutPage, NotFoundPage } from './pages/AboutPage';
+
+/**
+ * Anything that pulls the Markdown pipeline (marked + DOMPurify + highlight.js,
+ * ~230 KB raw) is split behind a route boundary so the landing page never pays
+ * for it. Only article-style pages trigger the download.
+ */
+const PostDetailPage = lazy(() => import('./pages/PostDetailPage').then((m) => ({ default: m.PostDetailPage })));
+const AboutPage = lazy(() => import('./pages/AboutPage').then((m) => ({ default: m.AboutPage })));
+const NotFoundPage = lazy(() => import('./pages/AboutPage').then((m) => ({ default: m.NotFoundPage })));
 
 // Admin is split out — visitors never download it.
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout').then((m) => ({ default: m.AdminLayout })));
@@ -33,6 +40,20 @@ function FullPageSpinner() {
   );
 }
 
+function PublicRoute({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense
+      fallback={
+        <Centered className="py-32">
+          <Spinner />
+        </Centered>
+      }
+    >
+      {children}
+    </Suspense>
+  );
+}
+
 function AdminRoute({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<FullPageSpinner />}>{children}</Suspense>;
 }
@@ -47,12 +68,12 @@ export function App() {
               <Route element={<RootLayout />}>
                 <Route index element={<HomePage />} />
                 <Route path="posts" element={<PostListPage />} />
-                <Route path="posts/:slug" element={<PostDetailPage />} />
+                <Route path="posts/:slug" element={<PublicRoute><PostDetailPage /></PublicRoute>} />
                 <Route path="tags" element={<TagsPage />} />
                 <Route path="archive" element={<ArchivePage />} />
                 <Route path="search" element={<SearchPage />} />
-                <Route path="about" element={<AboutPage />} />
-                <Route path="*" element={<NotFoundPage />} />
+                <Route path="about" element={<PublicRoute><AboutPage /></PublicRoute>} />
+                <Route path="*" element={<PublicRoute><NotFoundPage /></PublicRoute>} />
               </Route>
 
               <Route

@@ -46,6 +46,14 @@ async function serveMedia(context: Ctx, url: URL): Promise<Response> {
   return new Response(context.request.method === 'HEAD' ? null : object.body, { headers });
 }
 
+/** Short content hash used as the shell's ETag. */
+async function shortHash(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest).slice(0, 8))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 /** True for top-level document requests (SPA routes), false for asset requests. */
 function wantsHtmlNavigation(request: Request, url: URL): boolean {
   if (request.method !== 'GET') return false;
@@ -74,12 +82,20 @@ async function serveShell(context: Ctx, url: URL): Promise<Response | null> {
     console.error('[seo] injection failed', err);
   }
 
+  // Revalidation without re-downloading: the shell is rebuilt per route, so it
+  // cannot be cached hard, but an ETag turns repeat navigations into 304s.
+  const etag = `W/"${await shortHash(body)}"`;
+  const revalidate = 'public, max-age=0, must-revalidate';
+  if (context.request.headers.get('if-none-match') === etag) {
+    return new Response(null, { status: 304, headers: { ETag: etag, 'Cache-Control': revalidate } });
+  }
+
   return new Response(body, {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      // Allow shared caches to serve fresh-ish HTML while revalidating often.
-      'Cache-Control': 'public, max-age=0, must-revalidate',
+      ETag: etag,
+      'Cache-Control': revalidate,
       ...SECURITY_HEADERS,
     },
   });

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import type { HeaderSettings, HeroSettings, PostSummary, Tag } from '@shared/types';
 import { buttonStyles } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
-import { Centered, EmptyState, Skeleton, Spinner } from '../components/ui/Feedback';
+import { Centered, EmptyState, ErrorState, Skeleton, Spinner } from '../components/ui/Feedback';
 import { Icon } from '../components/ui/icons';
 import { PostCard, cardGridClass } from '../components/blog/PostCard';
 import { PageWithSidebar } from '../components/layout/PageWithSidebar';
@@ -166,7 +166,9 @@ export function HomePage() {
               return (
                 <section key="latest" className="mb-16">
                   <SectionHeading title="最新文章" href="/posts" />
-                  {latest.loading && !latest.data ? (
+                  {latest.error ? (
+                    <ErrorState description={latest.error} onRetry={latest.reload} />
+                  ) : latest.loading && !latest.data ? (
                     <CardGridSkeleton count={settings.layout.postsPerPage > 6 ? 6 : settings.layout.postsPerPage} />
                   ) : latest.data && latest.data.length > 0 ? (
                     <div className={cardGridClass(layout.cardStyle, layout.cardSize)}>
@@ -215,23 +217,23 @@ export function HomePage() {
               if (!features.newsletter) return null;
               return (
                 <section key="newsletter" className="mb-16 rounded-2xl border border-border bg-surface p-8 text-center">
-                  <Icon name="mail" size={28} className="mx-auto mb-3 text-brand" />
+                  <Icon name="rss" size={28} className="mx-auto mb-3 text-brand" />
                   <h2 className="text-lg font-semibold text-fg">订阅更新</h2>
-                  <p className="mt-1 text-sm text-muted">留下邮箱，第一时间获取新文章。</p>
-                  <form
-                    className="mx-auto mt-5 flex max-w-sm gap-2"
-                    onSubmit={(e) => e.preventDefault()}
-                  >
-                    <input
-                      type="email"
-                      required
-                      placeholder="you@example.com"
-                      className="flex-1 rounded-md border border-border bg-bg px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
-                    />
-                    <button type="submit" className={buttonStyles({})}>
-                      订阅
-                    </button>
-                  </form>
+                  <p className="mt-1 text-sm text-muted">
+                    用任意 RSS 阅读器订阅（如 Feedly、Inoreader），新文章会自动送达，无需邮箱。
+                  </p>
+                  <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+                    <a
+                      href="/rss.xml"
+                      className={buttonStyles({ variant: 'secondary', className: 'no-underline' })}
+                    >
+                      <Icon name="rss" size={15} />
+                      打开 RSS 订阅源
+                    </a>
+                    <code className="rounded-md border border-border bg-bg px-2.5 py-1.5 font-mono text-xs text-muted">
+                      /rss.xml
+                    </code>
+                  </div>
                 </section>
               );
 

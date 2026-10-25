@@ -21,7 +21,8 @@ const PROVIDERS: Array<{ value: AiProvider; label: string; baseUrl: string; mode
 type FormState = Omit<AiSettingsView, 'hasApiKey'>;
 
 function toForm(view: AiSettingsView): FormState {
-  const { hasApiKey, ...rest } = view;
+  // `hasApiKey` is a view-only flag; the form holds the (write-only) key itself.
+  const { hasApiKey: _hasApiKey, ...rest } = view;
   return rest;
 }
 

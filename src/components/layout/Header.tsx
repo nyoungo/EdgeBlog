@@ -104,6 +104,12 @@ export function Header() {
 
   const { site, features, layout } = settings;
   const header = layout.header;
+
+  // Expose the configured bar height so in-page anchors (headings, TOC links)
+  // can offset themselves below a sticky/fixed header instead of hiding under it.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--eb-header-h', header.height || '64px');
+  }, [header.height]);
   const logoText = site.logo.text || site.name;
   const vt = features.viewTransitions;
 
@@ -152,9 +158,16 @@ export function Header() {
       )}
       <ThemeToggle />
       {user ? (
-        <Link to="/admin" className={buttonStyles({ variant: 'secondary', size: 'sm', className: 'hidden sm:inline-flex' })}>
+        <Link
+          to="/admin"
+          className={buttonStyles({ variant: 'secondary', size: 'sm' })}
+          aria-label="管理后台"
+          title="管理后台"
+        >
           <Icon name="dashboard" size={15} />
-          后台
+          {/* Icon-only on phones — previously the entry was hidden entirely, so
+              mobile owners had to type /admin by hand. */}
+          <span className="hidden sm:inline">后台</span>
         </Link>
       ) : null}
       <button
