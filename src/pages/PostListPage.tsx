@@ -1,5 +1,5 @@
 import { useSearchParams } from 'react-router-dom';
-import type { ApiMeta, PostSummary, Tag } from '@shared/types';
+import type { ApiMeta, PostSummary } from '@shared/types';
 import { Badge } from '../components/ui/Badge';
 import { Select } from '../components/ui/Field';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/Feedback';
@@ -8,6 +8,7 @@ import { Pagination } from '../components/ui/Pagination';
 import { PostCard, cardGridClass } from '../components/blog/PostCard';
 import { PageWithSidebar } from '../components/layout/PageWithSidebar';
 import { api, qs } from '../lib/api';
+import { fetchTags } from '../lib/resource';
 import { useAsync, useDocumentTitle } from '../hooks';
 import { useSettings } from '../providers/SettingsProvider';
 
@@ -25,7 +26,7 @@ export function PostListPage() {
   const tag = params.get('tag') ?? '';
   const sort = (params.get('sort') ?? 'newest') as (typeof SORTS)[number]['value'];
 
-  const tags = useAsync(() => api.get<Tag[]>('/tags').then((r) => r.data), []);
+  const tags = useAsync(() => fetchTags(), []);
 
   const result = useAsync(async () => {
     return api.get<PostSummary[]>(

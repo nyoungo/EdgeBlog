@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { PostDetail, Tag } from '@shared/types';
 import { requireAuth } from '../lib/auth';
 import { hashIp } from '../lib/crypto';
-import { first, run, batch } from '../lib/db';
+import { first, run, all, batch, placeholders } from '../lib/db';
 import type { AppEnv, Env } from '../lib/env';
 import { AppError } from '../lib/errors';
 import {
@@ -11,7 +11,9 @@ import {
   getPostById,
   getPostBySlug,
   getRelated,
+  listArchive,
   listPosts,
+  listTrash,
   tagsForPosts,
   type ListPostsOptions,
 } from '../lib/posts-repo';
@@ -20,6 +22,7 @@ import { deriveExcerpt, countWords, slugify } from '../lib/sanitize';
 import { getSettings } from '../lib/settings';
 import { parseJson } from '../lib/validate';
 import { nowSql, toSqlDateTime } from '../lib/datetime';
+import { recordAudit } from '../lib/audit';
 
 export const postRoutes = new Hono<AppEnv>();
 
@@ -61,51 +64,75 @@ const adminListQuery = listQuery.extend({
 
 async function uniqueSlug(env: Env, base: string, ignoreId: number | null): Promise<string> {
   const root = slugify(base) || 'post';
-  let candidate = root;
+  // One prefix query instead of an EXISTS probe per candidate: the loop used to
+  // cost up to 200 sequential D1 round trips on a heavily suffixed title.
+  const rows = await all<{ id: number; slug: string }>(
+    env,
+    'SELECT id, slug FROM posts WHERE slug = ? OR slug LIKE ?',
+    root,
+    `${root}-%`,
+  );
+  const taken = new Set(rows.filter((r) => ignoreId === null || r.id !== ignoreId).map((r) => r.slug));
+  if (!taken.has(root)) return root;
   for (let i = 2; i < 200; i++) {
-    const clash = await first<{ id: number }>(
-      env,
-      'SELECT id FROM posts WHERE slug = ? AND (? IS NULL OR id != ?) LIMIT 1',
-      candidate,
-      ignoreId,
-      ignoreId,
-    );
-    if (!clash) return candidate;
-    candidate = `${root}-${i}`;
+    const candidate = `${root}-${i}`;
+    if (!taken.has(candidate)) return candidate;
   }
   return `${root}-${Date.now().toString(36)}`;
 }
 
 async function resolveTagIds(env: Env, names: string[]): Promise<number[]> {
-  const ids = new Set<number>();
+  // slug -> name, de-duplicated (two names may slugify to the same value).
+  const wanted = new Map<string, string>();
   for (const raw of names) {
     const name = raw.trim();
     if (!name) continue;
     const slug = slugify(name);
-    const existing = await first<{ id: number }>(
-      env,
-      'SELECT id FROM tags WHERE name = ? OR slug = ? LIMIT 1',
-      name,
-      slug,
+    if (!wanted.has(slug)) wanted.set(slug, name);
+  }
+  if (wanted.size === 0) return [];
+
+  const slugs = [...wanted.keys()];
+  const bySlug = new Map<string, number>();
+  const existing = await all<{ id: number; slug: string }>(
+    env,
+    `SELECT id, slug FROM tags WHERE slug IN (${placeholders(slugs.length)})`,
+    ...slugs,
+  );
+  for (const row of existing) bySlug.set(row.slug, row.id);
+
+  const missing = [...wanted].filter(([slug]) => !bySlug.has(slug));
+  if (missing.length > 0) {
+    const statements = missing.map(([slug, name]) =>
+      env.DB.prepare('INSERT OR IGNORE INTO tags (name, slug) VALUES (?, ?)').bind(name, slug),
     );
-    if (existing) {
-      ids.add(existing.id);
-      continue;
-    }
-    try {
-      const res = await run(env, 'INSERT INTO tags (name, slug) VALUES (?, ?)', name, slug);
-      ids.add(Number(res.meta.last_row_id));
-    } catch {
-      const row = await first<{ id: number }>(
+    await batch(env, statements);
+
+    const inserted = await all<{ id: number; slug: string }>(
+      env,
+      `SELECT id, slug FROM tags WHERE slug IN (${placeholders(missing.length)})`,
+      ...missing.map(([slug]) => slug),
+    );
+    for (const row of inserted) bySlug.set(row.slug, row.id);
+
+    // A tag with the same *name* but a different slug (renamed by hand) is
+    // still the tag the author meant — reuse it instead of dropping it.
+    const unresolved = missing.filter(([slug]) => !bySlug.has(slug));
+    if (unresolved.length > 0) {
+      const byName = await all<{ id: number; name: string }>(
         env,
-        'SELECT id FROM tags WHERE name = ? OR slug = ? LIMIT 1',
-        name,
-        slug,
+        `SELECT id, name FROM tags WHERE name IN (${placeholders(unresolved.length)})`,
+        ...unresolved.map(([, name]) => name),
       );
-      if (row) ids.add(row.id);
+      const idByName = new Map(byName.map((r) => [r.name, r.id]));
+      for (const [slug, name] of unresolved) {
+        const id = idByName.get(name);
+        if (id !== undefined) bySlug.set(slug, id);
+      }
     }
   }
-  return [...ids];
+
+  return [...bySlug.values()];
 }
 
 async function setPostTags(env: Env, postId: number, tagIds: number[]): Promise<void> {
@@ -175,6 +202,27 @@ postRoutes.get('/admin', requireAuth, async (c) => {
   });
 });
 
+// Lightweight full listing for the archive page / clients that need every
+// year at once. Registered before '/:slug' so it is not treated as a slug.
+postRoutes.get('/archive', async (c) => {
+  c.header('Cache-Control', 'public, max-age=0, s-maxage=60');
+  return ok(c, await listArchive(c.env));
+});
+
+// Recycle bin: soft-deleted posts. Admin only, never cached.
+postRoutes.get('/trash', requireAuth, async (c) => {
+  c.header('Cache-Control', 'no-store');
+  const page = Math.max(1, Number.parseInt(c.req.query('page') ?? '1', 10) || 1);
+  const perPage = Math.min(50, Math.max(1, Number.parseInt(c.req.query('perPage') ?? '20', 10) || 20));
+  const result = await listTrash(c.env, { page, perPage });
+  return ok(c, result.items, {
+    page: result.page,
+    perPage: result.perPage,
+    total: result.total,
+    totalPages: result.totalPages,
+  });
+});
+
 postRoutes.get('/', async (c) => {
   const parsed = listQuery.safeParse(c.req.query());
   if (!parsed.success) throw AppError.validation('查询参数校验失败', parsed.error.flatten());
@@ -221,6 +269,8 @@ postRoutes.post('/', requireAuth, async (c) => {
 
   const id = Number(result.meta.last_row_id);
   if (body.tags) await setPostTags(c.env, id, await resolveTagIds(c.env, body.tags));
+
+  await recordAudit(c.env, user, 'post.create', 'post', id, { title: body.title, status: body.status });
 
   const post = await getPostById(c.env, id);
   return created(c, post);
@@ -273,16 +323,56 @@ postRoutes.put('/:id', requireAuth, async (c) => {
 
   if (body.tags) await setPostTags(c.env, id, await resolveTagIds(c.env, body.tags));
 
+  const actor = c.get('user');
+  await recordAudit(c.env, actor, 'post.update', 'post', id, { title: body.title ?? existing.title, status });
+
   return ok(c, await getPostById(c.env, id));
 });
 
 postRoutes.delete('/:id', requireAuth, async (c) => {
   const id = Number.parseInt(c.req.param('id'), 10);
   if (!Number.isInteger(id)) throw AppError.badRequest('非法文章 ID');
-  await run(c.env, 'DELETE FROM post_tags WHERE post_id = ?', id);
-  const result = await run(c.env, 'DELETE FROM posts WHERE id = ?', id);
+  // Soft delete: the row (and its tags/views) is kept so the operator can
+  // restore it from the recycle bin. Every public read filters `deleted_at`.
+  const result = await run(
+    c.env,
+    "UPDATE posts SET deleted_at = datetime('now') WHERE id = ? AND deleted_at IS NULL",
+    id,
+  );
   if (result.meta.changes === 0) throw AppError.notFound('文章不存在');
-  return ok(c, { deleted: true });
+  await recordAudit(c.env, c.get('user'), 'post.trash', 'post', id);
+  return ok(c, { deleted: true, trashed: true });
+});
+
+postRoutes.post('/:id/restore', requireAuth, async (c) => {
+  const id = Number.parseInt(c.req.param('id'), 10);
+  if (!Number.isInteger(id)) throw AppError.badRequest('非法文章 ID');
+  const result = await run(
+    c.env,
+    'UPDATE posts SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL',
+    id,
+  );
+  if (result.meta.changes === 0) throw AppError.notFound('回收站中没有这篇文章');
+  await recordAudit(c.env, c.get('user'), 'post.restore', 'post', id);
+  return ok(c, await getPostById(c.env, id));
+});
+
+postRoutes.delete('/:id/purge', requireAuth, async (c) => {
+  const id = Number.parseInt(c.req.param('id'), 10);
+  if (!Number.isInteger(id)) throw AppError.badRequest('非法文章 ID');
+  const existing = await first<{ id: number; deleted_at: string | null }>(
+    c.env,
+    'SELECT id, deleted_at FROM posts WHERE id = ?',
+    id,
+  );
+  if (!existing) throw AppError.notFound('文章不存在');
+  // Only ever purge something already in the trash: a stray DELETE call must
+  // not be able to destroy a live article outright.
+  if (!existing.deleted_at) throw AppError.badRequest('只能彻底删除回收站中的文章');
+  await run(c.env, 'DELETE FROM post_tags WHERE post_id = ?', id);
+  await run(c.env, 'DELETE FROM posts WHERE id = ?', id);
+  await recordAudit(c.env, c.get('user'), 'post.purge', 'post', id);
+  return ok(c, { deleted: true, purged: true });
 });
 
 postRoutes.post('/:slug/view', async (c) => {

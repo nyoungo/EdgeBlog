@@ -75,7 +75,15 @@ function Cover({ url, title, className }: { url: string | null; title: string; c
       </div>
     );
   }
-  return <img src={url} alt={title} loading="lazy" className={cn('object-cover', className)} />;
+  return (
+    <img
+      src={url}
+      alt={title}
+      loading="lazy"
+      decoding="async"
+      className={cn('object-cover', className)}
+    />
+  );
 }
 
 function Meta({ post, className }: { post: PostSummary; className?: string }) {

@@ -1,0 +1,27 @@
+{
+  "name": "Edge Blog",
+  "short_name": "Edge Blog",
+  "description": "A fully dynamic, highly customizable blog system for Cloudflare Pages.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#18181b",
+  "lang": "zh-CN",
+  "categories": ["blog", "news", "productivity"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

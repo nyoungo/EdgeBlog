@@ -8,6 +8,8 @@ export interface JwtClaims {
   sub: number;
   username: string;
   role: 'admin' | 'editor';
+  /** Session version, mirrored from users.token_version. */
+  ver: number;
 }
 
 function encodeSegment(value: unknown): string {
@@ -42,6 +44,7 @@ export async function verifyJwt(token: string, secret: string): Promise<JwtPaylo
     if (typeof payload.exp !== 'number' || payload.exp < Math.floor(Date.now() / 1000)) return null;
     if (typeof payload.sub !== 'number' || typeof payload.username !== 'string') return null;
     if (payload.role !== 'admin' && payload.role !== 'editor') return null;
+    if (payload.ver !== undefined && typeof payload.ver !== 'number') return null;
     return payload;
   } catch {
     return null;

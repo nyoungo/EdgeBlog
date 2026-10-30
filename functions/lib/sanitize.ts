@@ -71,10 +71,16 @@ export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254;
 }
 
-/** Very small profanity/abuse heuristic hook — extend as needed. */
+/** Keywords that, combined with link drops, strongly indicate spam. */
+const SPAM_KEYWORDS = /(viagra|cialis|casino|porn|xxx|代开发票|加微信|免费(?:领取|下载|观看|咨询|加群))/i;
+
+/**
+ * Small abuse heuristic — not a classifier. It only short-circuits obvious
+ * cases so a normal comment with one or two links still reaches moderation.
+ */
 export function looksLikeSpam(content: string): boolean {
-  const links = content.match(/https?:\/\//g)?.length ?? 0;
+  const links = content.match(/https?:\/\//gi)?.length ?? 0;
   if (links >= 4) return true;
-  if (/(viagra|casino|xxx|免费.*)?$/i.test(content) && links >= 2) return true;
+  if (links >= 2 && SPAM_KEYWORDS.test(content)) return true;
   return false;
 }

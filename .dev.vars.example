@@ -10,4 +10,6 @@ SITE_URL = "http://localhost:8788"
 # 留空（默认）即可：图片以相对路径 /media/<key> 保存，本地/生产行为一致。
 # MEDIA_PUBLIC_BASE = "http://localhost:8788/media"
 SESSION_COOKIE = "eb_session"
-ALLOWED_ORIGINS = "*"
+# 同源请求始终允许；这里列出额外来源。本地用 `npm run dev`（Vite，5173）
+# 通过代理写 API 时，Origin 是 5173，需要显式放行。`*` 不会生效。
+ALLOWED_ORIGINS = "http://localhost:5173"

@@ -19,15 +19,25 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const from = (location.state as { from?: string } | null)?.from ?? '/admin';
+  const requested =
+    (location.state as { from?: string } | null)?.from ??
+    new URLSearchParams(location.search).get('from') ??
+    '/admin';
+  // Never send the user to another origin after login.
+  const from = requested.startsWith('/') && !requested.startsWith('//') ? requested : '/admin';
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
-      await login(username.trim(), password);
-      success('登录成功');
+      const { defaultPassword } = await login(username.trim(), password);
+      if (defaultPassword) {
+        // Publicly known credential from seed/seed.sql — make the risk explicit.
+        toastError('当前仍在使用默认密码，请立即在「账号安全」中更换');
+      } else {
+        success('登录成功');
+      }
       navigate(from, { replace: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : '登录失败';

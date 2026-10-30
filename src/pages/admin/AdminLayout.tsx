@@ -12,8 +12,11 @@ const NAV: Array<{ to: string; label: string; icon: IconName; end?: boolean }> =
   { to: '/admin/posts', label: '文章', icon: 'fileText' },
   { to: '/admin/comments', label: '评论', icon: 'message' },
   { to: '/admin/media', label: '媒体', icon: 'image' },
+  { to: '/admin/tags', label: '标签', icon: 'tag' },
   { to: '/admin/appearance', label: '站点设置', icon: 'palette' },
   { to: '/admin/ai', label: 'AI 设置', icon: 'sparkles' },
+  { to: '/admin/audit', label: '审计日志', icon: 'clock' },
+  { to: '/admin/account', label: '账号安全', icon: 'lock' },
 ];
 
 export function AdminLayout() {

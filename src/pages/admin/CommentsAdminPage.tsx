@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { ApiMeta, Comment } from '@shared/types';
+import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Field';
 import { Card, EmptyState, Skeleton } from '../../components/ui/Feedback';
 import { StatusBadge } from '../../components/ui/Badge';
@@ -10,7 +11,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { cn } from '../../lib/utils';
 import { api, qs } from '../../lib/api';
 import { formatDateTime } from '../../lib/format';
-import { useAsync, useDocumentTitle } from '../../hooks';
+import { useAsync, useDebounced, useDocumentTitle } from '../../hooks';
 import { useSettings } from '../../providers/SettingsProvider';
 import { useToast } from '../../providers/ToastProvider';
 
@@ -31,10 +32,16 @@ export function CommentsAdminPage() {
   const [pendingDelete, setPendingDelete] = useState<AdminComment | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
 
   const page = Number(params.get('page') ?? 1) || 1;
   const status = params.get('status') ?? '';
   const q = params.get('q') ?? '';
+
+  // Debounce the search box: typing used to fire one request per keystroke.
+  const [searchInput, setSearchInput] = useState(q);
+  const debouncedSearch = useDebounced(searchInput, 350);
 
   useDocumentTitle('评论管理', settings.site.name);
 
@@ -45,6 +52,7 @@ export function CommentsAdminPage() {
 
   const comments = data?.data ?? [];
   const meta: ApiMeta = data?.meta ?? {};
+  const allSelected = comments.length > 0 && comments.every((c) => selected.has(c.id));
 
   const update = (patch: Record<string, string | number | undefined>) => {
     const next = new URLSearchParams(params);
@@ -54,6 +62,24 @@ export function CommentsAdminPage() {
     }
     if (!('page' in patch)) next.delete('page');
     setParams(next, { replace: true });
+    setSelected(new Set());
+  };
+
+  useEffect(() => {
+    if (debouncedSearch !== q) update({ q: debouncedSearch || undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
+
+  const toggleAll = () => {
+    setSelected(allSelected ? new Set() : new Set(comments.map((c) => c.id)));
+  };
+  const toggleOne = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const setStatus = async (comment: AdminComment, next: string) => {
@@ -66,6 +92,22 @@ export function CommentsAdminPage() {
       error(err instanceof Error ? err.message : '操作失败');
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const runBatch = async (action: 'approved' | 'rejected' | 'spam' | 'delete') => {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    setBatchBusy(true);
+    try {
+      const { data: result } = await api.post<{ updated: number; action: string }>('/comments/batch', { ids, action });
+      success(`已处理 ${result.updated} 条评论`);
+      setSelected(new Set());
+      reload();
+    } catch (err) {
+      error(err instanceof Error ? err.message : '批量操作失败');
+    } finally {
+      setBatchBusy(false);
     }
   };
 
@@ -111,12 +153,36 @@ export function CommentsAdminPage() {
           ))}
         </div>
         <Input
-          placeholder="搜索作者或内容…"
-          defaultValue={q}
+          type="search"
+          placeholder="搜索作者或内容..."
+          value={searchInput}
           wrapperClassName="w-56"
-          onChange={(e) => update({ q: e.target.value })}
+          onChange={(e) => setSearchInput(e.target.value)}
         />
       </div>
+
+      {selected.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm">
+          <span className="text-muted">已选择 {selected.size} 条</span>
+          <div className="ml-auto flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" loading={batchBusy} onClick={() => void runBatch('approved')}>
+              通过
+            </Button>
+            <Button size="sm" variant="secondary" loading={batchBusy} onClick={() => void runBatch('rejected')}>
+              拒绝
+            </Button>
+            <Button size="sm" variant="secondary" loading={batchBusy} onClick={() => void runBatch('spam')}>
+              标记垃圾
+            </Button>
+            <Button size="sm" variant="danger" loading={batchBusy} onClick={() => void runBatch('delete')}>
+              删除
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+              取消
+            </Button>
+          </div>
+        </div>
+      )}
 
       {loading && !data ? (
         <div className="space-y-2">
@@ -128,10 +194,30 @@ export function CommentsAdminPage() {
         <EmptyState icon="message" title="没有评论" description="这个筛选条件下没有找到评论。" />
       ) : (
         <div className="space-y-3">
+          <label className="flex w-fit cursor-pointer items-center gap-2 rounded-md px-1 text-xs text-muted">
+            <input
+              type="checkbox"
+              aria-label="全选本页评论"
+              checked={allSelected}
+              onChange={toggleAll}
+              className="h-4 w-4 accent-[rgb(var(--c-brand))]"
+            />
+            全选本页
+          </label>
           {comments.map((comment) => (
-            <Card key={comment.id} className="p-4">
+            <Card
+              key={comment.id}
+              className={cn('p-4', selected.has(comment.id) && 'border-brand/40 bg-brand/5')}
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    aria-label={`选择 ${comment.author} 的评论`}
+                    checked={selected.has(comment.id)}
+                    onChange={() => toggleOne(comment.id)}
+                    className="h-4 w-4 accent-[rgb(var(--c-brand))]"
+                  />
                   <span className="text-sm font-semibold text-fg">{comment.author}</span>
                   <StatusBadge status={comment.status} />
                   <span className="text-xs text-faint">{formatDateTime(comment.created_at)}</span>
@@ -205,7 +291,7 @@ export function CommentsAdminPage() {
       <ConfirmDialog
         open={Boolean(pendingDelete)}
         title="删除评论"
-        description="删除后无法恢复，且会一并删除其下所有回复。"
+        description="删除后无法恢复,且会一并删除其下所有回复。"
         confirmLabel="删除"
         danger
         loading={deleting}

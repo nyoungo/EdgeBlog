@@ -27,6 +27,9 @@ function isPlainObject(value: unknown): value is JsonObject {
 function deepMerge(base: JsonObject, patch: JsonObject): JsonObject {
   const out: JsonObject = { ...base };
   for (const [key, value] of Object.entries(patch)) {
+    // `JSON.parse` can produce an own "__proto__" key; assigning it would
+    // mutate the prototype of every object built afterwards.
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
     const current = out[key];
     out[key] = isPlainObject(value) && isPlainObject(current) ? deepMerge(current, value) : value;
   }

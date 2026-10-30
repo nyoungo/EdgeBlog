@@ -154,7 +154,15 @@ export function PostDetailPage() {
       {detail.cover_url && (
         // Fixed aspect box reserves the space before the image loads (no CLS).
         <div className="mt-8 aspect-[16/9] w-full overflow-hidden rounded-xl border border-border bg-surface-2">
-          <img src={detail.cover_url} alt={detail.title} className="h-full w-full object-cover" />
+          <img
+            src={detail.cover_url}
+            alt={detail.title}
+            // Hero image: it is the LCP element, so decode it with priority
+            // instead of lazily.
+            fetchPriority="high"
+            decoding="async"
+            className="h-full w-full object-cover"
+          />
         </div>
       )}
 

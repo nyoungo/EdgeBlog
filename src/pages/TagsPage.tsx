@@ -1,16 +1,15 @@
 import { Link } from 'react-router-dom';
-import type { Tag } from '@shared/types';
 import { Badge } from '../components/ui/Badge';
 import { EmptyState, Skeleton } from '../components/ui/Feedback';
 import { Icon } from '../components/ui/icons';
 import { PageWithSidebar } from '../components/layout/PageWithSidebar';
-import { api } from '../lib/api';
+import { fetchTags } from '../lib/resource';
 import { useAsync, useDocumentTitle } from '../hooks';
 import { useSettings } from '../providers/SettingsProvider';
 
 export function TagsPage() {
   const { settings } = useSettings();
-  const { data, loading } = useAsync(() => api.get<Tag[]>('/tags').then((r) => r.data), []);
+  const { data, loading } = useAsync(() => fetchTags(), []);
   useDocumentTitle('标签', settings.site.name);
 
   return (

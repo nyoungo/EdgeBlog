@@ -8,13 +8,13 @@ import {
   type ReactNode,
 } from 'react';
 import type { PublicUser } from '@shared/types';
-import { api } from '../lib/api';
+import { api, setUnauthorizedHandler } from '../lib/api';
 
 interface AuthApi {
   user: PublicUser | null;
   /** True until the initial `/auth/me` probe settles. */
   loading: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<{ defaultPassword: boolean }>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -40,11 +40,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
+  // A 401 on any non-probe endpoint means our session is gone (expired cookie,
+  // or revoked by a password change elsewhere). Clear the cached user and send
+  // admin users back to login, instead of leaving a half-broken dashboard.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setUser(null);
+      if (typeof window === 'undefined') return;
+      const { pathname, search } = window.location;
+      if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
+        window.location.assign(`/admin/login?from=${encodeURIComponent(pathname + search)}`);
+      }
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
   const login = useCallback(async (username: string, password: string) => {
-    const { data } = await api.post<{ id: number; username: string; displayName: string | null; role: PublicUser['role'] }>(
-      '/auth/login',
-      { username, password },
-    );
+    const { data } = await api.post<{
+      id: number;
+      username: string;
+      displayName: string | null;
+      role: PublicUser['role'];
+      defaultPassword?: boolean;
+    }>('/auth/login', { username, password });
     setUser({
       id: data.id,
       username: data.username,
@@ -52,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       role: data.role,
       created_at: '',
     });
+    return { defaultPassword: data.defaultPassword === true };
   }, []);
 
   const logout = useCallback(async () => {

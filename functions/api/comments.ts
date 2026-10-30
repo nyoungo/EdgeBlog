@@ -3,21 +3,22 @@ import { z } from 'zod';
 import type { Comment, CommentStatus } from '@shared/types';
 import { requireAuth } from '../lib/auth';
 import { hashIp } from '../lib/crypto';
-import { all, first, run } from '../lib/db';
+import { all, first, placeholders, run } from '../lib/db';
 import type { AppEnv, Env } from '../lib/env';
 import { AppError } from '../lib/errors';
 import { hit } from '../lib/rate-limit';
 import { created, ok } from '../lib/response';
 import { looksLikeSpam } from '../lib/sanitize';
 import { getSettings } from '../lib/settings';
-import { paginationSchema, parseJson } from '../lib/validate';
+import { httpUrlSchema, paginationSchema, parseJson } from '../lib/validate';
+import { recordAudit } from '../lib/audit';
 
 export const commentRoutes = new Hono<AppEnv>();
 
 type FlatComment = Omit<Comment, 'replies'>;
 
 /** Assemble the flat comment table into a reply tree. */
-function buildTree(rows: FlatComment[]): Comment[] {
+export function buildTree(rows: FlatComment[]): Comment[] {
   const byId = new Map<number, Comment>();
   for (const row of rows) byId.set(row.id, { ...row, replies: [] });
   const roots: Comment[] = [];
@@ -41,6 +42,7 @@ commentRoutes.get('/post/:slug', async (c) => {
     c.env,
     `SELECT id FROM posts
       WHERE slug = ?
+        AND deleted_at IS NULL
         AND published_at IS NOT NULL AND published_at <= datetime('now')
         AND status IN ('published', 'scheduled')`,
     slug,
@@ -64,7 +66,7 @@ const createSchema = z.object({
   parentId: z.number().int().positive().nullable().optional(),
   author: z.string().trim().min(1, '请填写昵称').max(60),
   email: z.union([z.literal(''), z.string().trim().email('邮箱格式不正确').max(254)]).optional(),
-  website: z.union([z.literal(''), z.string().trim().url('网址格式不正确').max(200)]).optional(),
+  website: z.union([z.literal(''), httpUrlSchema]).optional(),
   content: z.string().trim().min(2, '评论内容太短').max(2000, '评论内容过长'),
   // Honeypot: hidden field. Bots fill it; we accept the request but persist
   // nothing (see handler). It must NOT be validated to empty here, or the bot
@@ -98,6 +100,7 @@ commentRoutes.post('/', async (c) => {
     c.env,
     `SELECT id FROM posts
       WHERE slug = ?
+        AND deleted_at IS NULL
         AND published_at IS NOT NULL AND published_at <= datetime('now')
         AND status IN ('published', 'scheduled')`,
     body.postSlug,
@@ -211,12 +214,39 @@ const patchSchema = z.object({
   status: z.enum(['pending', 'approved', 'rejected', 'spam']),
 });
 
+const batchSchema = z.object({
+  ids: z.array(z.number().int().positive()).min(1).max(100),
+  action: z.enum(['approved', 'rejected', 'spam', 'delete']),
+});
+
+/** Bulk moderation: approve / reject / mark spam / delete many at once. */
+commentRoutes.post('/batch', requireAuth, async (c) => {
+  const body = await parseJson(c, batchSchema);
+  const ids = [...new Set(body.ids)];
+  if (body.action === 'delete') {
+    for (const id of ids) await deleteCommentTree(c.env, id);
+  } else {
+    await run(
+      c.env,
+      `UPDATE comments SET status = ? WHERE id IN (${placeholders(ids.length)})`,
+      body.action,
+      ...ids,
+    );
+  }
+  await recordAudit(c.env, c.get('user'), `comment.batch.${body.action}`, 'comment', null, {
+    ids,
+    count: ids.length,
+  });
+  return ok(c, { updated: ids.length, action: body.action });
+});
+
 commentRoutes.patch('/:id', requireAuth, async (c) => {
   const id = Number.parseInt(c.req.param('id'), 10);
   if (!Number.isInteger(id)) throw AppError.badRequest('非法评论 ID');
   const body = await parseJson(c, patchSchema);
   const result = await run(c.env, 'UPDATE comments SET status = ? WHERE id = ?', body.status, id);
   if (result.meta.changes === 0) throw AppError.notFound('评论不存在');
+  await recordAudit(c.env, c.get('user'), 'comment.status', 'comment', id, { status: body.status });
   return ok(c, { id, status: body.status });
 });
 
@@ -225,11 +255,21 @@ commentRoutes.delete('/:id', requireAuth, async (c) => {
   if (!Number.isInteger(id)) throw AppError.badRequest('非法评论 ID');
   // Delete children explicitly (works without FK cascade enforcement).
   await deleteCommentTree(c.env, id);
+  await recordAudit(c.env, c.get('user'), 'comment.delete', 'comment', id);
   return ok(c, { deleted: true });
 });
 
 async function deleteCommentTree(env: Env, id: number): Promise<void> {
-  const children = await all<{ id: number }>(env, 'SELECT id FROM comments WHERE parent_id = ?', id);
-  for (const child of children) await deleteCommentTree(env, child.id);
-  await run(env, 'DELETE FROM comments WHERE id = ?', id);
+  // One recursive statement instead of one round trip per descendant level
+  // (a deep thread used to issue N+1 deletes that each also fetched children).
+  await run(
+    env,
+    `WITH RECURSIVE tree(id) AS (
+        SELECT id FROM comments WHERE id = ?
+        UNION ALL
+        SELECT c.id FROM comments c JOIN tree t ON c.parent_id = t.id
+      )
+      DELETE FROM comments WHERE id IN (SELECT id FROM tree)`,
+    id,
+  );
 }

@@ -42,5 +42,7 @@ SITE_URL = "https://www.068800.xyz"
 # MEDIA_PUBLIC_BASE = "https://media.example.com"
 # Cookie name for the admin session.
 SESSION_COOKIE = "eb_session"
-# Comma separated list of allowed CORS origins (front-end on same origin => "*" is fine).
-ALLOWED_ORIGINS = "*"
+# Comma separated list of extra origins allowed to make credentialed CORS
+# requests. Same-origin requests are always allowed; "*" is ignored on purpose
+# (a wildcard plus credentials is unsafe). SITE_URL is included automatically.
+ALLOWED_ORIGINS = "https://www.068800.xyz"

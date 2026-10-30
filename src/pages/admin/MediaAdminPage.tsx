@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react';
-import type { ApiMeta, MediaItem } from '@shared/types';
+import { useEffect, useRef, useState } from 'react';
+import type { ApiMeta, MediaItem, MediaUsage } from '@shared/types';
 import { Button } from '../../components/ui/Button';
-import { Select } from '../../components/ui/Field';
+import { Input, Select } from '../../components/ui/Field';
 import { EmptyState, Spinner } from '../../components/ui/Feedback';
 import { Icon } from '../../components/ui/icons';
 import { Pagination } from '../../components/ui/Pagination';
@@ -9,7 +9,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { SkeletonGrid } from '../../components/admin/MediaPicker';
 import { api, qs, uploadMedia } from '../../lib/api';
 import { COMPRESS_OPTIONS, compressImage, getCompressLevel, setCompressLevel, type CompressLevel } from '../../lib/image-compress';
-import { useAsync, useDocumentTitle } from '../../hooks';
+import { useAsync, useDebounced, useDocumentTitle } from '../../hooks';
 import { useSettings } from '../../providers/SettingsProvider';
 import { useToast } from '../../providers/ToastProvider';
 import { cn } from '../../lib/utils';
@@ -24,17 +24,25 @@ export function MediaAdminPage() {
   const { settings } = useSettings();
   const { success, error } = useToast();
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const q = useDebounced(search.trim(), 350);
   const [uploading, setUploading] = useState(false);
   const [compress, setCompress] = useState<CompressLevel>(getCompressLevel);
   const [pendingDelete, setPendingDelete] = useState<MediaItem | null>(null);
+  const [usage, setUsage] = useState<MediaUsage[] | null>(null);
   const [deleting, setDeleting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useDocumentTitle('媒体库', settings.site.name);
 
+  // Reset to the first page whenever the search term changes.
+  useEffect(() => {
+    setPage(1);
+  }, [q]);
+
   const { data, loading, reload } = useAsync(
-    () => api.get<MediaItem[]>(`/media${qs({ page, perPage: 24 })}`),
-    [page],
+    () => api.get<MediaItem[]>(`/media${qs({ page, perPage: 24, q: q || undefined })}`),
+    [page, q],
   );
 
   const items = data?.data ?? [];
@@ -55,7 +63,7 @@ export function MediaAdminPage() {
       }
     }
     if (ok > 0) {
-      success(saved > 0 ? `成功上传 ${ok} 个文件，压缩节省 ${humanSize(saved)}` : `成功上传 ${ok} 个文件`);
+      success(saved > 0 ? `成功上传 ${ok} 个文件,压缩节省 ${humanSize(saved)}` : `成功上传 ${ok} 个文件`);
     }
     setUploading(false);
     if (fileRef.current) fileRef.current.value = '';
@@ -79,6 +87,19 @@ export function MediaAdminPage() {
     }
   };
 
+  /** Load which posts reference this file, then open the confirm dialog. */
+  const requestDelete = async (item: MediaItem) => {
+    setPendingDelete(item);
+    setUsage(null);
+    try {
+      const { data: rows } = await api.get<MediaUsage[]>(`/media/${item.id}/usage`);
+      setUsage(rows);
+    } catch {
+      // Non-fatal: the dialog still works, just without the reference list.
+      setUsage([]);
+    }
+  };
+
   const confirmDelete = async () => {
     if (!pendingDelete) return;
     setDeleting(true);
@@ -86,6 +107,7 @@ export function MediaAdminPage() {
       await api.del(`/media/${pendingDelete.id}`);
       success('已删除');
       setPendingDelete(null);
+      setUsage(null);
       reload();
     } catch (err) {
       error(err instanceof Error ? err.message : '删除失败');
@@ -93,6 +115,15 @@ export function MediaAdminPage() {
       setDeleting(false);
     }
   };
+
+  const deleteDescription = pendingDelete
+    ? usage && usage.length > 0
+      ? `「${pendingDelete.filename ?? pendingDelete.key}」正被 ${usage.length} 篇文章引用(${usage
+          .slice(0, 3)
+          .map((p) => `《${p.title}》`)
+          .join('、')}${usage.length > 3 ? ' 等' : ''}),删除后这些位置将无法显示。确定继续?`
+      : `确定要删除「${pendingDelete.filename ?? pendingDelete.key}」吗?此操作无法撤销。`
+    : '';
 
   return (
     <div className="w-full">
@@ -106,7 +137,7 @@ export function MediaAdminPage() {
             aria-label="压缩质量"
             value={compress}
             onChange={(e) => onCompressChange(e.target.value as CompressLevel)}
-            className="w-36"
+            wrapperClassName="w-36"
           >
             {COMPRESS_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -131,59 +162,79 @@ export function MediaAdminPage() {
         />
       </header>
 
+      <div className="mb-4">
+        <Input
+          type="search"
+          placeholder="按文件名搜索..."
+          value={search}
+          wrapperClassName="w-56"
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+
       {loading && !data ? (
         <SkeletonGrid count={12} />
       ) : items.length === 0 ? (
         <EmptyState
           icon="image"
-          title="媒体库为空"
-          description="上传图片后，可在文章编辑器中直接引用。"
+          title={q ? '没有匹配的文件' : '媒体库为空'}
+          description={q ? `没有找到与「${q}」相关的图片。` : '上传图片后,可在文章编辑器中直接引用。'}
           action={
-            <Button onClick={() => fileRef.current?.click()}>
-              <Icon name="upload" size={16} />
-              上传图片
-            </Button>
+            !q ? (
+              <Button onClick={() => fileRef.current?.click()}>
+                <Icon name="upload" size={16} />
+                上传图片
+              </Button>
+            ) : undefined
           }
         />
       ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
           {items.map((item) => (
-            <div key={item.id} className="group overflow-hidden rounded-xl border border-border bg-surface">
+            <div key={item.id} className="group overflow-hidden rounded-lg border border-border bg-surface">
               <div className="relative aspect-square">
-                <img src={item.url} alt={item.filename ?? ''} loading="lazy" className="h-full w-full object-cover" />
-                <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
+                <img
+                  src={item.url}
+                  alt={item.filename ?? ''}
+                  loading="lazy"
+                  className="h-full w-full object-cover"
+                />
+                <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-black/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                   <button
                     type="button"
                     onClick={() => void copyUrl(item)}
-                    className="flex h-9 w-9 items-center justify-center rounded-md bg-white/90 text-fg hover:bg-white"
+                    className="flex h-7 w-7 items-center justify-center rounded bg-white/90 text-fg hover:bg-white"
                     title="复制链接"
                   >
-                    <Icon name="copy" size={16} />
+                    <Icon name="copy" size={14} />
                   </button>
                   <a
                     href={item.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex h-9 w-9 items-center justify-center rounded-md bg-white/90 text-fg hover:bg-white"
+                    className="flex h-7 w-7 items-center justify-center rounded bg-white/90 text-fg hover:bg-white"
                     title="查看原图"
                   >
-                    <Icon name="externalLink" size={16} />
+                    <Icon name="externalLink" size={14} />
                   </a>
                   <button
                     type="button"
-                    onClick={() => setPendingDelete(item)}
-                    className="flex h-9 w-9 items-center justify-center rounded-md bg-danger text-white hover:bg-danger/90"
+                    onClick={() => void requestDelete(item)}
+                    className="flex h-7 w-7 items-center justify-center rounded bg-danger text-white hover:bg-danger/90"
                     title="删除"
                   >
-                    <Icon name="trash" size={16} />
+                    <Icon name="trash" size={14} />
                   </button>
                 </div>
               </div>
-              <div className="p-2.5">
-                <p className="truncate text-xs font-medium text-fg" title={item.filename ?? item.key}>
+              <div className="px-1.5 py-1">
+                <p className="truncate text-[11px] font-medium text-fg" title={item.filename ?? item.key}>
                   {item.filename ?? item.key}
                 </p>
-                <p className="mt-0.5 text-xs text-faint">{humanSize(item.size)}</p>
+                <p className="text-[10px] text-faint">
+                  {humanSize(item.size)}
+                  {item.width && item.height ? ` · ${item.width}×${item.height}` : ''}
+                </p>
               </div>
             </div>
           ))}
@@ -203,18 +254,21 @@ export function MediaAdminPage() {
       <ConfirmDialog
         open={Boolean(pendingDelete)}
         title="删除文件"
-        description={pendingDelete ? `确定要删除「${pendingDelete.filename ?? pendingDelete.key}」吗？引用该图片的地方将无法显示。` : ''}
+        description={deleteDescription}
         confirmLabel="删除"
         danger
         loading={deleting}
         onConfirm={confirmDelete}
-        onClose={() => setPendingDelete(null)}
+        onClose={() => {
+          setPendingDelete(null);
+          setUsage(null);
+        }}
       />
 
       {uploading && (
         <div className={cn('fixed bottom-5 right-5 flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-3 shadow-pop')}>
           <Spinner />
-          <span className="text-sm">正在上传…</span>
+          <span className="text-sm">正在上传...</span>
         </div>
       )}
     </div>

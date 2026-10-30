@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { AiSettingsView, MediaItem, PostDetail, PostStatus } from '@shared/types';
 import { ApiError, api } from '../../lib/api';
 import { parseSqlDate } from '../../lib/format';
-import { useAsync, useDocumentTitle } from '../../hooks';
+import { useAsync, useDocumentTitle, useUnsavedChangesGuard } from '../../hooks';
 import { useSettings } from '../../providers/SettingsProvider';
 import { useToast } from '../../providers/ToastProvider';
 import { Button } from '../../components/ui/Button';
@@ -108,16 +108,10 @@ export function PostEditorPage() {
 
   useDocumentTitle(editing ? '编辑文章' : '新建文章', settings.site.name);
 
-  // Warn before a reload / tab close would throw away unsaved writing.
-  useEffect(() => {
-    if (!dirty) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [dirty]);
+  // Warn before a reload / tab close / in-app navigation would throw away
+  // unsaved writing. This site uses declarative <BrowserRouter>, so the shared
+  // hook also intercepts internal link clicks (no `useBlocker` available).
+  useUnsavedChangesGuard(dirty);
 
   // Autosave a local copy so a crash, refresh or misclick is recoverable.
   useEffect(() => {

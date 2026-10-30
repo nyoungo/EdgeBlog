@@ -1,13 +1,16 @@
 import { Hono } from 'hono';
-import type { MediaItem } from '@shared/types';
+import { z } from 'zod';
+import type { MediaItem, MediaUsage } from '@shared/types';
 import { requireAuth } from '../lib/auth';
-import { randomToken } from '../lib/crypto';
+import { hashIp, randomToken } from '../lib/crypto';
 import { all, first, run } from '../lib/db';
 import type { AppEnv, Env } from '../lib/env';
 import { AppError } from '../lib/errors';
+import { hit } from '../lib/rate-limit';
 import { created, ok } from '../lib/response';
 import { paginationSchema } from '../lib/validate';
 import { nowSql } from '../lib/datetime';
+import { recordAudit } from '../lib/audit';
 
 export const mediaRoutes = new Hono<AppEnv>();
 
@@ -27,6 +30,35 @@ const EXT_BY_MIME: Record<string, string> = {
   'image/avif': 'avif',
   'image/bmp': 'bmp',
 };
+
+/**
+ * Identify a raster image from its magic bytes. The browser-supplied
+ * `File.type` is attacker-controlled, so it is only used as a hint: an HTML or
+ * script payload renamed to `.png` must not be stored with `image/png`.
+ */
+function sniffImageMime(bytes: Uint8Array): string | null {
+  const at = (i: number): number => bytes[i] ?? -1;
+  if (at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) return 'image/jpeg';
+  if (
+    at(0) === 0x89 && at(1) === 0x50 && at(2) === 0x4e && at(3) === 0x47 &&
+    at(4) === 0x0d && at(5) === 0x0a && at(6) === 0x1a && at(7) === 0x0a
+  ) {
+    return 'image/png';
+  }
+  if (at(0) === 0x47 && at(1) === 0x49 && at(2) === 0x46 && at(3) === 0x38) return 'image/gif';
+  if (at(0) === 0x42 && at(1) === 0x4d) return 'image/bmp';
+  if (
+    at(0) === 0x52 && at(1) === 0x49 && at(2) === 0x46 && at(3) === 0x46 &&
+    at(8) === 0x57 && at(9) === 0x45 && at(10) === 0x42 && at(11) === 0x50
+  ) {
+    return 'image/webp';
+  }
+  if (at(4) === 0x66 && at(5) === 0x74 && at(6) === 0x79 && at(7) === 0x70) {
+    const brand = String.fromCharCode(at(8), at(9), at(10), at(11));
+    if (brand === 'avif' || brand === 'avis') return 'image/avif';
+  }
+  return null;
+}
 
 /**
  * Public URL stored in `media.url`.
@@ -57,16 +89,29 @@ function objectKey(originalName: string, mime: string): string {
 }
 
 mediaRoutes.get('/', async (c) => {
-  const parsed = paginationSchema.safeParse(c.req.query());
+  const parsed = paginationSchema.extend({ q: z.string().trim().max(100).optional() }).safeParse(c.req.query());
   if (!parsed.success) throw AppError.validation('查询参数校验失败', parsed.error.flatten());
-  const { page, perPage } = parsed.data;
+  const { page, perPage, q } = parsed.data;
   c.header('Cache-Control', 'no-store');
 
-  const totalRow = await first<{ total: number }>(c.env, 'SELECT COUNT(*) AS total FROM media');
+  const conditions: string[] = [];
+  const binds: unknown[] = [];
+  if (q) {
+    conditions.push('(filename LIKE ? OR key LIKE ?)');
+    binds.push(`%${q}%`, `%${q}%`);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const totalRow = await first<{ total: number }>(
+    c.env,
+    `SELECT COUNT(*) AS total FROM media ${where}`,
+    ...binds,
+  );
   const total = totalRow?.total ?? 0;
   const rows = await all<MediaItem>(
     c.env,
-    'SELECT * FROM media ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?',
+    `SELECT * FROM media ${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+    ...binds,
     perPage,
     (page - 1) * perPage,
   );
@@ -78,7 +123,38 @@ mediaRoutes.get('/', async (c) => {
   });
 });
 
+/** Which posts reference this object (cover, og image or inline Markdown)? */
+mediaRoutes.get('/:id/usage', async (c) => {
+  const id = Number.parseInt(c.req.param('id'), 10);
+  if (!Number.isInteger(id)) throw AppError.badRequest('非法媒体 ID');
+  const row = await first<{ key: string; url: string }>(
+    c.env,
+    'SELECT key, url FROM media WHERE id = ?',
+    id,
+  );
+  if (!row) throw AppError.notFound('媒体不存在');
+  c.header('Cache-Control', 'no-store');
+  const rows = await all<MediaUsage>(
+    c.env,
+    `SELECT id, slug, title, status FROM posts
+      WHERE deleted_at IS NULL
+        AND (cover_url = ? OR og_image = ? OR content_md LIKE ? OR content_md LIKE ?)
+      ORDER BY updated_at DESC LIMIT 50`,
+    row.url,
+    row.url,
+    `%${row.key}%`,
+    `%${row.url}%`,
+  );
+  return ok(c, rows);
+});
+
 mediaRoutes.post('/upload', async (c) => {
+  // Limit before buffering the multipart body.
+  const ip = c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? 'unknown';
+  const ipHash = await hashIp(ip, c.env.JWT_SECRET);
+  const limit = await hit(c.env, `upload:${ipHash}`, 40, 3600);
+  if (!limit.allowed) throw AppError.rateLimited('上传过于频繁，请稍后再试');
+
   let form: FormData;
   try {
     form = await c.req.formData();
@@ -93,9 +169,15 @@ mediaRoutes.post('/upload', async (c) => {
   if (file.size === 0) throw AppError.badRequest('文件为空');
   if (file.size > MAX_SIZE) throw AppError.payloadTooLarge('文件超过 8MB 限制');
 
-  const mime = file.type || 'application/octet-stream';
-  if (!(mime in EXT_BY_MIME)) {
+  // Verify the actual content, not just the declared MIME (which clients spoof).
+  const head = new Uint8Array(await file.slice(0, 32).arrayBuffer());
+  const mime = sniffImageMime(head);
+  if (!mime || !(mime in EXT_BY_MIME)) {
     throw AppError.unsupportedMedia('仅支持 JPG / PNG / GIF / WebP / AVIF / BMP 图片');
+  }
+  const declared = file.type === 'image/jpg' ? 'image/jpeg' : file.type;
+  if (declared && declared !== 'application/octet-stream' && declared !== mime) {
+    throw AppError.unsupportedMedia('文件内容与声明的类型不一致');
   }
 
   const key = objectKey(file.name || 'image', mime);
@@ -107,15 +189,23 @@ mediaRoutes.post('/upload', async (c) => {
   });
 
   const url = publicUrl(c.env, key);
-  const result = await run(
-    c.env,
-    'INSERT INTO media (key, url, filename, size, mime) VALUES (?, ?, ?, ?, ?)',
-    key,
-    url,
-    file.name || null,
-    file.size,
-    mime,
-  );
+  let result: D1Result;
+  try {
+    result = await run(
+      c.env,
+      'INSERT INTO media (key, url, filename, size, mime) VALUES (?, ?, ?, ?, ?)',
+      key,
+      url,
+      file.name || null,
+      file.size,
+      mime,
+    );
+  } catch (err) {
+    // Roll the object back so a failed index write cannot leave a paid-for
+    // orphan in R2 forever.
+    await c.env.MEDIA.delete(key).catch(() => undefined);
+    throw err;
+  }
 
   const row = await first<MediaItem>(
     c.env,
@@ -133,5 +223,6 @@ mediaRoutes.delete('/:id', async (c) => {
 
   await c.env.MEDIA.delete(row.key);
   await run(c.env, 'DELETE FROM media WHERE id = ?', id);
+  await recordAudit(c.env, c.get('user'), 'media.delete', 'media', id, { key: row.key });
   return ok(c, { deleted: true });
 });

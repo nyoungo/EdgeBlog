@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import type { PostSummary } from '@shared/types';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/Feedback';
 import { Icon } from '../components/ui/icons';
+import { Pagination } from '../components/ui/Pagination';
 import { PostCard, cardGridClass } from '../components/blog/PostCard';
 import { PageWithSidebar } from '../components/layout/PageWithSidebar';
 import { api, qs } from '../lib/api';
@@ -10,6 +11,7 @@ import { useAsync, useDebounced, useDocumentTitle } from '../hooks';
 import { useSettings } from '../providers/SettingsProvider';
 
 const RECENT_KEY = 'eb:recent-searches';
+const PER_PAGE = 12;
 
 function readRecent(): string[] {
   try {
@@ -27,6 +29,7 @@ export function SearchPage() {
   const query = useDebounced(input.trim(), 350);
   const inputRef = useRef<HTMLInputElement>(null);
   const [recent, setRecent] = useState<string[]>(readRecent);
+  const page = Number(params.get('page') ?? 1) || 1;
 
   // ⌘K / Ctrl+K from anywhere, or `/` when not already typing in a field.
   useEffect(() => {
@@ -58,27 +61,50 @@ export function SearchPage() {
 
   useDocumentTitle('搜索', settings.site.name);
 
+  // Keep ?q in sync; a brand-new query always lands on page 1, but a deep link
+  // that already carries ?q&page must keep its page on first render.
+  const prevQuery = useRef(query);
   useEffect(() => {
     const next = new URLSearchParams(params);
     if (query) next.set('q', query);
     else next.delete('q');
+    if (prevQuery.current !== query) next.delete('page');
+    prevQuery.current = query;
     setParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
   const result = useAsync(async () => {
     if (!query) return { data: [] as PostSummary[], meta: undefined };
-    return api.get<PostSummary[]>(`/search${qs({ q: query, perPage: 20 })}`);
-  }, [query]);
+    return api.get<PostSummary[]>(`/search${qs({ q: query, page, perPage: PER_PAGE })}`);
+  }, [query, page]);
 
   const posts = result.data?.data ?? [];
   const total = result.data?.meta?.total ?? 0;
+  const totalPages = result.data?.meta?.totalPages ?? 1;
+  const noResults = Boolean(query) && !result.loading && !result.error && posts.length === 0;
+
+  // Dead-end guard: when nothing matches, offer a few popular articles instead
+  // of leaving the visitor with a single line of grey text.
+  const recommend = useAsync(async () => {
+    if (!noResults) return [] as PostSummary[];
+    const { data } = await api.get<PostSummary[]>(`/posts${qs({ perPage: 3, sort: 'popular' })}`);
+    return data;
+  }, [noResults]);
+
+  const goPage = (p: number) => {
+    const next = new URLSearchParams(params);
+    if (p <= 1) next.delete('page');
+    else next.set('page', String(p));
+    setParams(next, { replace: true });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   return (
     <PageWithSidebar>
       <header className="mx-auto mb-10 max-w-2xl text-center">
         <h1 className="text-2xl font-bold tracking-tight text-fg">搜索</h1>
-        <p className="mt-1.5 text-sm text-muted">在全部文章中查找关键词（支持中英文）</p>
+        <p className="mt-1.5 text-sm text-muted">在全部文章中查找关键词(支持中英文)</p>
         <div className="relative mt-6">
           <Icon name="search" size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-faint" />
           <input
@@ -87,7 +113,7 @@ export function SearchPage() {
             autoFocus
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="输入关键词…（⌘K 或 / 聚焦）"
+            placeholder="输入关键词...(⌘K 或 / 聚焦)"
             aria-label="搜索关键词"
             className="w-full rounded-full border border-border bg-surface py-3 pl-11 pr-4 text-base text-fg placeholder:text-faint focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
           />
@@ -117,11 +143,7 @@ export function SearchPage() {
           )}
         </div>
       ) : result.error ? (
-        <ErrorState
-          title="搜索失败"
-          description={result.error}
-          onRetry={result.reload}
-        />
+        <ErrorState title="搜索失败" description={result.error} onRetry={result.reload} />
       ) : result.loading && !result.data ? (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -129,17 +151,32 @@ export function SearchPage() {
           ))}
         </div>
       ) : posts.length === 0 ? (
-        <EmptyState
-          icon="search"
-          title="没有匹配的结果"
-          description={`没有找到与「${query}」相关的文章，试试其他关键词。`}
-        />
-      ) : (
-        <div className={cardGridClass(settings.layout.cardStyle, settings.layout.cardSize)}>
-          {posts.map((post) => (
-            <PostCard key={post.id} post={post} style={settings.layout.cardStyle} highlight={query} />
-          ))}
+        <div>
+          <EmptyState
+            icon="search"
+            title="没有匹配的结果"
+            description={`没有找到与「${query}」相关的文章,试试其他关键词。`}
+          />
+          {(recommend.data?.length ?? 0) > 0 && (
+            <div className="mt-12">
+              <p className="mb-4 text-center text-sm text-muted">或者看看这些热门文章</p>
+              <div className={cardGridClass(settings.layout.cardStyle, settings.layout.cardSize)}>
+                {recommend.data?.map((post) => (
+                  <PostCard key={post.id} post={post} style={settings.layout.cardStyle} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
+      ) : (
+        <>
+          <div className={cardGridClass(settings.layout.cardStyle, settings.layout.cardSize)}>
+            {posts.map((post) => (
+              <PostCard key={post.id} post={post} style={settings.layout.cardStyle} highlight={query} />
+            ))}
+          </div>
+          <Pagination className="mt-10" page={page} totalPages={totalPages} onChange={goPage} />
+        </>
       )}
     </PageWithSidebar>
   );

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { requireAuth } from '../lib/auth';
+import { requireAdmin } from '../lib/auth';
 import type { AppEnv } from '../lib/env';
 import { AppError } from '../lib/errors';
 import { DEFAULT_SETTINGS, SETTING_NAMESPACES, AI_NAMESPACE } from '@shared/settings-defaults';
@@ -8,6 +8,7 @@ import { getSettings, patchSettings, readSettingRows, resetSettings } from '../l
 import { ok } from '../lib/response';
 import { parseJson } from '../lib/validate';
 import { SETTINGS_SCHEMAS, isNamespace } from './settings-schemas';
+import { recordAudit } from '../lib/audit';
 
 export const settingRoutes = new Hono<AppEnv>();
 
@@ -19,7 +20,7 @@ settingRoutes.get('/public', async (c) => {
 });
 
 /** Admin: raw rows + defaults so the Appearance panel can diff and restore. */
-settingRoutes.get('/', requireAuth, async (c) => {
+settingRoutes.get('/', requireAdmin, async (c) => {
   c.header('Cache-Control', 'no-store');
   const rows = await readSettingRows(c.env);
   // The AI namespace holds a secret; it is served only by /api/ai/settings.
@@ -28,13 +29,14 @@ settingRoutes.get('/', requireAuth, async (c) => {
 });
 
 /** Admin: patch one namespace (deep-merged for objects, replaced for arrays). */
-settingRoutes.patch('/:namespace', requireAuth, async (c) => {
+settingRoutes.patch('/:namespace', requireAdmin, async (c) => {
   const ns = c.req.param('namespace');
   if (!isNamespace(ns)) throw AppError.notFound('未知的配置命名空间');
 
   const schema = SETTINGS_SCHEMAS[ns];
   const body = await parseJson(c, schema as z.ZodTypeAny);
   const next = await patchSettings(c.env, ns, body);
+  await recordAudit(c.env, c.get('user'), 'settings.update', 'setting', null, { namespace: ns });
   return ok(c, next);
 });
 
@@ -43,9 +45,12 @@ const resetSchema = z.object({
 });
 
 /** Admin: restore defaults for one namespace, or the whole site. */
-settingRoutes.post('/reset', requireAuth, async (c) => {
+settingRoutes.post('/reset', requireAdmin, async (c) => {
   const body = await parseJson(c, resetSchema);
   await resetSettings(c.env, body.namespace);
+  await recordAudit(c.env, c.get('user'), 'settings.reset', 'setting', null, {
+    namespace: body.namespace ?? 'all',
+  });
   const settings = await getSettings(c.env, true);
   return ok(c, settings);
 });

@@ -75,7 +75,17 @@ async function deriveBits(
   return new Uint8Array(bits);
 }
 
-export async function hashPassword(password: string, iterations = 100_000): Promise<string> {
+/**
+ * Iteration count used for *new* hashes (OWASP 2023 guidance for PBKDF2-SHA256
+ * is 600k; 210k keeps the Worker CPU budget sane while still being ~2x the old
+ * value). Existing hashes keep working and are upgraded on the next login.
+ */
+export const PBKDF2_ITERATIONS = 210_000;
+
+export async function hashPassword(
+  password: string,
+  iterations = PBKDF2_ITERATIONS,
+): Promise<string> {
   const salt = randomBytes(16);
   const hash = await deriveBits(password, salt, iterations, 32);
   return `pbkdf2$sha256$${iterations}$${toBase64(salt)}$${toBase64(hash)}`;
@@ -92,6 +102,14 @@ export async function verifyPassword(password: string, stored: string): Promise<
   const expected = fromBase64(hashB64);
   const actual = await deriveBits(password, salt, iterations, expected.length);
   return timingSafeEqual(actual, expected);
+}
+
+/** True when a stored hash predates the current cost factor (login re-hashes). */
+export function passwordNeedsRehash(stored: string): boolean {
+  const parts = stored.split('$');
+  if (parts.length !== 5) return true;
+  const iterations = Number.parseInt(parts[2] ?? '', 10);
+  return !Number.isFinite(iterations) || iterations < PBKDF2_ITERATIONS;
 }
 
 /** HMAC-SHA256 signing key helper. */

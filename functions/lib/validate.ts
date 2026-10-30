@@ -44,3 +44,28 @@ export const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   perPage: z.coerce.number().int().min(1).max(50).default(10),
 });
+
+/**
+ * True for absolute http(s) URLs without embedded credentials. `z.string().url()`
+ * alone accepts `javascript:` and `data:` URIs, which become XSS the moment the
+ * value is rendered into an href.
+ */
+export function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      !url.username &&
+      !url.password
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Trimmed, length-capped http(s) URL field. */
+export const httpUrlSchema = z
+  .string()
+  .trim()
+  .max(200, '网址过长')
+  .refine(isHttpUrl, '仅支持 http:// 或 https:// 链接');

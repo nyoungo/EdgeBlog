@@ -38,16 +38,33 @@ export function Footer() {
 
         {site.footerLinks.length > 0 && (
           <nav className="flex flex-wrap gap-x-6 gap-y-2">
-            {site.footerLinks.map((link) => (
-              <Link
-                key={link.href + link.label}
-                to={link.href}
-                viewTransition={features.viewTransitions}
-                className="text-sm text-muted no-underline transition-colors hover:text-fg"
-              >
-                {link.label}
-              </Link>
-            ))}
+            {site.footerLinks.map((link) => {
+              const className = 'text-sm text-muted no-underline transition-colors hover:text-fg';
+              // Only in-app paths go through the router. An external URL used to
+              // be handed to <Link>, which navigated the SPA to a 404 instead of
+              // leaving the site.
+              const external = /^(?:https?:|mailto:|tel:)/i.test(link.href);
+              return external ? (
+                <a
+                  key={link.href + link.label}
+                  href={link.href}
+                  target={/^https?:/i.test(link.href) ? '_blank' : undefined}
+                  rel={/^https?:/i.test(link.href) ? 'noopener noreferrer' : undefined}
+                  className={className}
+                >
+                  {link.label}
+                </a>
+              ) : (
+                <Link
+                  key={link.href + link.label}
+                  to={link.href}
+                  viewTransition={features.viewTransitions}
+                  className={className}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
           </nav>
         )}
       </div>

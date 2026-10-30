@@ -1,6 +1,7 @@
 import { Suspense, lazy } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { RootLayout } from './components/layout/RootLayout';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Centered, Spinner } from './components/ui/Feedback';
 import { SettingsProvider } from './providers/SettingsProvider';
 import { AuthProvider } from './providers/AuthProvider';
@@ -31,6 +32,9 @@ const CommentsAdminPage = lazy(() => import('./pages/admin/CommentsAdminPage').t
 const MediaAdminPage = lazy(() => import('./pages/admin/MediaAdminPage').then((m) => ({ default: m.MediaAdminPage })));
 const AppearancePage = lazy(() => import('./pages/admin/AppearancePage').then((m) => ({ default: m.AppearancePage })));
 const AiSettingsPage = lazy(() => import('./pages/admin/AiSettingsPage').then((m) => ({ default: m.AiSettingsPage })));
+const AccountPage = lazy(() => import('./pages/admin/AccountPage').then((m) => ({ default: m.AccountPage })));
+const TagsAdminPage = lazy(() => import('./pages/admin/TagsAdminPage').then((m) => ({ default: m.TagsAdminPage })));
+const AuditLogPage = lazy(() => import('./pages/admin/AuditLogPage').then((m) => ({ default: m.AuditLogPage })));
 
 function FullPageSpinner() {
   return (
@@ -64,44 +68,49 @@ export function App() {
       <AuthProvider>
         <ToastProvider>
           <BrowserRouter>
-            <Routes>
-              <Route element={<RootLayout />}>
-                <Route index element={<HomePage />} />
-                <Route path="posts" element={<PostListPage />} />
-                <Route path="posts/:slug" element={<PublicRoute><PostDetailPage /></PublicRoute>} />
-                <Route path="tags" element={<TagsPage />} />
-                <Route path="archive" element={<ArchivePage />} />
-                <Route path="search" element={<SearchPage />} />
-                <Route path="about" element={<PublicRoute><AboutPage /></PublicRoute>} />
-                <Route path="*" element={<PublicRoute><NotFoundPage /></PublicRoute>} />
-              </Route>
+            <ErrorBoundary>
+              <Routes>
+                <Route element={<RootLayout />}>
+                  <Route index element={<HomePage />} />
+                  <Route path="posts" element={<PostListPage />} />
+                  <Route path="posts/:slug" element={<PublicRoute><PostDetailPage /></PublicRoute>} />
+                  <Route path="tags" element={<TagsPage />} />
+                  <Route path="archive" element={<ArchivePage />} />
+                  <Route path="search" element={<SearchPage />} />
+                  <Route path="about" element={<PublicRoute><AboutPage /></PublicRoute>} />
+                  <Route path="*" element={<PublicRoute><NotFoundPage /></PublicRoute>} />
+                </Route>
 
-              <Route
-                path="admin/login"
-                element={
-                  <AdminRoute>
-                    <LoginPage />
-                  </AdminRoute>
-                }
-              />
-              <Route
-                path="admin"
-                element={
-                  <AdminRoute>
-                    <AdminLayout />
-                  </AdminRoute>
-                }
-              >
-                <Route index element={<DashboardPage />} />
-                <Route path="posts" element={<PostsAdminPage />} />
-                <Route path="posts/new" element={<PostEditorPage />} />
-                <Route path="posts/:slug" element={<PostEditorPage />} />
-                <Route path="comments" element={<CommentsAdminPage />} />
-                <Route path="media" element={<MediaAdminPage />} />
-                <Route path="appearance" element={<AppearancePage />} />
-                <Route path="ai" element={<AiSettingsPage />} />
-              </Route>
-            </Routes>
+                <Route
+                  path="admin/login"
+                  element={
+                    <AdminRoute>
+                      <LoginPage />
+                    </AdminRoute>
+                  }
+                />
+                <Route
+                  path="admin"
+                  element={
+                    <AdminRoute>
+                      <AdminLayout />
+                    </AdminRoute>
+                  }
+                >
+                  <Route index element={<DashboardPage />} />
+                  <Route path="posts" element={<PostsAdminPage />} />
+                  <Route path="posts/new" element={<PostEditorPage />} />
+                  <Route path="posts/:slug" element={<PostEditorPage />} />
+                  <Route path="comments" element={<CommentsAdminPage />} />
+                  <Route path="media" element={<MediaAdminPage />} />
+                  <Route path="tags" element={<TagsAdminPage />} />
+                  <Route path="appearance" element={<AppearancePage />} />
+                  <Route path="ai" element={<AiSettingsPage />} />
+                  <Route path="audit" element={<AuditLogPage />} />
+                  <Route path="account" element={<AccountPage />} />
+                </Route>
+              </Routes>
+            </ErrorBoundary>
           </BrowserRouter>
         </ToastProvider>
       </AuthProvider>

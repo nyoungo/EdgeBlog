@@ -60,18 +60,39 @@ export function useDocumentTitle(title?: string | null, siteName?: string | null
   }, [title, siteName]);
 }
 
-/** Manage a `<meta name="description">` tag. */
+/**
+ * Manage `<meta name="description">`.
+ *
+ * The shell ships one description for the whole site; a route that overrides it
+ * must put it back when the user navigates away, otherwise the home page keeps
+ * advertising the previous article's summary to crawlers and share sheets.
+ */
 export function useMetaDescription(description?: string | null): void {
+  const previous = useRef<string | null>(null);
+  const captured = useRef(false);
+
   useEffect(() => {
-    if (!description) return;
     let tag = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     if (!tag) {
       tag = document.createElement('meta');
       tag.name = 'description';
       document.head.appendChild(tag);
     }
-    tag.content = description;
+    if (!captured.current) {
+      previous.current = tag.getAttribute('content');
+      captured.current = true;
+    }
+    tag.content = description ?? previous.current ?? '';
   }, [description]);
+
+  useEffect(() => {
+    return () => {
+      if (!captured.current) return;
+      const tag = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+      if (tag && previous.current !== null) tag.content = previous.current;
+      captured.current = false;
+    };
+  }, []);
 }
 
 /** True once the page has scrolled past `threshold` pixels. */
@@ -98,4 +119,55 @@ export function useClickOutside<T extends HTMLElement>(onOutside: () => void, ac
     return () => document.removeEventListener('mousedown', handler);
   }, [onOutside, active]);
   return ref;
+}
+
+/**
+ * Guard against losing unsaved work.
+ *
+ * `beforeunload` covers reloads/tab closes. React Router's declarative
+ * `<BrowserRouter>` (unlike a data router) has no `useBlocker`, so we also
+ * intercept clicks on internal links in the capture phase: if the editor is
+ * dirty and the user cancels the confirm, `stopPropagation` prevents the
+ * `<Link>`'s handler from navigating.
+ */
+export function useUnsavedChangesGuard(dirty: boolean, message = '有未保存的修改,确定离开吗?'): void {
+  const messageRef = useRef(message);
+  messageRef.current = message;
+
+  useEffect(() => {
+    if (!dirty) return;
+
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+
+    const onClick = (e: MouseEvent) => {
+      const target = e.target instanceof Element ? e.target.closest('a[href]') : null;
+      if (!(target instanceof HTMLAnchorElement)) return;
+      if (target.target === '_blank' || target.hasAttribute('download')) return;
+      const href = target.getAttribute('href') ?? '';
+      if (!href || href.startsWith('#')) return;
+      let url: URL;
+      try {
+        url = new URL(href, window.location.href);
+      } catch {
+        return;
+      }
+      if (url.origin !== window.location.origin) return;
+      // Same path + query (e.g. an in-page anchor link) is not a real nav.
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      if (!window.confirm(messageRef.current)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    document.addEventListener('click', onClick, true);
+
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      document.removeEventListener('click', onClick, true);
+    };
+  }, [dirty]);
 }

@@ -52,6 +52,25 @@ function allowedOriginHosts(c: { env: AppEnv['Bindings']; req: { url: string } }
   return hosts;
 }
 
+/** Full origins (scheme + host) explicitly allowed for credentialed CORS. */
+function allowedOrigins(c: { env: AppEnv['Bindings'] }): Set<string> {
+  const origins = new Set<string>();
+  const add = (value: string) => {
+    try {
+      origins.add(new URL(value).origin);
+    } catch {
+      /* ignore malformed entries */
+    }
+  };
+  if (c.env.SITE_URL) add(c.env.SITE_URL);
+  for (const entry of (c.env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim())) {
+    // A wildcard must never be combined with credentialed requests; skip it.
+    if (!entry || entry === '*') continue;
+    add(entry);
+  }
+  return origins;
+}
+
 /**
  * CSRF guard: state-changing requests must be same-origin. We accept a request
  * when (a) `Sec-Fetch-Site` says same-origin/same-site/none and (b) any
@@ -89,16 +108,14 @@ export const csrfGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
 export const corsMiddleware: MiddlewareHandler<AppEnv> = cors({
   origin: (origin: string, c: Context<AppEnv>) => {
     if (!origin) return '';
-    const requestHost = new URL(c.req.url).host;
-    let originHost: string;
+    let normalized: string;
     try {
-      originHost = new URL(origin).host;
+      normalized = new URL(origin).origin;
     } catch {
       return '';
     }
-    if (originHost === requestHost) return origin;
-    const allowAll = (c.env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).includes('*');
-    if (allowAll || allowedOriginHosts(c).has(originHost)) return origin;
+    if (normalized === new URL(c.req.url).origin) return origin;
+    if (allowedOrigins(c).has(normalized)) return origin;
     return '';
   },
   credentials: true,

@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom';
-import type { PostSummary, Tag } from '@shared/types';
+import type { PostSummary } from '@shared/types';
 import { Badge } from '../ui/Badge';
 import { Icon } from '../ui/icons';
 import { api } from '../../lib/api';
+import { fetchTags } from '../../lib/resource';
 import { formatDateShort } from '../../lib/format';
 import { useAsync } from '../../hooks';
 import { useSettings } from '../../providers/SettingsProvider';
@@ -25,7 +26,7 @@ export function Sidebar() {
   const vt = features.viewTransitions;
 
   const recent = useAsync(() => api.get<PostSummary[]>('/posts?perPage=5&sort=newest').then((r) => r.data), []);
-  const tags = useAsync(() => api.get<Tag[]>('/tags').then((r) => r.data), []);
+  const tags = useAsync(() => fetchTags(), []);
 
   return (
     <div className="flex flex-col gap-5">

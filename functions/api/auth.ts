@@ -6,13 +6,14 @@ import {
   findUserWithHash,
   requireAuth,
 } from '../lib/auth';
-import { hashIp, hashPassword, verifyPassword } from '../lib/crypto';
+import { hashIp, hashPassword, passwordNeedsRehash, verifyPassword } from '../lib/crypto';
 import { run } from '../lib/db';
 import type { AppEnv } from '../lib/env';
 import { AppError } from '../lib/errors';
 import { clear, hit } from '../lib/rate-limit';
 import { ok } from '../lib/response';
 import { parseJson } from '../lib/validate';
+import { recordAudit } from '../lib/audit';
 
 export const authRoutes = new Hono<AppEnv>();
 
@@ -21,7 +22,14 @@ export const authRoutes = new Hono<AppEnv>();
  * exist, preventing trivial username enumeration via response latency.
  */
 const DUMMY_HASH =
-  'pbkdf2$sha256$100000$7JLZTZlF8PGGrR8OIj10MQ==$7h5ZZqKw78X74klSabwLqz5Qt/OzbepItyy4Ji8GKOI=';
+  'pbkdf2$sha256$210000$e+h6ecFNC4Zx8Bj914SbRA==$d3WQJL6XKgfBJZIbhxi4qOcn3YQZAu0Z2/pr2GJy2uI=';
+
+/**
+ * Password baked into `seed/seed.sql`. It is public knowledge, so a login that
+ * still uses it must be treated as an insecure deployment and flagged to the
+ * operator (plaintext comparison is enough — it is not a secret).
+ */
+const SEED_DEFAULT_PASSWORD = 'admin12345';
 
 const loginSchema = z.object({
   username: z.string().trim().min(1).max(64),
@@ -62,15 +70,38 @@ authRoutes.post('/login', async (c) => {
     throw AppError.unauthorized('用户名或密码错误');
   }
 
-  await createSession(c, { id: user.id, username: user.username, role: user.role });
+  await createSession(c, {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    tokenVersion: user.token_version,
+  });
   await clear(c.env, `login:${ipHash}`);
   await recordAttempt(c.env, `ip:${ipHash}`, true);
+
+  // Opportunistically upgrade a legacy (cheaper) hash now that we hold the
+  // plaintext. Best effort: never block a successful login on this.
+  if (passwordNeedsRehash(user.password_hash)) {
+    try {
+      const upgraded = await hashPassword(body.password);
+      await run(c.env, 'UPDATE users SET password_hash = ? WHERE id = ?', upgraded, user.id);
+    } catch {
+      /* keep the old hash; next login tries again */
+    }
+  }
+
+  // The ledger is unbounded; drop entries older than the retention window.
+  await run(
+    c.env,
+    "DELETE FROM login_attempts WHERE created_at < datetime('now', '-30 days')",
+  ).catch(() => undefined);
 
   return ok(c, {
     id: user.id,
     username: user.username,
     displayName: user.display_name,
     role: user.role,
+    defaultPassword: body.password === SEED_DEFAULT_PASSWORD,
   });
 });
 
@@ -108,8 +139,32 @@ authRoutes.post('/password', requireAuth, async (c) => {
   }
 
   const hash = await hashPassword(body.newPassword);
-  await run(c.env, 'UPDATE users SET password_hash = ? WHERE id = ?', hash, user.id);
-  // Invalidate all existing sessions for this user by rotating forward.
-  await createSession(c, user);
+  // Bumping token_version invalidates every previously issued JWT. The cookie
+  // we set below carries the new version, so this tab stays signed in while
+  // other devices have to log in again.
+  const nextVersion = row.token_version + 1;
+  await run(
+    c.env,
+    'UPDATE users SET password_hash = ?, token_version = ? WHERE id = ?',
+    hash,
+    nextVersion,
+    user.id,
+  );
+  await createSession(c, { ...user, tokenVersion: nextVersion });
+  await recordAudit(c.env, user, 'auth.password_change', 'user', user.id);
   return ok(c, { changed: true });
+});
+
+/**
+ * Revoke every session (all devices) without changing the password. Bumps
+ * `token_version`, then clears the current cookie so this browser also has to
+ * log in again — which is exactly what "sign out everywhere" should do.
+ */
+authRoutes.post('/logout-all', requireAuth, async (c) => {
+  const user = c.get('user');
+  if (!user) throw AppError.unauthorized();
+  await run(c.env, 'UPDATE users SET token_version = token_version + 1 WHERE id = ?', user.id);
+  await recordAudit(c.env, user, 'auth.logout_all', 'user', user.id);
+  destroySession(c);
+  return ok(c, { loggedOut: true, allDevices: true });
 });

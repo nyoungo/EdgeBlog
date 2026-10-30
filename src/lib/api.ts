@@ -26,6 +26,21 @@ export interface ApiResult<T> {
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
+/**
+ * Called when a request that needed a session came back 401 (expired cookie,
+ * revoked session after a password change on another device, …). AuthProvider
+ * registers this so the UI drops stale state instead of silently showing
+ * "failed to load" everywhere.
+ */
+let unauthorizedHandler: ((error: ApiError) => void) | null = null;
+
+export function setUnauthorizedHandler(handler: ((error: ApiError) => void) | null): void {
+  unauthorizedHandler = handler;
+}
+
+/** Endpoints where a 401 is an expected answer, not a lost session. */
+const AUTH_PROBES = new Set(['/auth/me', '/auth/login']);
+
 async function request<T>(method: Method, path: string, body?: unknown): Promise<ApiResult<T>> {
   const res = await fetch(`/api${path}`, {
     method,
@@ -49,7 +64,11 @@ async function request<T>(method: Method, path: string, body?: unknown): Promise
       json && json.ok === false
         ? json.error
         : { code: `HTTP_${res.status}`, message: res.statusText || '请求失败' };
-    throw new ApiError(res.status, error.code, error.message, error.details);
+    const apiError = new ApiError(res.status, error.code, error.message, error.details);
+    if (apiError.status === 401 && !AUTH_PROBES.has(path)) {
+      unauthorizedHandler?.(apiError);
+    }
+    throw apiError;
   }
   return json.meta ? { data: json.data, meta: json.meta } : { data: json.data };
 }

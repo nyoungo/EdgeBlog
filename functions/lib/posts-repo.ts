@@ -3,9 +3,9 @@ import type { Post, PostNeighbour, PostStatus, PostSummary, Tag } from '@shared/
 import { all, first, placeholders } from './db';
 import type { Env } from './env';
 
-/** Public visibility rule: published (or scheduled whose time has arrived). */
+/** Public visibility rule: live (not trashed) AND published (or scheduled whose time has arrived). */
 export const PUBLIC_VISIBLE_SQL =
-  "p.published_at IS NOT NULL AND p.published_at <= datetime('now') AND p.status IN ('published', 'scheduled')";
+  "p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= datetime('now') AND p.status IN ('published', 'scheduled')";
 
 export type SortOption = 'newest' | 'oldest' | 'popular' | 'title';
 
@@ -95,6 +95,7 @@ export async function listPosts(
   const binds: unknown[] = [];
 
   if (!opts.admin) conditions.push(`(${PUBLIC_VISIBLE_SQL})`);
+  else conditions.push('p.deleted_at IS NULL');
   if (opts.admin && opts.status) {
     conditions.push('p.status = ?');
     binds.push(opts.status);
@@ -122,24 +123,23 @@ export async function listPosts(
   const orderBy = SORT_SQL[opts.sort ?? 'newest'];
   const offset = (opts.page - 1) * opts.perPage;
 
-  const countRow = await first<{ total: number }>(
-    env,
-    `SELECT COUNT(*) AS total FROM posts p ${where}`,
-    ...binds,
-  );
+  // Count and page are independent: issue them together instead of paying two
+  // sequential D1 round trips per list request.
+  const [countRow, rows] = await Promise.all([
+    first<{ total: number }>(env, `SELECT COUNT(*) AS total FROM posts p ${where}`, ...binds),
+    all<PostRow>(
+      env,
+      `SELECT ${SELECT_COLUMNS}
+         FROM posts p LEFT JOIN users u ON u.id = p.author_id
+         ${where}
+        ORDER BY ${orderBy}
+        LIMIT ? OFFSET ?`,
+      ...binds,
+      opts.perPage,
+      offset,
+    ),
+  ]);
   const total = countRow?.total ?? 0;
-
-  const rows = await all<PostRow>(
-    env,
-    `SELECT ${SELECT_COLUMNS}
-       FROM posts p LEFT JOIN users u ON u.id = p.author_id
-       ${where}
-      ORDER BY ${orderBy}
-      LIMIT ? OFFSET ?`,
-    ...binds,
-    opts.perPage,
-    offset,
-  );
 
   const tagMap = await tagsForPosts(
     env,
@@ -161,7 +161,7 @@ export async function getPostBySlug(
   slug: string,
   opts: { admin?: boolean; idOnly?: boolean } = {},
 ): Promise<Post | null> {
-  const visibility = opts.admin ? '' : `AND ${PUBLIC_VISIBLE_SQL}`;
+  const visibility = opts.admin ? 'AND p.deleted_at IS NULL' : `AND ${PUBLIC_VISIBLE_SQL}`;
   const row = await first<FullRow>(
     env,
     `SELECT ${SELECT_COLUMNS}, p.content_md
@@ -176,12 +176,65 @@ export async function getPostBySlug(
   return post as Post;
 }
 
+export interface PostSeoRow {
+  title: string;
+  excerpt: string;
+  meta_title: string | null;
+  meta_description: string | null;
+  og_image: string | null;
+  cover_url: string | null;
+  word_count: number;
+  published_at: string | null;
+  updated_at: string;
+}
+
+/**
+ * Metadata-only lookup for the HTML shell. Crawlers are by far the most
+ * frequent visitor to article URLs and they never read the body, so this
+ * avoids shipping `content_md` out of D1 on every crawl.
+ */
+export async function getPostSeoBySlug(env: Env, slug: string): Promise<PostSeoRow | null> {
+  return first<PostSeoRow>(
+    env,
+    `SELECT p.title, p.excerpt, p.meta_title, p.meta_description, p.og_image,
+            p.cover_url, p.word_count, p.published_at, p.updated_at
+       FROM posts p
+      WHERE p.slug = ? AND (${PUBLIC_VISIBLE_SQL})`,
+    slug,
+  );
+}
+
+export interface ArchiveEntry {
+  slug: string;
+  title: string;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Every public article, newest first, in a few tiny columns. Powers the archive
+ * page and the sitemap (which previously hard-capped at the list endpoint's
+ * 500-row limit, silently dropping older posts from search engines).
+ */
+export async function listArchive(env: Env, limit = 20_000): Promise<ArchiveEntry[]> {
+  return all<ArchiveEntry>(
+    env,
+    `SELECT p.slug, p.title, p.published_at, p.created_at, p.updated_at
+       FROM posts p
+      WHERE (${PUBLIC_VISIBLE_SQL})
+      ORDER BY COALESCE(p.published_at, p.created_at) DESC
+      LIMIT ?`,
+    limit,
+  );
+}
+
 export async function getPostById(env: Env, id: number): Promise<Post | null> {
   const row = await first<FullRow>(
     env,
     `SELECT ${SELECT_COLUMNS}, p.content_md
        FROM posts p LEFT JOIN users u ON u.id = p.author_id
-      WHERE p.id = ?`,
+      WHERE p.id = ? AND p.deleted_at IS NULL`,
     id,
   );
   if (!row) return null;
@@ -196,7 +249,7 @@ export async function getNeighbours(
   current: Post,
   admin = false,
 ): Promise<{ prev: PostNeighbour | null; next: PostNeighbour | null }> {
-  const visibility = admin ? '' : `AND ${PUBLIC_VISIBLE_SQL}`;
+  const visibility = admin ? 'AND p.deleted_at IS NULL' : `AND ${PUBLIC_VISIBLE_SQL}`;
   const anchor = current.published_at ?? current.created_at;
   const [prev, next] = await Promise.all([
     first<PostNeighbour>(
@@ -247,4 +300,32 @@ export async function getRelated(env: Env, post: Post, limit = 3): Promise<PostS
     rows.map((r) => r.id),
   );
   return rows.map((row) => toSummary(row, tagMap.get(row.id) ?? []));
+}
+
+/** Soft-deleted posts, newest deletion first — powers the recycle bin. */
+export async function listTrash(
+  env: Env,
+  opts: { page: number; perPage: number },
+): Promise<{ items: Array<PostSummary & { deleted_at: string }>; total: number; page: number; perPage: number; totalPages: number }> {
+  const offset = (opts.page - 1) * opts.perPage;
+  const [countRow, rows] = await Promise.all([
+    first<{ total: number }>(env, 'SELECT COUNT(*) AS total FROM posts p WHERE p.deleted_at IS NOT NULL'),
+    all<PostRow & { deleted_at: string }>(
+      env,
+      `SELECT ${SELECT_COLUMNS}, p.deleted_at
+         FROM posts p LEFT JOIN users u ON u.id = p.author_id
+        WHERE p.deleted_at IS NOT NULL
+        ORDER BY p.deleted_at DESC, p.id DESC
+        LIMIT ? OFFSET ?`,
+      opts.perPage,
+      offset,
+    ),
+  ]);
+  const total = countRow?.total ?? 0;
+  const tagMap = await tagsForPosts(env, rows.map((r) => r.id));
+  const items = rows.map((row) => {
+    const { deleted_at, ...rest } = row;
+    return { ...toSummary(rest, tagMap.get(row.id) ?? []), deleted_at };
+  });
+  return { items, total, page: opts.page, perPage: opts.perPage, totalPages: Math.max(1, Math.ceil(total / opts.perPage)) };
 }

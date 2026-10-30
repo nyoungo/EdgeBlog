@@ -9,6 +9,7 @@ import { parseJson } from '../lib/validate';
 import { requireAuth } from '../lib/auth';
 import type { Tag } from '@shared/types';
 import { PUBLIC_VISIBLE_SQL } from '../lib/posts-repo';
+import { recordAudit } from '../lib/audit';
 
 export const tagRoutes = new Hono<AppEnv>();
 
@@ -17,6 +18,8 @@ interface TagWithCount extends Tag {
 }
 
 tagRoutes.get('/', async (c) => {
+  // Admin management needs empty tags too; the public list hides count = 0.
+  const includeEmpty = Boolean(c.get('user')) && c.req.query('all') === '1';
   const rows = await all<TagWithCount>(
     c.env,
     `SELECT t.id, t.name, t.slug, COUNT(p.id) AS post_count
@@ -24,10 +27,10 @@ tagRoutes.get('/', async (c) => {
        LEFT JOIN post_tags pt ON pt.tag_id = t.id
        LEFT JOIN posts p ON p.id = pt.post_id AND (${PUBLIC_VISIBLE_SQL})
       GROUP BY t.id, t.name, t.slug
-      HAVING post_count > 0
+      ${includeEmpty ? '' : 'HAVING post_count > 0'}
       ORDER BY post_count DESC, t.name ASC`,
   );
-  c.header('Cache-Control', 'public, max-age=60, s-maxage=300');
+  c.header('Cache-Control', includeEmpty ? 'no-store' : 'public, max-age=60, s-maxage=300');
   return ok(c, rows);
 });
 
@@ -51,6 +54,9 @@ tagRoutes.post('/', requireAuth, async (c) => {
       'SELECT id, name, slug FROM tags WHERE id = ?',
       result.meta.last_row_id,
     );
+    await recordAudit(c.env, c.get('user'), 'tag.create', 'tag', Number(result.meta.last_row_id), {
+      name: body.name,
+    });
     return c.json({ ok: true, data: row }, 201);
   } catch (err) {
     if (isUniqueViolation(err)) throw AppError.conflict('同名标签或 slug 已存在');
@@ -77,6 +83,7 @@ tagRoutes.put('/:id', requireAuth, async (c) => {
     throw err;
   }
   const row = await first<Tag>(c.env, 'SELECT id, name, slug FROM tags WHERE id = ?', id);
+  await recordAudit(c.env, c.get('user'), 'tag.update', 'tag', id, { name: body.name });
   return ok(c, row);
 });
 
@@ -88,5 +95,6 @@ tagRoutes.delete('/:id', requireAuth, async (c) => {
   await run(c.env, 'DELETE FROM post_tags WHERE tag_id = ?', id);
   const result = await run(c.env, 'DELETE FROM tags WHERE id = ?', id);
   if (result.meta.changes === 0) throw AppError.notFound('标签不存在');
+  await recordAudit(c.env, c.get('user'), 'tag.delete', 'tag', id);
   return ok(c, { deleted: true });
 });

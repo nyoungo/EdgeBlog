@@ -1,24 +1,28 @@
 import { Link } from 'react-router-dom';
-import { useMemo } from 'react';
-import type { PostSummary } from '@shared/types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ArchiveEntry } from '@shared/types';
 import { EmptyState, Skeleton } from '../components/ui/Feedback';
 import { Icon } from '../components/ui/icons';
 import { PageWithSidebar } from '../components/layout/PageWithSidebar';
-import { api, qs } from '../lib/api';
+import { api } from '../lib/api';
 import { formatDateShort } from '../lib/format';
 import { useAsync, useDocumentTitle } from '../hooks';
 import { useSettings } from '../providers/SettingsProvider';
+import { cn } from '../lib/utils';
 
 export function ArchivePage() {
   const { settings } = useSettings();
+  // The archive used to paginate `/posts`, so it silently dropped everything
+  // past the first 50 articles. This endpoint returns every published post in
+  // a few tiny columns.
   const { data, loading } = useAsync(
-    () => api.get<PostSummary[]>(`/posts${qs({ perPage: 50, sort: 'newest' })}`).then((r) => r.data),
+    () => api.get<ArchiveEntry[]>('/posts/archive').then((r) => r.data),
     [],
   );
   useDocumentTitle('归档', settings.site.name);
 
   const groups = useMemo(() => {
-    const map = new Map<string, PostSummary[]>();
+    const map = new Map<string, ArchiveEntry[]>();
     for (const post of data ?? []) {
       const year = (post.published_at ?? post.created_at ?? '').slice(0, 4) || '未知';
       const list = map.get(year) ?? [];
@@ -28,16 +32,52 @@ export function ArchivePage() {
     return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [data]);
 
+  // Lazy years: start with the newest year expanded and render the rest only
+  // once the reader opens them. Keeps a ten-year archive from mounting
+  // hundreds of rows up front.
+  const [openYears, setOpenYears] = useState<Set<string>>(new Set());
+  const initialized = useRef(false);
+  useEffect(() => {
+    if (initialized.current || groups.length === 0) return;
+    initialized.current = true;
+    setOpenYears(new Set([groups[0]?.[0] ?? '']));
+  }, [groups]);
+
+  const toggleYear = (year: string) => {
+    setOpenYears((prev) => {
+      const next = new Set(prev);
+      if (next.has(year)) next.delete(year);
+      else next.add(year);
+      return next;
+    });
+  };
+
+  const allOpen = groups.length > 0 && groups.every(([year]) => openYears.has(year));
+  const toggleAll = () => {
+    setOpenYears(allOpen ? new Set() : new Set(groups.map(([year]) => year)));
+  };
+
   const total = data?.length ?? 0;
 
   return (
     <PageWithSidebar>
-      <header className="mb-8">
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-fg">
-          <Icon name="calendar" size={22} className="text-brand" />
-          归档
-        </h1>
-        <p className="mt-1.5 text-sm text-muted">{total > 0 ? `共 ${total} 篇文章` : '按时间浏览全部文章'}</p>
+      <header className="mb-8 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-fg">
+            <Icon name="calendar" size={22} className="text-brand" />
+            归档
+          </h1>
+          <p className="mt-1.5 text-sm text-muted">{total > 0 ? `共 ${total} 篇文章` : '按时间浏览全部文章'}</p>
+        </div>
+        {groups.length > 1 && (
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="text-xs font-medium text-faint transition-colors hover:text-brand"
+          >
+            {allOpen ? '全部收起' : '全部展开'}
+          </button>
+        )}
       </header>
 
       {loading && !data ? (
@@ -49,31 +89,46 @@ export function ArchivePage() {
       ) : groups.length === 0 ? (
         <EmptyState icon="calendar" title="还没有文章" />
       ) : (
-        <div className="space-y-10">
-          {groups.map(([year, posts]) => (
-            <section key={year}>
-              <h2 className="mb-4 flex items-center gap-3 text-lg font-semibold text-fg">
-                {year}
-                <span className="text-sm font-normal text-faint">{posts.length} 篇</span>
-                <span className="h-px flex-1 bg-border" />
-              </h2>
-              <ul className="space-y-1">
-                {posts.map((post) => (
-                  <li key={post.id}>
-                    <Link
-                      to={`/posts/${post.slug}`}
-                      className="flex items-baseline gap-3 rounded-md px-2 py-2 no-underline transition-colors hover:bg-surface-2"
-                    >
-                      <time className="shrink-0 font-mono text-xs text-faint">
-                        {formatDateShort(post.published_at ?? post.created_at).slice(5)}
-                      </time>
-                      <span className="text-sm font-medium text-fg hover:text-brand">{post.title}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+        <div className="space-y-6">
+          {groups.map(([year, posts]) => {
+            const open = openYears.has(year);
+            return (
+              <section key={year}>
+                <button
+                  type="button"
+                  onClick={() => toggleYear(year)}
+                  aria-expanded={open}
+                  className="group flex w-full items-center gap-3 py-1 text-left"
+                >
+                  <Icon
+                    name="chevronRight"
+                    size={18}
+                    className={cn('shrink-0 text-faint transition-transform', open && 'rotate-90')}
+                  />
+                  <span className="text-lg font-semibold text-fg">{year}</span>
+                  <span className="text-sm font-normal text-faint">{posts.length} 篇</span>
+                  <span className="h-px flex-1 bg-border" />
+                </button>
+                {open && (
+                  <ul className="mt-2 space-y-1">
+                    {posts.map((post) => (
+                      <li key={post.slug}>
+                        <Link
+                          to={`/posts/${encodeURIComponent(post.slug)}`}
+                          className="flex items-baseline gap-3 rounded-md px-2 py-2 no-underline transition-colors hover:bg-surface-2"
+                        >
+                          <time className="shrink-0 font-mono text-xs text-faint">
+                            {formatDateShort(post.published_at ?? post.created_at).slice(5)}
+                          </time>
+                          <span className="text-sm font-medium text-fg hover:text-brand">{post.title}</span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            );
+          })}
         </div>
       )}
     </PageWithSidebar>

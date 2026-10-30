@@ -1,16 +1,27 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { AiSettings, AiSettingsView } from '@shared/types';
-import { requireAuth } from '../lib/auth';
+import { requireAdmin } from '../lib/auth';
 import { chatComplete, listAiModels, readAiSettings, writeAiSettings, type ChatMessage } from '../lib/ai';
 import type { AppEnv } from '../lib/env';
 import { AppError } from '../lib/errors';
+import { hit } from '../lib/rate-limit';
 import { ok } from '../lib/response';
 import { parseJson } from '../lib/validate';
 
 export const aiRoutes = new Hono<AppEnv>();
 
-aiRoutes.use('*', requireAuth);
+aiRoutes.use('*', requireAdmin);
+
+/**
+ * Throttle the two routes that spend real money (upstream API calls / tokens).
+ * Keyed per admin account so one runaway editor tab cannot drain the quota.
+ */
+async function limitUpstream(c: Context<AppEnv>, bucket: string, limit: number, windowSeconds: number): Promise<void> {
+  const userId = c.get('user')?.id ?? 'anon';
+  const result = await hit(c.env, `ai:${bucket}:${userId}`, limit, windowSeconds);
+  if (!result.allowed) throw AppError.rateLimited('操作过于频繁，请稍后再试');
+}
 
 function view(settings: AiSettings): AiSettingsView {
   const { apiKey, ...rest } = settings;
@@ -54,6 +65,7 @@ const modelsSchema = z.object({
 
 /** Admin: list the models offered by the configured provider. */
 aiRoutes.post('/models', async (c) => {
+  await limitUpstream(c, 'models', 10, 60);
   const body = await parseJson(c, modelsSchema);
   return ok(c, { models: await listAiModels(c.env, body) });
 });
@@ -69,6 +81,7 @@ const CONTENT_INPUT_LIMIT = 12_000;
 
 /** Admin: generate an excerpt or a full article via the configured provider. */
 aiRoutes.post('/generate', async (c) => {
+  await limitUpstream(c, 'generate', 20, 300);
   const body = await parseJson(c, generateSchema);
   const settings = await readAiSettings(c.env);
 

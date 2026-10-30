@@ -27,7 +27,8 @@ export const onRequest = async (context: Ctx): Promise<Response> => {
 
   const entries = items
     .map((post) => {
-      const link = `${origin}/posts/${post.slug}`;
+      // CJK slugs must be percent-encoded to form a usable feed link.
+      const link = `${origin}/posts/${encodeURIComponent(post.slug)}`;
       const date = pubDate(post.published_at);
       const tags = post.tags.map((t) => `      <category>${escapeXml(t.name)}</category>`).join('\n');
       return [

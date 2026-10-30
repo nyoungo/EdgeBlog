@@ -89,7 +89,7 @@ const FEATURE_LABELS: Record<keyof FeatureFlags, { label: string; description: s
   viewTransitions: { label: '视图过渡动画', description: '使用 View Transitions API' },
   toc: { label: '文章目录', description: '在长文旁显示目录' },
   backToTop: { label: '返回顶部', description: '显示悬浮返回顶部按钮' },
-  newsletter: { label: '订阅模块', description: '首页显示邮箱订阅模块' },
+  newsletter: { label: '订阅模块', description: '首页显示 RSS 订阅模块' },
   relatedPosts: { label: '相关文章', description: '文章底部显示相关内容' },
   prevNext: { label: '上一篇 / 下一篇', description: '文章底部显示相邻文章导航' },
 };

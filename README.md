@@ -60,7 +60,10 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 │  └─ settings-defaults.ts    #   配置默认值（合并回退 + 「恢复默认」共用）
 ├─ migrations/                # D1 迁移
 │  ├─ 0001_init.sql           #   基础表
-│  └─ 0002_fts.sql            #   FTS5 全文索引 + 同步触发器
+│  ├─ 0002_fts.sql            #   FTS5 全文索引 + 同步触发器
+│  ├─ 0003_auth_hardening.sql #   会话版本（token_version）+ 评论索引
+│  ├─ 0004_write_amplification.sql # 浏览量不再触发 updated_at / FTS 重写
+│  └─ 0005_audit_and_soft_delete.sql # 审计日志 + 文章软删除(deleted_at)
 ├─ seed/seed.sql              # 种子数据（默认设置 / 示例文章 / 管理员）
 ├─ scripts/hash-password.mjs  # 生成 PBKDF2 密码哈希
 ├─ public/                    # 静态资源（_headers / favicon 等）
@@ -87,7 +90,7 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 | 对象存储 | R2 | 零出口流量费，天然适合图片 |
 | 缓存 | KV | 缓存全站配置与热点文章；同时做登录/评论的频率计数 |
 | 认证 | 自建 JWT（HS256）+ HttpOnly Secure Cookie | 无第三方依赖，可在 Workers 内用 Web Crypto 完成 |
-| 密码 | PBKDF2-SHA256 (100k 迭代) | Web Crypto 原生支持，Workers 零依赖 |
+| 密码 | PBKDF2-SHA256 (210k 迭代) | Web Crypto 原生支持，Workers 零依赖;旧哈希在下次登录时自动升级 |
 | Markdown | marked | 快、体积小、GFM 开箱即用 |
 | 净化 | DOMPurify（浏览器端） | 见下方「XSS 净化策略」 |
 | 代码高亮 | highlight.js | 体积可控、按需注册语言、主题可配 |
@@ -215,12 +218,12 @@ npm run deploy
 
 | 变量 | 位置 | 说明 |
 | --- | --- | --- |
-| `JWT_SECRET` | Secret | 签署 JWT 的密钥，≥ 32 字符 |
-| `ENVIRONMENT` | vars | `production` / `development`（`development` 时 Cookie 不加 `Secure`） |
+| `JWT_SECRET` | Secret | 签署 JWT 的密钥，≥ 32 字符；缺失或过短时 API 启动即返回 500（fail fast） |
+| `ENVIRONMENT` | vars | `production` / `development`（`development` 时 Cookie 不加 `Secure`，并允许 http 内网 AI 地址） |
 | `SITE_URL` | vars | 站点对外地址（**绑自定义域名后改成自己的域名**），用于 canonical / RSS / sitemap / OG |
 | `MEDIA_PUBLIC_BASE` | vars | 上传图片的公开前缀，**默认留空**：图片存相对路径 `/media/<key>`，自动跟随访问域名；仅当 R2 绑定了独立自定义域名时才设置 |
 | `SESSION_COOKIE` | vars | 会话 Cookie 名称，默认 `eb_session` |
-| `ALLOWED_ORIGINS` | vars | CORS 白名单，同源部署填 `*` 即可 |
+| `ALLOWED_ORIGINS` | vars | 额外允许的跨域来源（完整 origin，逗号分隔）。同源始终允许；`*` 会被忽略（带凭据的 CORS 不能通配） |
 
 绑定：`DB`(D1) · `MEDIA`(R2) · `CACHE`(KV) · `ASSETS`(Pages 静态资源)。
 
@@ -231,12 +234,13 @@ npm run deploy
 | 表 | 用途 |
 | --- | --- |
 | `users` | 管理员/编辑，PBKDF2 密码哈希 |
-| `posts` | 文章正文(Markdown)、状态、定时发布、SEO 覆盖、字数、浏览量 |
+| `posts` | 文章正文(Markdown)、状态、定时发布、SEO 覆盖、字数、浏览量;`deleted_at` 非空 = 回收站 |
 | `tags` / `post_tags` | 标签与多对多关联 |
 | `comments` | 嵌套评论，审核状态，`ip_hash` 仅用于防刷 |
 | `settings` | 全站配置，按命名空间存 JSON —— 定制系统的单一事实来源 |
 | `media` | R2 对象索引 |
 | `login_attempts` | 登录限流的持久化账本 |
+| `audit_log` | 后台重要操作审计(操作者、动作、对象、时间) |
 | `posts_fts` | FTS5 全文索引（trigram），由触发器与 `posts` 同步 |
 
 ---
@@ -272,42 +276,51 @@ npm run deploy
 ## API 一览
 
 所有接口统一返回信封：成功 `{ ok: true, data, meta? }`，失败 `{ ok: false, error: { code, message, details? } }`。
-写操作（POST/PUT/PATCH/DELETE）需通过同源 CSRF 校验；带 🔒 的接口需要登录会话。
+写操作（POST/PUT/PATCH/DELETE）需通过同源 CSRF 校验；带 🔒 的接口需要登录会话，带 🔑 的额外要求 `admin` 角色。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/health` | 健康检查 |
 | POST | `/api/auth/login` | 登录，签发 HttpOnly Cookie |
 | POST | `/api/auth/logout` | 登出 |
+| POST | `/api/auth/logout-all` 🔒 | 退出所有设备(递增 `token_version` 吊销全部会话) |
 | GET | `/api/auth/me` | 当前会话用户 |
 | POST | `/api/auth/password` 🔒 | 修改密码（校验旧密码 + 强度） |
 | GET | `/api/posts` | 公开文章列表（`page`/`perPage`/`tag`/`q`/`sort`/`featured`） |
 | GET | `/api/posts/:slug` | 文章详情 + 标签 + 上一篇/下一篇 + 相关 |
 | POST | `/api/posts/:slug/view` | 浏览量 +1（KV 去重 / 尊重功能开关） |
+| GET | `/api/posts/archive` | 归档页全量轻量列表 |
+| GET | `/api/posts/trash` 🔒 | 回收站(软删除的文章) |
 | GET | `/api/posts/admin` 🔒 | 后台文章列表（含草稿/定时/筛选） |
 | POST | `/api/posts` 🔒 | 新建文章（自动 slug、摘要、标签） |
 | PUT | `/api/posts/:id` 🔒 | 更新文章 |
-| DELETE | `/api/posts/:id` 🔒 | 删除文章 |
-| GET | `/api/tags` | 标签及文章数 |
+| DELETE | `/api/posts/:id` 🔒 | 移入回收站(软删除) |
+| POST | `/api/posts/:id/restore` 🔒 | 从回收站恢复 |
+| DELETE | `/api/posts/:id/purge` 🔒 | 彻底删除(仅限回收站内文章) |
+| GET | `/api/tags` | 标签及文章数(`?all=1` 登录后含空标签) |
 | POST/PUT/DELETE | `/api/tags[/:id]` 🔒 | 标签增删改 |
 | GET | `/api/comments/post/:slug` | 已审核评论（嵌套树） |
 | POST | `/api/comments` | 提交评论（蜜罐 + 频率限制 + 审核） |
 | GET | `/api/comments` 🔒 | 后台评论列表（按状态/文章/关键词筛选） |
+| POST | `/api/comments/batch` 🔒 | 批量审核/删除(approved/rejected/spam/delete) |
 | PATCH | `/api/comments/:id` 🔒 | 审核（approved/rejected/spam/pending） |
 | DELETE | `/api/comments/:id` 🔒 | 删除评论（级联子评论） |
 | GET | `/api/settings/public` | 公开配置（KV 缓存 60s，驱动主题） |
-| GET | `/api/settings` 🔒 | 原始配置 + 默认值（外观面板用） |
-| PATCH | `/api/settings/:namespace` 🔒 | 增量更新某命名空间（对象深合并 / 数组整体替换） |
-| POST | `/api/settings/reset` 🔒 | 恢复默认（可指定命名空间） |
-| GET | `/api/media` 🔒 | 媒体库分页 |
+| GET | `/api/settings` 🔑 | 原始配置 + 默认值（外观面板用） |
+| PATCH | `/api/settings/:namespace` 🔑 | 增量更新某命名空间（对象深合并 / 数组整体替换） |
+| POST | `/api/settings/reset` 🔑 | 恢复默认（可指定命名空间） |
+| GET | `/api/media` 🔒 | 媒体库分页(支持 `q` 文件名搜索) |
 | POST | `/api/media/upload` 🔒 | 上传图片到 R2（multipart，≤8MB；前端可选客户端压缩） |
+| GET | `/api/media/:id/usage` 🔒 | 图片被哪些文章引用(删除前检查) |
 | DELETE | `/api/media/:id` 🔒 | 删除媒体（同时删 R2 对象） |
 | GET | `/api/search?q=` | 全文搜索（FTS5，短词自动回退 LIKE） |
 | GET | `/api/stats` 🔒 | 仪表盘统计（文章/浏览量/评论） |
-| GET | `/api/ai/settings` 🔒 | AI 配置（密钥以 `hasApiKey` 代替，绝不回传明文） |
-| PATCH | `/api/ai/settings` 🔒 | 更新 AI 配置（空 `apiKey` = 保持不变，`clearApiKey` 可清除） |
-| POST | `/api/ai/models` 🔒 | 拉取服务商可用模型列表（使用已保存的密钥） |
-| POST | `/api/ai/generate` 🔒 | 代理调用大模型，生成摘要 / 正文（服务端持有密钥） |
+| GET | `/api/audit` 🔑 | 审计日志(分页,可按动作前缀筛选) |
+| GET | `/api/export` 🔑 | 导出文章/标签/媒体清单/设置为 JSON |
+| GET | `/api/ai/settings` 🔑 | AI 配置（密钥以 `hasApiKey` 代替，绝不回传明文） |
+| PATCH | `/api/ai/settings` 🔑 | 更新 AI 配置（空 `apiKey` = 保持不变，`clearApiKey` 可清除） |
+| POST | `/api/ai/models` 🔑 | 拉取服务商可用模型列表（使用已保存的密钥） |
+| POST | `/api/ai/generate` 🔑 | 代理调用大模型，生成摘要 / 正文（服务端持有密钥） |
 
 `namespace` ∈ `site · theme · layout · navigation · social · features · advanced · comments · pages`（`ai` 为后台专用命名空间，不进入公开配置）。
 
@@ -411,6 +424,7 @@ curl -s -b jar.txt -X POST localhost:8788/api/media/upload -F "file=@cover.png"
 会话解析 / 文章 CRUD / 草稿对公开不可见 / 评论提交（待审）· 蜜罐静默接受 · 审核 /
 媒体 上传→访问→删除（R2）/ 设置 深合并·数组替换·恢复默认 /
 安全（CSRF 403、未授权 401、校验 422）。
+自动化测试:`npm test` 共 45 个用例,覆盖 JWT 吊销、CORS 预检、URL 协议校验、设置深合并、评论树与 SEO 注入。
 
 ---
 
@@ -459,7 +473,7 @@ curl -s -b jar.txt -X POST localhost:8788/api/media/upload -F "file=@cover.png"
 - `MusicPlayerHost` 单例持有 `MusicPlayer` 实例并串行化创建/销毁，规避严格模式下的重复挂载与音频泄漏
 - 语言 / 播放模式 / 主题 / 尺寸（宽度、底部距离、歌单高度、可视数量）/ 音量 / 自动展开 / 彩色歌词 / 可视化 / 记忆播放均可在后台配置
 - **强调色始终跟随博客主题色**：通过 `customThemeStyle` 注入 `--theme-color` 等变量（取自设计令牌 `--c-brand`，随主题预设与自定义主色变化）；主题选 `auto-theme` 时按博客当前亮暗模式回落到 `xf-dark-theme` / `xf-original-theme`，而非跟随系统
-- 不涉及 CSP 调整：站点文档本身未声明 CSP，外部播放器与音频/图片可正常加载
+- CSP 由 `public/_headers` 与 Functions 的 shell 响应统一声明:`'unsafe-inline'` 仅用于内联主题引导脚本、用户 `headHtml` 与 CSS 变量;`img-src` / `media-src` / `connect-src` 允许 `https:` 以便外部图片、音频与播放器工作
 
 ---
 
@@ -469,7 +483,7 @@ curl -s -b jar.txt -X POST localhost:8788/api/media/upload -F "file=@cover.png"
 | --- | --- | --- |
 | `/*`（HTML 导航） | `functions/lib/seo.ts` | 取静态外壳，注入 `<title>` / description / canonical / Open Graph / Twitter Card / JSON-LD（首页 WebSite、文章 BlogPosting），并把合并后的公开配置内联为 `#eb-boot-settings`（客户端首帧直接水合，避免闪现默认站点名）后返回 |
 | `/rss.xml` | `functions/rss.xml.ts` | 最新 20 篇公开文章；`features.rss` 关闭时 404 |
-| `/sitemap.xml` | `functions/sitemap.xml.ts` | 静态页 + 全部公开文章，含 `lastmod` |
+| `/sitemap.xml` | `functions/sitemap.xml.ts` | 静态页 + 全部公开文章(不分页截断),含 `lastmod`、`changefreq`、`priority` |
 | `/robots.txt` | `functions/robots.txt.ts` | 放行全站、屏蔽 `/admin` 与 `/api/`，声明 Sitemap |
 
 SEO 注入失败时**不影响页面下发**（try/catch 回退原始外壳）；canonical 与绝对链接使用 `SITE_URL`。
@@ -508,13 +522,14 @@ curl -s localhost:8788/robots.txt
 
 - 所有 SQL 参数化（`prepare().bind()`），禁止字符串拼接
 - Markdown 渲染后经 DOMPurify 净化，唯一入口 `src/lib/markdown.ts`
-- 登录/评论频率限制（KV 计数 + `login_attempts` 账本）
-- 密码强度校验、PBKDF2-SHA256 加盐哈希
-- JWT 存于 `HttpOnly; Secure; SameSite=Lax` Cookie；写操作校验同源（CSRF）
+- 登录/评论频率限制(KV 计数 + `login_attempts` 账本);AI 调用与图片上传另有独立配额
+- 密码强度校验、PBKDF2-SHA256 加盐哈希(210k 迭代,登录时自动 rehash)
+- JWT 存于 `HttpOnly; Secure; SameSite=Lax` Cookie;写操作校验同源(CSRF);`token_version` 支持会话吊销
 - 后台 API 全部经过会话中间件；敏感操作二次校验登录态
 - 评论内容纯文本转义后存储/展示，`email` 永不对外暴露
-- 上传接口校验 MIME 白名单与体积上限
-- 统一安全响应头（CSP / nosniff / HSTS 等，见 `public/_headers` 与 API 中间件）
+- 上传接口校验 magic bytes、MIME 白名单与体积上限;入库失败回滚 R2 对象
+- 统一安全响应头(CSP / nosniff / HSTS 等,见 `public/_headers` 与 API 中间件),预览域名自动 noindex
+- CI(`.github/workflows/ci.yml`)执行 lint / typecheck / test / build
 
 ---
 

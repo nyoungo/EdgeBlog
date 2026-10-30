@@ -18,6 +18,37 @@ const PROVIDER_BASE: Record<AiSettings['provider'], string> = {
 
 const REQUEST_TIMEOUT_MS = 60_000;
 
+/** Loopback hosts tolerated over plain http so local providers keep working. */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+/**
+ * Validate an outbound provider URL before the stored API key is attached to a
+ * request. Only http(s) is allowed: `new URL()` alone happily accepts
+ * `javascript:`, `file:` or `data:` payloads.
+ */
+export function normalizeAiBaseUrl(env: Env, raw: string): string {
+  const value = raw.trim();
+  if (!value) return '';
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw AppError.badRequest('AI 接口地址不是合法的 URL');
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw AppError.badRequest('AI 接口地址必须以 https:// 或 http:// 开头');
+  }
+  if (url.username || url.password) {
+    throw AppError.badRequest('AI 接口地址不能包含用户名或密码');
+  }
+  const isDev = (env.ENVIRONMENT ?? 'production') === 'development';
+  if (url.protocol === 'http:' && !isDev && !LOOPBACK_HOSTS.has(url.hostname)) {
+    throw AppError.badRequest('生产环境的 AI 接口地址必须使用 https://');
+  }
+  return value;
+}
+
 interface StoredRow {
   value_json: string;
 }
@@ -79,6 +110,7 @@ export async function writeAiSettings(env: Env, patch: Partial<AiSettings>): Pro
     }
   }
   const next = normalize({ ...(typeof current === 'object' && current !== null ? current : {}), ...patch });
+  next.baseUrl = normalizeAiBaseUrl(env, next.baseUrl);
   await env.DB.prepare(
     `INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, datetime('now'))
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = datetime('now')`,
@@ -113,7 +145,7 @@ export async function chatComplete(env: Env, messages: ChatMessage[]): Promise<s
   if (!ai.enabled) throw AppError.badRequest('AI 功能尚未启用，请先在「AI 设置」中开启');
   if (!ai.apiKey) throw AppError.badRequest('尚未配置 AI API Key，请先在「AI 设置」中填写');
 
-  const base = ai.baseUrl || PROVIDER_BASE[ai.provider];
+  const base = normalizeAiBaseUrl(env, ai.baseUrl || PROVIDER_BASE[ai.provider]);
   if (!base) throw AppError.badRequest('尚未配置 AI 接口地址（Base URL）');
   if (!ai.model) throw AppError.badRequest('尚未配置 AI 模型名称');
 
@@ -171,7 +203,10 @@ export async function listAiModels(
   if (!ai.apiKey) throw AppError.badRequest('请先填写并保存 API Key，再获取模型列表');
 
   const provider = override?.provider ?? ai.provider;
-  const base = (override?.baseUrl ?? '').trim() || ai.baseUrl || PROVIDER_BASE[provider];
+  const base = normalizeAiBaseUrl(
+    env,
+    (override?.baseUrl ?? '').trim() || ai.baseUrl || PROVIDER_BASE[provider],
+  );
   if (!base) throw AppError.badRequest('尚未配置接口地址（Base URL）');
 
   const controller = new AbortController();

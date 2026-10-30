@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Card, Centered, Spinner } from '../../components/ui/Feedback';
+import { Card, Centered, ErrorState, Spinner } from '../../components/ui/Feedback';
 import { StatusBadge } from '../../components/ui/Badge';
 import { Icon, type IconName } from '../../components/ui/icons';
 import { api } from '../../lib/api';
@@ -40,7 +40,7 @@ function StatCard({ label, value, icon, hint }: { label: string; value: string |
 
 export function DashboardPage() {
   const { settings } = useSettings();
-  const { data, loading } = useAsync(() => api.get<Stats>('/stats').then((r) => r.data), []);
+  const { data, loading, error, reload } = useAsync(() => api.get<Stats>('/stats').then((r) => r.data), []);
   useDocumentTitle('概览', settings.site.name);
 
   if (loading && !data) {
@@ -49,6 +49,9 @@ export function DashboardPage() {
         <Spinner />
       </Centered>
     );
+  }
+  if (error && !data) {
+    return <ErrorState title="概览加载失败" description={error} onRetry={reload} />;
   }
   if (!data) return null;
 
@@ -66,6 +69,15 @@ export function DashboardPage() {
           <Icon name="plus" size={17} />
           写文章
         </Link>
+        <a
+          href="/api/export"
+          download
+          className="inline-flex h-10 items-center gap-2 rounded-md border border-border px-4 text-sm font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+          title="导出文章 / 标签 / 媒体清单 / 设置为 JSON"
+        >
+          <Icon name="save" size={16} />
+          导出数据
+        </a>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

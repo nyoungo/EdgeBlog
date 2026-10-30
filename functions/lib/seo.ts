@@ -9,7 +9,7 @@
 import type { Env } from './env';
 import type { PublicSettings } from '@shared/types';
 import { renderFaviconSvg } from './favicon';
-import { getPostBySlug } from './posts-repo';
+import { getPostSeoBySlug } from './posts-repo';
 import { getSettings } from './settings';
 
 /**
@@ -33,7 +33,14 @@ export interface SeoMeta {
   locale: string;
   /** Absolute path or URL of the tab icon (`site.favicon`, else the generated one). */
   favicon: string;
+  /** HTTP status the shell should be served with (404 for a missing article). */
+  status: number;
+  /** Emit `<meta name="robots" content="noindex">` (404s, preview hosts, search). */
+  noindex: boolean;
+  /** Absolute discovery URL for the feed, when RSS is enabled. */
+  rssUrl?: string | null;
   publishedAt?: string | null;
+  updatedAt?: string | null;
   author?: string | null;
   jsonLd?: Record<string, unknown> | null;
 }
@@ -65,23 +72,44 @@ const TITLES: Record<string, string> = {
   '/search': '搜索',
 };
 
-/** Resolve the metadata for a given request URL. */
-export async function buildSeo(env: Env, url: URL): Promise<SeoMeta> {
-  const settings = await getSettings(env);
+/** Static SPA routes that legitimately render the shell (not a 404). */
+const STATIC_PATHS = new Set(['/', '/posts', '/tags', '/archive', '/search', '/about', '/admin']);
+
+/**
+ * Resolve the metadata for a given request URL.
+ *
+ * `settingsOverride` lets the shell pass the settings it already fetched so a
+ * single request does not read them twice (KV hit + parse each time).
+ */
+export async function buildSeo(
+  env: Env,
+  url: URL,
+  settingsOverride?: PublicSettings,
+): Promise<SeoMeta> {
+  const settings = settingsOverride ?? (await getSettings(env));
   const siteName = settings.site.name;
   const origin = (env.SITE_URL || url.origin).replace(/\/+$/, '');
   const path = url.pathname.replace(/\/+$/, '') || '/';
   const canonical = `${origin}${path === '/' ? '/' : path}`;
   const locale = settings.site.locale || 'zh-CN';
+  // A configured brand image doubles as the fallback share card.
+  const fallbackImage = absoluteUrl(
+    settings.site.logo.type === 'image' ? settings.site.logo.imageUrl : null,
+    origin,
+  );
 
   const base: SeoMeta = {
     title: siteName,
     description: settings.site.description,
     canonical,
+    image: fallbackImage,
     type: 'website',
     siteName,
     locale,
     favicon: resolveFavicon(settings),
+    status: 200,
+    noindex: false,
+    rssUrl: settings.features.rss ? `${origin}/rss.xml` : null,
   };
 
   const postMatch = path.match(/^\/posts\/([^/]+)$/);
@@ -92,33 +120,44 @@ export async function buildSeo(env: Env, url: URL): Promise<SeoMeta> {
     } catch {
       /* keep raw */
     }
-    const post = await getPostBySlug(env, slug);
-    if (post) {
-      const title = post.meta_title || post.title;
-      const description = post.meta_description || post.excerpt || settings.site.description;
-      const image = absoluteUrl(post.og_image || post.cover_url, origin);
+    const post = await getPostSeoBySlug(env, slug);
+    if (!post) {
+      // Unknown/unpublished article: the shell is still rendered (the SPA shows
+      // its own "not found" view) but with a real 404 status and noindex.
       return {
         ...base,
-        title: `${title} · ${siteName}`,
-        description,
-        image,
-        type: 'article',
-        publishedAt: post.published_at,
-        jsonLd: {
-          '@context': 'https://schema.org',
-          '@type': 'BlogPosting',
-          headline: title,
-          description,
-          ...(image ? { image } : {}),
-          ...(post.published_at ? { datePublished: `${post.published_at.replace(' ', 'T')}Z` } : {}),
-          dateModified: `${post.updated_at.replace(' ', 'T')}Z`,
-          mainEntityOfPage: { '@type': 'WebPage', '@id': canonical },
-          author: { '@type': 'Person', name: settings.site.name },
-          publisher: { '@type': 'Organization', name: siteName },
-          wordCount: post.word_count,
-        },
+        status: 404,
+        noindex: true,
+        title: `文章不存在 · ${siteName}`,
+        description: '这篇文章可能已被删除，或者从未发布。',
       };
     }
+    const title = post.meta_title || post.title;
+    const description = post.meta_description || post.excerpt || settings.site.description;
+    const image = absoluteUrl(post.og_image || post.cover_url, origin) ?? fallbackImage;
+    const updatedAt = post.updated_at || post.published_at;
+    return {
+      ...base,
+      title: `${title} · ${siteName}`,
+      description,
+      image,
+      type: 'article',
+      publishedAt: post.published_at,
+      updatedAt,
+      jsonLd: {
+        '@context': 'https://schema.org',
+        '@type': 'BlogPosting',
+        headline: title,
+        description,
+        ...(image ? { image } : {}),
+        ...(post.published_at ? { datePublished: `${post.published_at.replace(' ', 'T')}Z` } : {}),
+        ...(updatedAt ? { dateModified: `${updatedAt.replace(' ', 'T')}Z` } : {}),
+        mainEntityOfPage: { '@type': 'WebPage', '@id': canonical },
+        author: { '@type': 'Person', name: settings.site.name },
+        publisher: { '@type': 'Organization', name: siteName },
+        wordCount: post.word_count,
+      },
+    };
   }
 
   if (path === '/') {
@@ -139,8 +178,31 @@ export async function buildSeo(env: Env, url: URL): Promise<SeoMeta> {
     return { ...base, title: `${settings.pages.about.title} · ${siteName}` };
   }
 
+  // Search results are per-request and must never be indexed.
+  if (path === '/search') {
+    return { ...base, title: `${TITLES['/search']} · ${siteName}`, noindex: true };
+  }
+
   const label = TITLES[path];
   if (label) return { ...base, title: `${label} · ${siteName}` };
+
+  // Admin shell is never indexed, but it must not be reported as a 404.
+  if (path === '/admin' || path.startsWith('/admin/')) {
+    return { ...base, title: `管理后台 · ${siteName}`, noindex: true };
+  }
+
+  // Anything else is not a real page: return a genuine 404 instead of a 200
+  // that only *looks* like "not found" to a human. Crawlers must see the
+  // status, otherwise every mistyped URL becomes an indexable soft-404.
+  if (!STATIC_PATHS.has(path)) {
+    return {
+      ...base,
+      status: 404,
+      noindex: true,
+      title: `页面不存在 · ${siteName}`,
+      description: '你访问的页面不存在,可能已被移动或删除。',
+    };
+  }
 
   return base;
 }
@@ -169,6 +231,7 @@ export function injectSeo(html: string, seo: SeoMeta): string {
     propertyTag('og:title', seo.title),
     propertyTag('og:description', seo.description),
     propertyTag('og:url', seo.canonical),
+    propertyTag('og:locale', seo.locale.replace('-', '_')),
     metaTag('twitter:card', seo.image ? 'summary_large_image' : 'summary'),
     metaTag('twitter:title', seo.title),
     metaTag('twitter:description', seo.description),
@@ -177,11 +240,23 @@ export function injectSeo(html: string, seo: SeoMeta): string {
   if (seo.image) {
     tags.push(propertyTag('og:image', seo.image), metaTag('twitter:image', seo.image));
   }
+  if (seo.rssUrl) {
+    tags.push(
+      `<link rel="alternate" type="application/rss+xml" title="${escapeHtml(seo.siteName)}" href="${escapeHtml(seo.rssUrl)}" />`,
+    );
+  }
+  if (seo.noindex) {
+    tags.push(metaTag('robots', 'noindex, nofollow'));
+  }
   if (seo.type === 'article' && seo.publishedAt) {
+    // Both timestamps come from the row, so a view-count bump can no longer
+    // make an untouched article look freshly modified.
     tags.push(
       propertyTag('article:published_time', `${seo.publishedAt.replace(' ', 'T')}Z`),
-      propertyTag('article:modified_time', new Date().toISOString()),
     );
+    if (seo.updatedAt) {
+      tags.push(propertyTag('article:modified_time', `${seo.updatedAt.replace(' ', 'T')}Z`));
+    }
   }
   if (seo.jsonLd) {
     tags.push(
@@ -193,7 +268,9 @@ export function injectSeo(html: string, seo: SeoMeta): string {
   // Drop the static defaults before injecting the resolved ones.
   const cleaned = html
     .replace(/<title>[\s\S]*?<\/title>/i, '')
-    .replace(/<link\s+rel="icon"[^>]*>\s*/i, '');
+    .replace(/<link\s+rel="icon"[^>]*>\s*/i, '')
+    // index.html is authored with lang="zh-CN"; follow the configured locale.
+    .replace(/(<html\b[^>]*\blang=")[^"]*(")/i, `$1${escapeHtml(seo.locale)}$2`);
   if (cleaned.includes('<!--seo-->')) {
     return cleaned.replace('<!--seo-->', block);
   }

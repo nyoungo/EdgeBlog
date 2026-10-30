@@ -1,5 +1,5 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { Link, NavLink } from 'react-router-dom';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import type { HeaderSettings, NavAlign } from '@shared/types';
 import { buttonStyles } from '../ui/Button';
 import { Icon } from '../ui/icons';
@@ -92,8 +92,12 @@ function NavItems({ vertical, vt, onNavigate }: { vertical: boolean; vt: boolean
 export function Header() {
   const { settings } = useSettings();
   const { user } = useAuth();
+  const location = useLocation();
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const menuId = 'eb-mobile-menu';
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -101,6 +105,28 @@ export function Header() {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  // Close the drawer whenever the route changes (e.g. browser back), so it can
+  // never linger open over a different page.
+  useEffect(() => {
+    setOpen(false);
+  }, [location.pathname]);
+
+  // Esc closes the menu and returns focus to the trigger; opening moves focus
+  // into the menu so keyboard/screen-reader users are not left behind.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        toggleRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    const first = menuRef.current?.querySelector<HTMLElement>('a[href], button');
+    first?.focus();
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
 
   const { site, features, layout } = settings;
   const header = layout.header;
@@ -171,11 +197,13 @@ export function Header() {
         </Link>
       ) : null}
       <button
+        ref={toggleRef}
         type="button"
         className={buttonStyles({ variant: 'ghost', size: 'icon-sm', className: 'md:hidden' })}
         onClick={() => setOpen((v) => !v)}
         aria-label={open ? '关闭菜单' : '打开菜单'}
         aria-expanded={open}
+        aria-controls={menuId}
       >
         <Icon name={open ? 'close' : 'menu'} size={20} />
       </button>
@@ -184,6 +212,8 @@ export function Header() {
 
   const mobileMenu: ReactNode = open && (
     <div
+      ref={menuRef}
+      id={menuId}
       className={cn(
         'border-t border-border md:hidden',
         header.background === 'glass' || header.background === 'transparent' ? 'bg-bg/95 backdrop-blur-md' : 'bg-bg',

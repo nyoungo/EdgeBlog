@@ -67,6 +67,22 @@ export interface PostNeighbour {
   title: string;
 }
 
+/** Row shape of `GET /api/posts/archive` — just enough for a year list. */
+export interface ArchiveEntry {
+  slug: string;
+  title: string;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A post in the recycle bin (`deleted_at` is set). */
+export type TrashedPost = Omit<Post, 'content_md'> & {
+  deleted_at: string;
+  tags: Tag[];
+  author_name: string | null;
+};
+
 /* ------------------------------------------------------------------- tags */
 
 export interface Tag {
@@ -107,6 +123,27 @@ export interface MediaItem {
   mime: string;
   width: number | null;
   height: number | null;
+  created_at: string;
+}
+
+/** A post that references a media object — used before deleting an image. */
+export interface MediaUsage {
+  id: number;
+  slug: string;
+  title: string;
+  status: PostStatus;
+}
+
+/* ------------------------------------------------------------------ audit */
+
+export interface AuditLogEntry {
+  id: number;
+  actor_id: number | null;
+  actor_name: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: number | null;
+  detail: string | null;
   created_at: string;
 }
 

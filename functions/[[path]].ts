@@ -20,12 +20,40 @@ type Ctx = EventContext<Env, string, Record<string, unknown>>;
 
 const IMMUTABLE = 'public, max-age=31536000, immutable';
 
+/**
+ * The shell has to stay usable with user-supplied `advanced.headHtml`, inline
+ * theme boot script and CSS variables, so `'unsafe-inline'` is unavoidable for
+ * script/style. Everything else is locked to same-origin, with `https:` allowed
+ * for user-embedded images/media/players.
+ */
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' https:",
+  "frame-src https:",
+].join('; ');
+
 const SECURITY_HEADERS: Record<string, string> = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
+  'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
+  'Content-Security-Policy': CONTENT_SECURITY_POLICY,
 };
+
+/** Preview deployments (`<project>.pages.dev`) must never be indexed. */
+function isPreviewHost(hostname: string): boolean {
+  return /(?:^|\.)(?:pages|workers)\.dev$/i.test(hostname);
+}
 
 async function serveMedia(context: Ctx, url: URL): Promise<Response> {
   if (context.request.method !== 'GET' && context.request.method !== 'HEAD') {
@@ -74,9 +102,19 @@ async function serveShell(context: Ctx, url: URL): Promise<Response | null> {
 
   const html = await index.text();
   let body = html;
+  let status = 200;
+  let noindex = false;
   try {
-    body = injectSeo(html, await buildSeo(context.env, url));
-    body = injectBootSettings(body, await getSettings(context.env));
+    // One settings read for both the SEO block and the hydration payload.
+    const settings = await getSettings(context.env);
+    const seo = await buildSeo(context.env, url, settings);
+    // Preview hosts are public but not the canonical site: keep them out of
+    // the index without changing the page itself.
+    const effective = isPreviewHost(url.hostname) ? { ...seo, noindex: true } : seo;
+    status = effective.status;
+    noindex = effective.noindex;
+    body = injectSeo(html, effective);
+    body = injectBootSettings(body, settings);
   } catch (err) {
     // SEO must never break page delivery.
     console.error('[seo] injection failed', err);
@@ -91,12 +129,13 @@ async function serveShell(context: Ctx, url: URL): Promise<Response | null> {
   }
 
   return new Response(body, {
-    status: 200,
+    status,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       ETag: etag,
       'Cache-Control': revalidate,
       ...SECURITY_HEADERS,
+      ...(noindex || status === 404 ? { 'X-Robots-Tag': 'noindex' } : {}),
     },
   });
 }

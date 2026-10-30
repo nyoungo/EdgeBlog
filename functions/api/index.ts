@@ -1,12 +1,14 @@
 import { Hono } from 'hono';
 import { attachUser } from '../lib/auth';
-import type { AppEnv } from '../lib/env';
+import { assertSecrets, type AppEnv } from '../lib/env';
 import { isAppError } from '../lib/errors';
 import { corsMiddleware, csrfGuard, requestId, securityHeaders } from '../lib/middleware';
 import { fail } from '../lib/response';
 import { authRoutes } from './auth';
 import { aiRoutes } from './ai';
+import { auditRoutes } from './audit';
 import { commentRoutes } from './comments';
+import { exportRoutes } from './export';
 import { mediaRoutes } from './media';
 import { postRoutes } from './posts';
 import { searchRoutes } from './search';
@@ -23,6 +25,12 @@ import { tagRoutes } from './tags';
 export const api = new Hono<AppEnv>().basePath('/api');
 
 api.use('*', requestId);
+api.use('*', async (c, next) => {
+  // Refuse to run with a missing/weak signing key rather than issuing tokens
+  // that anyone can forge.
+  assertSecrets(c.env);
+  await next();
+});
 api.use('*', securityHeaders);
 api.use('*', corsMiddleware);
 api.use('*', csrfGuard);
@@ -52,3 +60,5 @@ api.route('/media', mediaRoutes);
 api.route('/search', searchRoutes);
 api.route('/stats', statsRoutes);
 api.route('/ai', aiRoutes);
+api.route('/audit', auditRoutes);
+api.route('/export', exportRoutes);

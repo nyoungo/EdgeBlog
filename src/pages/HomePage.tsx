@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
-import type { HeaderSettings, HeroSettings, PostSummary, Tag } from '@shared/types';
+import type { HeaderSettings, HeroSettings, PostSummary } from '@shared/types';
 import { buttonStyles } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Centered, EmptyState, ErrorState, Skeleton, Spinner } from '../components/ui/Feedback';
@@ -8,6 +8,7 @@ import { Icon } from '../components/ui/icons';
 import { PostCard, cardGridClass } from '../components/blog/PostCard';
 import { PageWithSidebar } from '../components/layout/PageWithSidebar';
 import { api, qs } from '../lib/api';
+import { fetchTags } from '../lib/resource';
 import { cn } from '../lib/utils';
 import { useAsync } from '../hooks';
 import { useSettings } from '../providers/SettingsProvider';
@@ -131,17 +132,31 @@ export function HomePage() {
   const { site, layout, features } = settings;
   const perPage = layout.postsPerPage;
 
+  const modules = layout.homeModules.filter((m) => m.enabled);
+  // Only request what the enabled modules actually render — the home page used
+  // to fire three list requests even with everything but the hero turned off.
+  const wantsLatest = modules.some((m) => m.id === 'latest');
+  const wantsFeatured = modules.some((m) => m.id === 'featured');
+  const wantsTags = modules.some((m) => m.id === 'tags');
+
   const latest = useAsync(
-    () => api.get<PostSummary[]>(`/posts${qs({ perPage, sort: 'newest' })}`).then((r) => r.data),
-    [perPage],
+    () =>
+      wantsLatest
+        ? api.get<PostSummary[]>(`/posts${qs({ perPage, sort: 'newest' })}`).then((r) => r.data)
+        : Promise.resolve([]),
+    [perPage, wantsLatest],
   );
   const featured = useAsync(
-    () => api.get<PostSummary[]>(`/posts${qs({ featured: 1, perPage: 3 })}`).then((r) => r.data),
-    [],
+    () =>
+      wantsFeatured
+        ? api
+            .get<PostSummary[]>(`/posts${qs({ featured: 1, perPage: 3 })}`)
+            .then((r) => r.data)
+        : Promise.resolve([]),
+    [wantsFeatured],
   );
-  const tags = useAsync(() => api.get<Tag[]>('/tags').then((r) => r.data), []);
+  const tags = useAsync(() => (wantsTags ? fetchTags() : Promise.resolve([])), [wantsTags]);
 
-  const modules = layout.homeModules.filter((m) => m.enabled);
   const bleed = layout.hero.fullScreen || layout.hero.width === 'full';
   const heroOutside = bleed && modules.some((m) => m.id === 'hero');
   const heroProps = {

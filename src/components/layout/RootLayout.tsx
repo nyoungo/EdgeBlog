@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Icon } from '../ui/icons';
 import { cn } from '../../lib/utils';
 import { injectInto } from '../../lib/dom-inject';
@@ -54,6 +54,40 @@ function FooterHtml() {
   return <div ref={ref} className="container-page py-4 text-center text-xs text-faint" />;
 }
 
+/**
+ * ⌘K / Ctrl-K and `/` used to work only while the search page itself was
+ * mounted. Hoisting the listener into the layout makes them global: from any
+ * page they jump to `/search`, where the input already carries `autoFocus`.
+ */
+function GlobalSearchShortcut() {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target instanceof HTMLElement ? e.target : null;
+      const typing =
+        Boolean(el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) || Boolean(el?.isContentEditable);
+      const isPalette = e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey);
+      const isSlash = e.key === '/' && !typing;
+      if (!isPalette && !isSlash) return;
+
+      if (pathname !== '/search') {
+        if (isSlash || isPalette) e.preventDefault();
+        navigate('/search');
+        return;
+      }
+      // Already on the search page: focus the field (the page also listens,
+      // but this keeps the behaviour identical for the modifier shortcut).
+      document.querySelector<HTMLInputElement>('input[type="search"]')?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navigate, pathname]);
+
+  return null;
+}
+
 export function RootLayout() {
   const { settings } = useSettings();
   // A left nav docks a fixed sidebar on lg+; shift the content column to match.
@@ -61,6 +95,7 @@ export function RootLayout() {
   return (
     <div className={cn('flex min-h-dvh flex-col', leftNav && 'lg:pl-64')}>
       <ScrollToTop />
+      <GlobalSearchShortcut />
       <Header />
       <main className="flex-1">
         <Outlet />
