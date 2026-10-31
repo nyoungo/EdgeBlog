@@ -62,22 +62,26 @@ export function DashboardPage() {
           <h1 className="text-xl font-bold tracking-tight text-fg">概览</h1>
           <p className="mt-1 text-sm text-muted">网站的整体运行情况</p>
         </div>
-        <Link
-          to="/admin/posts/new"
-          className="inline-flex h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-medium text-brand-fg transition-colors hover:bg-brand/90"
-        >
-          <Icon name="plus" size={17} />
-          写文章
-        </Link>
-        <a
-          href="/api/export"
-          download
-          className="inline-flex h-10 items-center gap-2 rounded-md border border-border px-4 text-sm font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg"
-          title="导出文章 / 标签 / 媒体清单 / 设置为 JSON"
-        >
-          <Icon name="save" size={16} />
-          导出数据
-        </a>
+        {/* Wrapped so `justify-between` only has two flex children: with three
+            the middle one was pushed to the centre of the header. */}
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <Link
+            to="/admin/posts/new"
+            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-medium text-brand-fg transition-colors hover:bg-brand/90 sm:flex-none"
+          >
+            <Icon name="plus" size={17} />
+            写文章
+          </Link>
+          <a
+            href="/api/export"
+            download
+            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md border border-border px-4 text-sm font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg sm:flex-none"
+            title="导出文章 / 标签 / 媒体清单 / 设置为 JSON"
+          >
+            <Icon name="save" size={16} />
+            导出数据
+          </a>
+        </div>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

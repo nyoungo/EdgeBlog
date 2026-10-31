@@ -94,7 +94,7 @@ export function TagsAdminPage() {
   };
 
   return (
-    <div className="w-full max-w-3xl">
+    <div className="w-full">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-fg">标签管理</h1>
@@ -104,107 +104,117 @@ export function TagsAdminPage() {
           type="search"
           placeholder="搜索标签..."
           value={filter}
-          wrapperClassName="w-56"
+          wrapperClassName="w-full sm:w-64"
           onChange={(e) => setFilter(e.target.value)}
         />
       </header>
 
-      <Card className="mb-6 p-4">
-        <form onSubmit={create} className="flex flex-wrap items-end gap-3">
-          <Input
-            label="新标签名"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="例如:Cloudflare"
-            wrapperClassName="flex-1 min-w-40"
-            maxLength={50}
-            required
-          />
-          <Input
-            label="Slug(选填)"
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-            placeholder="自动生成"
-            wrapperClassName="w-40"
-            maxLength={60}
-          />
-          <Button type="submit" loading={creating}>
-            <Icon name="plus" size={16} />
-            添加
-          </Button>
-        </form>
-      </Card>
-
-      {loading && !data ? (
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-14 w-full" />
-          ))}
-        </div>
-      ) : visible.length === 0 ? (
-        <EmptyState
-          icon="tag"
-          title={needle ? '没有匹配的标签' : '还没有标签'}
-          description={needle ? `没有找到与「${filter}」相关的标签。` : '在上方创建第一个标签。'}
-        />
-      ) : (
-        <Card className="divide-y divide-border">
-          {visible.map((tag) => (
-            <div key={tag.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-              {editingId === tag.id ? (
-                <>
-                  <Input
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    wrapperClassName="flex-1 min-w-40"
-                    aria-label="标签名"
-                    maxLength={50}
-                  />
-                  <Input
-                    value={editSlug}
-                    onChange={(e) => setEditSlug(e.target.value)}
-                    wrapperClassName="w-36"
-                    aria-label="标签 slug"
-                    maxLength={60}
-                  />
-                  <div className="flex gap-1">
-                    <Button size="sm" loading={savingEdit} onClick={() => void saveEdit(tag.id)}>
-                      <Icon name="check" size={14} />
-                      保存
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>
-                      取消
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-fg">{tag.name}</p>
-                    <p className="truncate text-xs text-faint">
-                      /{tag.slug} · {tag.post_count} 篇文章
-                    </p>
-                  </div>
-                  <div className="flex gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => beginEdit(tag)} title="编辑">
-                      <Icon name="pencil" size={15} />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setPendingDelete(tag)}
-                      title="删除"
-                      className="text-danger hover:bg-danger/10 hover:text-danger"
-                    >
-                      <Icon name="trash" size={15} />
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
+      {/*
+        Creation form sits in a fixed left rail and the list uses the rest of
+        the width, so wide screens are not half empty (the old `max-w-3xl`
+        left ~half the content area blank).
+      */}
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
+        <Card className="p-4 lg:sticky lg:top-24">
+          <h2 className="mb-3 text-sm font-semibold text-fg">新建标签</h2>
+          <form onSubmit={create} className="flex flex-col gap-3">
+            <Input
+              label="标签名"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="例如:Cloudflare"
+              wrapperClassName="w-full"
+              maxLength={50}
+              required
+            />
+            <Input
+              label="Slug(选填)"
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              placeholder="自动生成"
+              wrapperClassName="w-full"
+              maxLength={60}
+            />
+            <Button type="submit" block loading={creating}>
+              <Icon name="plus" size={16} />
+              添加标签
+            </Button>
+          </form>
         </Card>
-      )}
+
+        <div className="min-w-0">
+          {loading && !data ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full" />
+              ))}
+            </div>
+          ) : visible.length === 0 ? (
+            <EmptyState
+              icon="tag"
+              title={needle ? '没有匹配的标签' : '还没有标签'}
+              description={needle ? `没有找到与「${filter}」相关的标签。` : '在左侧创建第一个标签。'}
+            />
+          ) : (
+            <Card className="divide-y divide-border">
+              {visible.map((tag) => (
+                <div key={tag.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                  {editingId === tag.id ? (
+                    <>
+                      <Input
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        wrapperClassName="flex-1 min-w-40"
+                        aria-label="标签名"
+                        maxLength={50}
+                      />
+                      <Input
+                        value={editSlug}
+                        onChange={(e) => setEditSlug(e.target.value)}
+                        wrapperClassName="w-36"
+                        aria-label="标签 slug"
+                        maxLength={60}
+                      />
+                      <div className="flex gap-1">
+                        <Button size="sm" loading={savingEdit} onClick={() => void saveEdit(tag.id)}>
+                          <Icon name="check" size={14} />
+                          保存
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>
+                          取消
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-fg">{tag.name}</p>
+                        <p className="truncate text-xs text-faint">
+                          /{tag.slug} · {tag.post_count} 篇文章
+                        </p>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => beginEdit(tag)} title="编辑">
+                          <Icon name="pencil" size={15} />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setPendingDelete(tag)}
+                          title="删除"
+                          className="text-danger hover:bg-danger/10 hover:text-danger"
+                        >
+                          <Icon name="trash" size={15} />
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </Card>
+          )}
+        </div>
+      </div>
 
       <ConfirmDialog
         open={Boolean(pendingDelete)}
