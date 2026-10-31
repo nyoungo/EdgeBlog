@@ -24,11 +24,11 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 
 ### 后台
 
-| 概览 | 外观设置 | AI 设置 |
+| 概览 | 站点设置 | AI 设置 |
 | :---: | :---: | :---: |
-| [![后台概览](docs/screenshots/admin-dashboard.png)](docs/screenshots/admin-dashboard.png) | [![外观设置](docs/screenshots/admin-appearance.png)](docs/screenshots/admin-appearance.png) | [![AI 设置](docs/screenshots/admin-ai.png)](docs/screenshots/admin-ai.png) |
+| [![后台概览](docs/screenshots/admin-dashboard.png)](docs/screenshots/admin-dashboard.png) | [![站点设置](docs/screenshots/admin-appearance.png)](docs/screenshots/admin-appearance.png) | [![AI 设置](docs/screenshots/admin-ai.png)](docs/screenshots/admin-ai.png) |
 
-> 文章 / 评论 / 媒体管理、可视化外观定制与 AI 辅助写作（API Key 仅保存在服务端）。
+> 文章 / 评论 / 媒体 / 标签管理（含回收站与批量操作）、可视化站点定制、审计日志与 AI 辅助写作（API Key 仅保存在服务端）。
 
 ---
 
