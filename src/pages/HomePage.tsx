@@ -76,6 +76,7 @@ function HomeHero({
 
   const titleColor = hero.textColor || undefined;
   const descColor = hero.textMutedColor || hero.textColor || undefined;
+  const taglineColor = titleColor || descColor || 'rgb(var(--c-fg))';
   const textShadow = '0 1px 3px rgba(0,0,0,0.35), 0 6px 22px rgba(0,0,0,0.3)';
 
   return (
@@ -103,9 +104,17 @@ function HomeHero({
       )}
       <div className={cn('relative z-10', full && 'container-page')}>
         <div className={cn(hero.align === 'center' ? 'mx-auto max-w-2xl text-center' : 'max-w-2xl')}>
-          <Badge tone="brand" className={cn('mb-4', hero.align === 'center' && 'mx-auto')}>
-            <Icon name="sparkles" size={12} />
-            {tagline || '欢迎'}
+          <Badge
+            tone="brand"
+            className={cn('mb-6 !px-4 !py-2 !text-2xl', hero.align === 'center' && 'mx-auto')}
+          >
+            <span
+              className="inline-flex items-center gap-2"
+              style={{ color: taglineColor, textShadow }}
+            >
+              <Icon name="sparkles" size={20} />
+              {tagline || '欢迎'}
+            </span>
           </Badge>
           <h1
             className="text-6xl font-bold leading-tight tracking-tight text-fg text-balance sm:text-7xl"
