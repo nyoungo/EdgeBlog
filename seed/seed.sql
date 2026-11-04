@@ -79,6 +79,8 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
     "backgroundImage": "",
     "backgroundVideo": "",
     "backgroundVideoLoop": true,
+    "backgroundVideoStart": 0,
+    "backgroundVideoEnd": 0,
     "overlayLight": 0,
     "overlayDark": 0,
     "textColor": "",

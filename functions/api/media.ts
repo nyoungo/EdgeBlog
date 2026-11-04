@@ -11,54 +11,17 @@ import { created, ok } from '../lib/response';
 import { paginationSchema } from '../lib/validate';
 import { nowSql } from '../lib/datetime';
 import { recordAudit } from '../lib/audit';
+import {
+  EXT_BY_MIME,
+  IMAGE_MAX_SIZE,
+  VIDEO_MAX_SIZE,
+  isVideoMime,
+  sniffMediaMime,
+} from '../lib/media-file';
 
 export const mediaRoutes = new Hono<AppEnv>();
 
 mediaRoutes.use('*', requireAuth);
-
-const MAX_SIZE = 8 * 1024 * 1024; // 8 MB
-
-/**
- * Raster types only. SVG is intentionally rejected: it can carry scripts and
- * would be an XSS vector when served inline from our own origin.
- */
-const EXT_BY_MIME: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/gif': 'gif',
-  'image/webp': 'webp',
-  'image/avif': 'avif',
-  'image/bmp': 'bmp',
-};
-
-/**
- * Identify a raster image from its magic bytes. The browser-supplied
- * `File.type` is attacker-controlled, so it is only used as a hint: an HTML or
- * script payload renamed to `.png` must not be stored with `image/png`.
- */
-function sniffImageMime(bytes: Uint8Array): string | null {
-  const at = (i: number): number => bytes[i] ?? -1;
-  if (at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) return 'image/jpeg';
-  if (
-    at(0) === 0x89 && at(1) === 0x50 && at(2) === 0x4e && at(3) === 0x47 &&
-    at(4) === 0x0d && at(5) === 0x0a && at(6) === 0x1a && at(7) === 0x0a
-  ) {
-    return 'image/png';
-  }
-  if (at(0) === 0x47 && at(1) === 0x49 && at(2) === 0x46 && at(3) === 0x38) return 'image/gif';
-  if (at(0) === 0x42 && at(1) === 0x4d) return 'image/bmp';
-  if (
-    at(0) === 0x52 && at(1) === 0x49 && at(2) === 0x46 && at(3) === 0x46 &&
-    at(8) === 0x57 && at(9) === 0x45 && at(10) === 0x42 && at(11) === 0x50
-  ) {
-    return 'image/webp';
-  }
-  if (at(4) === 0x66 && at(5) === 0x74 && at(6) === 0x79 && at(7) === 0x70) {
-    const brand = String.fromCharCode(at(8), at(9), at(10), at(11));
-    if (brand === 'avif' || brand === 'avis') return 'image/avif';
-  }
-  return null;
-}
 
 /**
  * Public URL stored in `media.url`.
@@ -84,14 +47,20 @@ function objectKey(originalName: string, mime: string): string {
     .replace(/[^\w.-]+/g, '-')
     .slice(0, 60)
     .replace(/^-+|-+$/g, '');
-  const prefix = base || 'image';
+  const prefix = base || (isVideoMime(mime) ? 'video' : 'image');
   return `uploads/${year}/${month}/${prefix}-${randomToken(6)}.${ext}`;
 }
 
 mediaRoutes.get('/', async (c) => {
-  const parsed = paginationSchema.extend({ q: z.string().trim().max(100).optional() }).safeParse(c.req.query());
+  const parsed = paginationSchema
+    .extend({
+      q: z.string().trim().max(100).optional(),
+      /** Restrict the picker to images or videos. */
+      kind: z.enum(['image', 'video']).optional(),
+    })
+    .safeParse(c.req.query());
   if (!parsed.success) throw AppError.validation('查询参数校验失败', parsed.error.flatten());
-  const { page, perPage, q } = parsed.data;
+  const { page, perPage, q, kind } = parsed.data;
   c.header('Cache-Control', 'no-store');
 
   const conditions: string[] = [];
@@ -99,6 +68,10 @@ mediaRoutes.get('/', async (c) => {
   if (q) {
     conditions.push('(filename LIKE ? OR key LIKE ?)');
     binds.push(`%${q}%`, `%${q}%`);
+  }
+  if (kind) {
+    conditions.push('mime LIKE ?');
+    binds.push(`${kind}/%`);
   }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -167,20 +140,30 @@ mediaRoutes.post('/upload', async (c) => {
   if (!(entry instanceof File)) throw AppError.badRequest('缺少文件字段 file');
   const file = entry;
   if (file.size === 0) throw AppError.badRequest('文件为空');
-  if (file.size > MAX_SIZE) throw AppError.payloadTooLarge('文件超过 8MB 限制');
 
   // Verify the actual content, not just the declared MIME (which clients spoof).
   const head = new Uint8Array(await file.slice(0, 32).arrayBuffer());
-  const mime = sniffImageMime(head);
+  const mime = sniffMediaMime(head);
   if (!mime || !(mime in EXT_BY_MIME)) {
-    throw AppError.unsupportedMedia('仅支持 JPG / PNG / GIF / WebP / AVIF / BMP 图片');
+    throw AppError.unsupportedMedia('仅支持 JPG / PNG / GIF / WebP / AVIF / BMP 图片及 MP4 / WebM 视频');
   }
-  const declared = file.type === 'image/jpg' ? 'image/jpeg' : file.type;
+  const video = isVideoMime(mime);
+  if (file.size > (video ? VIDEO_MAX_SIZE : IMAGE_MAX_SIZE)) {
+    throw AppError.payloadTooLarge(video ? '视频超过 25MB 限制' : '图片超过 8MB 限制');
+  }
+  const declared =
+    file.type === 'image/jpg'
+      ? 'image/jpeg'
+      : file.type === 'video/x-m4v'
+        ? 'video/mp4'
+        : file.type === 'video/x-matroska'
+          ? 'video/webm'
+          : file.type;
   if (declared && declared !== 'application/octet-stream' && declared !== mime) {
     throw AppError.unsupportedMedia('文件内容与声明的类型不一致');
   }
 
-  const key = objectKey(file.name || 'image', mime);
+  const key = objectKey(file.name || (video ? 'video' : 'image'), mime);
   await c.env.MEDIA.put(key, file.stream(), {
     httpMetadata: {
       contentType: mime,

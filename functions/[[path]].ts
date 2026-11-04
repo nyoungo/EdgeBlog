@@ -15,6 +15,7 @@ import { api } from './api';
 import type { Env } from './lib/env';
 import { buildSeo, injectBootSettings, injectSeo } from './lib/seo';
 import { getSettings } from './lib/settings';
+import { parseByteRange } from './lib/media-file';
 
 type Ctx = EventContext<Env, string, Record<string, unknown>>;
 
@@ -63,7 +64,28 @@ async function serveMedia(context: Ctx, url: URL): Promise<Response> {
   if (!key || key.includes('..')) {
     return new Response('Not Found', { status: 404 });
   }
-  const object = await context.env.MEDIA.get(key);
+
+  // `head` gives us the total size needed to validate a Range request without
+  // downloading the object twice. Video seeking relies on 206 responses.
+  const meta = await context.env.MEDIA.head(key);
+  if (!meta) return new Response('Not Found', { status: 404 });
+
+  const rangeHeader = context.request.headers.get('range');
+  const range = parseByteRange(rangeHeader, meta.size);
+  if (rangeHeader && !range) {
+    return new Response(null, {
+      status: 416,
+      headers: {
+        'Accept-Ranges': 'bytes',
+        'Content-Range': `bytes */${meta.size}`,
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
+  }
+
+  const object = range
+    ? await context.env.MEDIA.get(key, { range })
+    : await context.env.MEDIA.get(key);
   if (!object) return new Response('Not Found', { status: 404 });
 
   const headers = new Headers();
@@ -71,7 +93,17 @@ async function serveMedia(context: Ctx, url: URL): Promise<Response> {
   headers.set('etag', object.httpEtag);
   headers.set('Cache-Control', IMMUTABLE);
   headers.set('X-Content-Type-Options', 'nosniff');
-  return new Response(context.request.method === 'HEAD' ? null : object.body, { headers });
+  headers.set('Accept-Ranges', 'bytes');
+  if (range) {
+    headers.set('Content-Range', `bytes ${range.offset}-${range.offset + range.length - 1}/${meta.size}`);
+    headers.set('Content-Length', String(range.length));
+  } else {
+    headers.set('Content-Length', String(meta.size));
+  }
+  return new Response(context.request.method === 'HEAD' ? null : object.body, {
+    status: range ? 206 : 200,
+    headers,
+  });
 }
 
 /** Short content hash used as the shell's ETag. */

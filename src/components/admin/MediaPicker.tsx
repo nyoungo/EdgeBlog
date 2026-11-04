@@ -14,20 +14,24 @@ export function MediaPicker({
   open,
   onClose,
   onSelect,
+  kind = 'image',
 }: {
   open: boolean;
   onClose: () => void;
   onSelect: (item: MediaItem) => void;
+  /** Restrict the library to images (default) or videos. */
+  kind?: 'image' | 'video';
 }) {
   const { success, error } = useToast();
   const [page, setPage] = useState(1);
   const [uploading, setUploading] = useState(false);
   const [compress, setCompress] = useState<CompressLevel>(getCompressLevel);
   const fileRef = useRef<HTMLInputElement>(null);
+  const videoOnly = kind === 'video';
 
   const { data, loading, reload } = useAsync(
-    () => api.get<MediaItem[]>(`/media${qs({ page, perPage: 18 })}`),
-    [page],
+    () => api.get<MediaItem[]>(`/media${qs({ page, perPage: 18, kind })}`),
+    [page, kind],
   );
 
   const items = data?.data ?? [];
@@ -55,7 +59,13 @@ export function MediaPicker({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="选择媒体" description="从媒体库中选择，或上传新图片" className="max-w-2xl">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={videoOnly ? '选择视频' : '选择媒体'}
+      description={videoOnly ? '从媒体库中选择视频，或上传新视频' : '从媒体库中选择，或上传新图片'}
+      className="max-w-2xl"
+    >
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button
@@ -65,25 +75,27 @@ export function MediaPicker({
             onClick={() => fileRef.current?.click()}
           >
             <Icon name="upload" size={15} />
-            上传图片
+            {videoOnly ? '上传视频' : '上传图片'}
           </Button>
-          <Select
-            aria-label="压缩质量"
-            value={compress}
-            onChange={(e) => onCompressChange(e.target.value as CompressLevel)}
-            className="w-32 py-1.5 text-xs"
-          >
-            {COMPRESS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </Select>
+          {!videoOnly && (
+            <Select
+              aria-label="压缩质量"
+              value={compress}
+              onChange={(e) => onCompressChange(e.target.value as CompressLevel)}
+              className="w-32 py-1.5 text-xs"
+            >
+              {COMPRESS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </Select>
+          )}
         </div>
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
+          accept={videoOnly ? 'video/mp4,video/webm' : 'image/*'}
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -98,7 +110,11 @@ export function MediaPicker({
           <Spinner />
         </Centered>
       ) : items.length === 0 ? (
-        <EmptyState icon="image" title="媒体库为空" description="上传第一张图片吧。" />
+        <EmptyState
+          icon={videoOnly ? 'play' : 'image'}
+          title="媒体库为空"
+          description={videoOnly ? '上传第一个视频吧。' : '上传第一张图片吧。'}
+        />
       ) : (
         <div className="grid max-h-[50vh] grid-cols-3 gap-3 overflow-y-auto sm:grid-cols-4">
           {items.map((item) => (
@@ -112,7 +128,17 @@ export function MediaPicker({
               className="group overflow-hidden rounded-lg border border-border transition-colors hover:border-brand"
               title={item.filename ?? item.key}
             >
-              <img src={item.url} alt={item.filename ?? ''} loading="lazy" className="aspect-square w-full object-cover" />
+              {item.mime.startsWith('video/') ? (
+                <video
+                  src={`${item.url}#t=0.1`}
+                  muted
+                  playsInline
+                  preload="metadata"
+                  className="aspect-square w-full object-cover"
+                />
+              ) : (
+                <img src={item.url} alt={item.filename ?? ''} loading="lazy" className="aspect-square w-full object-cover" />
+              )}
             </button>
           ))}
         </div>

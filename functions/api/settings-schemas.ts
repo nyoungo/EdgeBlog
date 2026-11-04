@@ -56,6 +56,8 @@ const heroSchema = z.object({
   backgroundImage: z.string().trim().max(1000),
   backgroundVideo: z.string().trim().max(1000),
   backgroundVideoLoop: z.boolean(),
+  backgroundVideoStart: z.number().min(0).max(86_400),
+  backgroundVideoEnd: z.number().min(0).max(86_400),
   overlayLight: z.number().min(0).max(1),
   overlayDark: z.number().min(0).max(1),
   textColor: z.string().trim().max(60),

@@ -6,6 +6,7 @@ import { Badge } from '../components/ui/Badge';
 import { Centered, EmptyState, ErrorState, Skeleton, Spinner } from '../components/ui/Feedback';
 import { Icon } from '../components/ui/icons';
 import { PostCard, cardGridClass } from '../components/blog/PostCard';
+import { HeroBackgroundVideo } from '../components/blog/HeroBackgroundVideo';
 import { PageWithSidebar } from '../components/layout/PageWithSidebar';
 import { api, qs } from '../lib/api';
 import { fetchTags } from '../lib/resource';
@@ -87,17 +88,12 @@ function HomeHero({
       style={style}
     >
       {hero.backgroundVideo && (
-        <video
-          className="eb-hero-video pointer-events-none absolute inset-0 h-full w-full object-cover"
+        <HeroBackgroundVideo
           src={hero.backgroundVideo}
           poster={hero.backgroundImage || undefined}
-          autoPlay
-          muted
           loop={hero.backgroundVideoLoop}
-          playsInline
-          preload="metadata"
-          aria-hidden="true"
-          tabIndex={-1}
+          start={hero.backgroundVideoStart}
+          end={hero.backgroundVideoEnd}
         />
       )}
       {(hero.overlayLight > 0 || hero.overlayDark > 0) && (

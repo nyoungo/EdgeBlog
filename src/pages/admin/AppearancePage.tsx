@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   FeatureFlags,
   MusicPlayMode,
@@ -15,6 +15,7 @@ import { Input, Select, Textarea } from '../../components/ui/Field';
 import { Switch } from '../../components/ui/Switch';
 import { Card } from '../../components/ui/Feedback';
 import { Icon, type IconName } from '../../components/ui/icons';
+import { MediaPicker } from '../../components/admin/MediaPicker';
 import { cn } from '../../lib/utils';
 import { CODE_THEMES } from '../../lib/code-themes';
 import { BACKGROUND_LAYOUT } from '../../lib/theme';
@@ -245,6 +246,53 @@ function ColorInput({
   );
 }
 
+/** Number input that can keep intermediate text like `1.` while typing. */
+function SecondsInput({
+  label,
+  value,
+  onChange,
+  hint,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  hint?: string;
+}) {
+  const [text, setText] = useState(String(value));
+  // Track our own emitted value so parent re-renders don't erase a trailing dot.
+  const emitted = useRef(value);
+
+  useEffect(() => {
+    if (value !== emitted.current) {
+      emitted.current = value;
+      setText(String(value));
+    }
+  }, [value]);
+
+  return (
+    <Input
+      label={label}
+      type="number"
+      min={0}
+      max={86_400}
+      step={0.1}
+      value={text}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setText(raw);
+        const parsed = raw === '' ? 0 : Number(raw);
+        if (Number.isFinite(parsed)) {
+          const next = Math.min(86_400, Math.max(0, parsed));
+          emitted.current = next;
+          onChange(next);
+        }
+      }}
+      onBlur={() => setText(String(value))}
+      hint={hint}
+    />
+  );
+}
+
 export function AppearancePage() {
   const { settings, loading, setSettings, reload } = useSettings();
   const { success, error: toastError } = useToast();
@@ -254,6 +302,7 @@ export function AppearancePage() {
   const [dirty, setDirty] = useState<Set<Namespace>>(new Set());
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false);
+  const [videoPickerOpen, setVideoPickerOpen] = useState(false);
 
   useDocumentTitle('站点设置', settings.site.name);
 
@@ -666,22 +715,52 @@ export function AppearancePage() {
                 placeholder="https://…"
                 wrapperClassName="sm:col-span-2"
               />
-              <Input
-                label="背景视频 URL（可选）"
-                value={hero.backgroundVideo}
-                onChange={(e) => setHero({ backgroundVideo: e.target.value })}
-                placeholder="https://…/hero.mp4"
-                hint="支持 HTTPS 的 MP4 / WebM 外链，自动静音播放。媒体库目前只收录图片，建议使用 CDN 或 R2 公网地址；上面的背景图会作为视频封面与降级画面。"
-                wrapperClassName="sm:col-span-2"
-              />
-              {hero.backgroundVideo && (
-                <Switch
-                  checked={hero.backgroundVideoLoop}
-                  onChange={(backgroundVideoLoop) => setHero({ backgroundVideoLoop })}
-                  label="循环播放"
-                  description="开启后视频持续循环；关闭后只播放一次，并停留在最后一帧"
-                  className="rounded-lg border border-border p-3 sm:col-span-2"
+              <div className="space-y-2 sm:col-span-2">
+                <Input
+                  label="背景视频 URL（可选）"
+                  value={hero.backgroundVideo}
+                  onChange={(e) => setHero({ backgroundVideo: e.target.value })}
+                  placeholder="https://…/hero.mp4 或 /media/…"
+                  hint="支持 MP4 / WebM（单个 ≤ 25MB）。可从媒体库选择，或填写 HTTPS 外链；上面的背景图会作为视频封面与降级画面。"
                 />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setVideoPickerOpen(true)}>
+                    <Icon name="play" size={15} /> 从媒体库选择视频
+                  </Button>
+                  {hero.backgroundVideo && (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setHero({ backgroundVideo: '' })}>
+                      <Icon name="close" size={15} /> 清除视频
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {hero.backgroundVideo && (
+                <>
+                  <Switch
+                    checked={hero.backgroundVideoLoop}
+                    onChange={(backgroundVideoLoop) => setHero({ backgroundVideoLoop })}
+                    label="循环播放"
+                    description="开启后持续循环；关闭后只播放一次，停在结束时间或最后一帧"
+                    className="rounded-lg border border-border p-3 sm:col-span-2"
+                  />
+                  <SecondsInput
+                    label="区间开始（秒）"
+                    value={hero.backgroundVideoStart}
+                    onChange={(backgroundVideoStart) => setHero({ backgroundVideoStart })}
+                    hint="第一次仍从 0 播放；之后循环时回到这里。0 表示从头开始。"
+                  />
+                  <SecondsInput
+                    label="区间结束（秒）"
+                    value={hero.backgroundVideoEnd}
+                    onChange={(backgroundVideoEnd) => setHero({ backgroundVideoEnd })}
+                    hint="播放到这里后回到开始时间；0 表示播放到视频末尾。"
+                  />
+                  {hero.backgroundVideoEnd > 0 && hero.backgroundVideoEnd <= hero.backgroundVideoStart && (
+                    <p className="text-xs text-warning sm:col-span-2">
+                      结束时间需大于开始时间，否则会按整段视频循环。
+                    </p>
+                  )}
+                </>
               )}
               <Input
                 label="亮色主题遮罩（0–1）"
@@ -1446,6 +1525,13 @@ export function AppearancePage() {
           </Section>
         </div>
       )}
+
+      <MediaPicker
+        open={videoPickerOpen}
+        kind="video"
+        onClose={() => setVideoPickerOpen(false)}
+        onSelect={(item) => setHero({ backgroundVideo: item.url })}
+      />
 
       <p className="mt-6 text-center text-xs text-faint">
         默认值参考：站点 {DEFAULT_SETTINGS.site.name} · 主题预设 {DEFAULT_SETTINGS.theme.preset}

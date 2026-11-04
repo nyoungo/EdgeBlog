@@ -140,6 +140,12 @@ const icons = {
       <path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21" />
     </>
   ),
+  play: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m10 8 6 4-6 4Z" />
+    </>
+  ),
   dashboard: (
     <>
       <rect x="3" y="3" width="7" height="9" rx="1" />

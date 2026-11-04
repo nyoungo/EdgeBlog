@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/Button';
 import { Input, Select } from '../../components/ui/Field';
 import { EmptyState, Spinner } from '../../components/ui/Feedback';
 import { Icon } from '../../components/ui/icons';
+import { Modal } from '../../components/ui/Modal';
 import { Pagination } from '../../components/ui/Pagination';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { SkeletonGrid } from '../../components/admin/MediaPicker';
@@ -20,6 +21,10 @@ function humanSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function isVideo(item: MediaItem): boolean {
+  return item.mime.startsWith('video/');
+}
+
 export function MediaAdminPage() {
   const { settings } = useSettings();
   const { success, error } = useToast();
@@ -31,6 +36,7 @@ export function MediaAdminPage() {
   const [pendingDelete, setPendingDelete] = useState<MediaItem | null>(null);
   const [usage, setUsage] = useState<MediaUsage[] | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [preview, setPreview] = useState<MediaItem | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useDocumentTitle('媒体库', settings.site.name);
@@ -130,7 +136,9 @@ export function MediaAdminPage() {
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-fg">媒体库</h1>
-          <p className="mt-1 text-sm text-muted">{meta.total != null ? `共 ${meta.total} 个文件` : '管理上传的图片'}</p>
+          <p className="mt-1 text-sm text-muted">
+            {meta.total != null ? `共 ${meta.total} 个文件` : '管理上传的图片与视频'} · 图片 ≤ 8MB / 视频 ≤ 25MB
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Select
@@ -147,13 +155,13 @@ export function MediaAdminPage() {
           </Select>
           <Button loading={uploading} onClick={() => fileRef.current?.click()}>
             <Icon name="upload" size={16} />
-            上传图片
+            上传图片 / 视频
           </Button>
         </div>
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
+          accept="image/*,video/mp4,video/webm"
           multiple
           className="hidden"
           onChange={(e) => {
@@ -178,12 +186,12 @@ export function MediaAdminPage() {
         <EmptyState
           icon="image"
           title={q ? '没有匹配的文件' : '媒体库为空'}
-          description={q ? `没有找到与「${q}」相关的图片。` : '上传图片后,可在文章编辑器中直接引用。'}
+          description={q ? `没有找到与「${q}」相关的文件。` : '上传图片或视频后，可在文章编辑器中直接引用。'}
           action={
             !q ? (
               <Button onClick={() => fileRef.current?.click()}>
                 <Icon name="upload" size={16} />
-                上传图片
+                上传图片 / 视频
               </Button>
             ) : undefined
           }
@@ -193,13 +201,38 @@ export function MediaAdminPage() {
           {items.map((item) => (
             <div key={item.id} className="group overflow-hidden rounded-lg border border-border bg-surface">
               <div className="relative aspect-square">
-                <img
-                  src={item.url}
-                  alt={item.filename ?? ''}
-                  loading="lazy"
-                  className="h-full w-full object-cover"
-                />
+                {isVideo(item) ? (
+                  <>
+                    <video
+                      src={`${item.url}#t=0.1`}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="h-full w-full object-cover"
+                    />
+                    <span className="pointer-events-none absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      <Icon name="play" size={10} /> 视频
+                    </span>
+                  </>
+                ) : (
+                  <img
+                    src={item.url}
+                    alt={item.filename ?? ''}
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
+                )}
                 <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-black/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                  {isVideo(item) && (
+                    <button
+                      type="button"
+                      onClick={() => setPreview(item)}
+                      className="flex h-7 w-7 items-center justify-center rounded bg-white/90 text-fg hover:bg-white"
+                      title="预览视频"
+                    >
+                      <Icon name="play" size={14} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => void copyUrl(item)}
@@ -213,7 +246,7 @@ export function MediaAdminPage() {
                     target="_blank"
                     rel="noreferrer"
                     className="flex h-7 w-7 items-center justify-center rounded bg-white/90 text-fg hover:bg-white"
-                    title="查看原图"
+                    title={isVideo(item) ? '在新标签页打开视频' : '查看原图'}
                   >
                     <Icon name="externalLink" size={14} />
                   </a>
@@ -264,6 +297,25 @@ export function MediaAdminPage() {
           setUsage(null);
         }}
       />
+
+      <Modal
+        open={Boolean(preview)}
+        onClose={() => setPreview(null)}
+        title={preview?.filename ?? '视频预览'}
+        description={preview ? `${preview.mime} · ${humanSize(preview.size)}` : undefined}
+        className="max-w-3xl"
+      >
+        {preview && (
+          <video
+            key={preview.id}
+            src={preview.url}
+            controls
+            autoPlay
+            playsInline
+            className="max-h-[70vh] w-full rounded-lg bg-black"
+          />
+        )}
+      </Modal>
 
       {uploading && (
         <div className={cn('fixed bottom-5 right-5 flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-3 shadow-pop')}>
