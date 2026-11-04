@@ -53,6 +53,7 @@ const heroSchema = z.object({
   height: z.string().trim().max(20),
   fullScreen: z.boolean(),
   background: z.string().trim().max(200),
+  backgroundMedia: z.string().trim().max(1000),
   backgroundImage: z.string().trim().max(1000),
   backgroundVideo: z.string().trim().max(1000),
   backgroundVideoLoop: z.boolean(),

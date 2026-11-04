@@ -72,6 +72,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
       height: '',
       fullScreen: false,
       background: '',
+      backgroundMedia: '',
       backgroundImage: '',
       backgroundVideo: '',
       backgroundVideoLoop: true,

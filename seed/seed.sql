@@ -76,6 +76,7 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
     "height": "",
     "fullScreen": false,
     "background": "",
+    "backgroundMedia": "",
     "backgroundImage": "",
     "backgroundVideo": "",
     "backgroundVideoLoop": true,

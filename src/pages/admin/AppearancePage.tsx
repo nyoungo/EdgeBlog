@@ -19,6 +19,7 @@ import { MediaPicker } from '../../components/admin/MediaPicker';
 import { cn } from '../../lib/utils';
 import { CODE_THEMES } from '../../lib/code-themes';
 import { BACKGROUND_LAYOUT } from '../../lib/theme';
+import { resolveHeroMedia } from '../../lib/hero-media';
 import { api } from '../../lib/api';
 import { useDocumentTitle } from '../../hooks';
 import { useSettings } from '../../providers/SettingsProvider';
@@ -302,7 +303,7 @@ export function AppearancePage() {
   const [dirty, setDirty] = useState<Set<Namespace>>(new Set());
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false);
-  const [videoPickerOpen, setVideoPickerOpen] = useState(false);
+  const [mediaPickerKind, setMediaPickerKind] = useState<'image' | 'video' | null>(null);
 
   useDocumentTitle('站点设置', settings.site.name);
 
@@ -365,6 +366,10 @@ export function AppearancePage() {
   const setTheme = (patch: Partial<ThemeSettings>) => update('theme', { ...theme, ...patch });
   const setLayout = (patch: Partial<typeof layout>) => update('layout', { ...layout, ...patch });
   const setHero = (patch: Partial<typeof hero>) => setLayout({ hero: { ...hero, ...patch } });
+  const heroMedia = resolveHeroMedia(hero);
+  const heroIsVideo = heroMedia.kind === 'video';
+  const setHeroMedia = (backgroundMedia: string) =>
+    setHero({ backgroundMedia, backgroundImage: '', backgroundVideo: '' });
   const setHeader = (patch: Partial<typeof header>) => setLayout({ header: { ...header, ...patch } });
   const setSite = (patch: Partial<SiteSettings>) => update('site', { ...site, ...patch });
   const setMusic = (patch: Partial<typeof draft.music>) => update('music', { ...draft.music, ...patch });
@@ -708,33 +713,35 @@ export function AppearancePage() {
                 onChange={(e) => setHero({ background: e.target.value })}
                 placeholder="#0f172a 或 linear-gradient(...)"
               />
-              <Input
-                label="背景图片 URL"
-                value={hero.backgroundImage}
-                onChange={(e) => setHero({ backgroundImage: e.target.value })}
-                placeholder="https://…"
-                wrapperClassName="sm:col-span-2"
-              />
               <div className="space-y-2 sm:col-span-2">
                 <Input
-                  label="背景视频 URL（可选）"
-                  value={hero.backgroundVideo}
-                  onChange={(e) => setHero({ backgroundVideo: e.target.value })}
-                  placeholder="https://…/hero.mp4 或 /media/…"
-                  hint="支持 MP4 / WebM（单个 ≤ 25MB）。可从媒体库选择，或填写 HTTPS 外链；上面的背景图会作为视频封面与降级画面。"
+                  label="背景图片 / 视频 URL"
+                  value={heroMedia.value}
+                  onChange={(e) => setHeroMedia(e.target.value)}
+                  placeholder="https://…/hero.jpg、…/hero.mp4 或 /media/…"
+                  hint="只需填写一个地址，按扩展名自动识别图片或视频。视频支持 MP4 / WebM（单个 ≤ 25MB），自动静音播放；图片则作为背景图。"
                 />
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="secondary" size="sm" onClick={() => setVideoPickerOpen(true)}>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setMediaPickerKind('image')}>
+                    <Icon name="image" size={15} /> 从媒体库选择图片
+                  </Button>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setMediaPickerKind('video')}>
                     <Icon name="play" size={15} /> 从媒体库选择视频
                   </Button>
-                  {hero.backgroundVideo && (
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setHero({ backgroundVideo: '' })}>
-                      <Icon name="close" size={15} /> 清除视频
+                  {heroMedia.value && (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setHeroMedia('')}>
+                      <Icon name="close" size={15} /> 清除背景媒体
                     </Button>
                   )}
                 </div>
+                {heroMedia.value && (
+                  <p className="flex items-center gap-1.5 text-xs text-faint">
+                    <Icon name={heroIsVideo ? 'play' : 'image'} size={13} />
+                    已识别为{heroIsVideo ? '视频，可设置循环与播放区间' : '图片'}
+                  </p>
+                )}
               </div>
-              {hero.backgroundVideo && (
+              {heroIsVideo && (
                 <>
                   <Switch
                     checked={hero.backgroundVideoLoop}
@@ -1527,10 +1534,10 @@ export function AppearancePage() {
       )}
 
       <MediaPicker
-        open={videoPickerOpen}
-        kind="video"
-        onClose={() => setVideoPickerOpen(false)}
-        onSelect={(item) => setHero({ backgroundVideo: item.url })}
+        open={mediaPickerKind !== null}
+        kind={mediaPickerKind ?? 'image'}
+        onClose={() => setMediaPickerKind(null)}
+        onSelect={(item) => setHeroMedia(item.url)}
       />
 
       <p className="mt-6 text-center text-xs text-faint">

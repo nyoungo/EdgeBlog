@@ -169,7 +169,7 @@ export function Header() {
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-sm font-bold text-brand-fg">
             {logoText.slice(0, 1).toUpperCase()}
           </span>
-          <span className="text-base font-semibold tracking-tight">{logoText}</span>
+          <span className="eb-logo-text text-base font-semibold tracking-tight">{logoText}</span>
         </>
       )}
     </Link>

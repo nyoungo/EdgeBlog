@@ -190,6 +190,15 @@
     background: rgb(var(--c-bg) / var(--eb-hero-ol-dark, 0));
   }
 
+  /* The header can float transparently over hero media. A halo in the opposite
+     theme colour keeps the logo wordmark legible on arbitrary backgrounds. */
+  .eb-logo-text {
+    text-shadow:
+      0 0 1px rgb(var(--c-bg) / 0.95),
+      0 0 4px rgb(var(--c-bg) / 0.85),
+      0 1px 8px rgb(var(--c-bg) / 0.55);
+  }
+
   /* Motion-sensitive visitors get the still poster/background instead. */
   @media (prefers-reduced-motion: reduce) {
     .eb-hero-video {

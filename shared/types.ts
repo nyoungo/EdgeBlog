@@ -236,9 +236,15 @@ export interface HeroSettings {
   fullScreen: boolean;
   /** CSS background (colour or gradient); empty = default gradient. */
   background: string;
-  /** Background image URL (takes precedence over `background`). Doubles as the video poster when `backgroundVideo` is set. */
+  /**
+   * Unified background media URL (takes precedence over `background`).
+   * Images and videos share one field; the type is inferred from the URL
+   * extension (MP4 / WebM / M4V / MOV / OGV are treated as video).
+   */
+  backgroundMedia: string;
+  /** @deprecated Legacy image URL. Used as a fallback and as the poster for `backgroundVideo`. */
   backgroundImage: string;
-  /** Background video URL (MP4/WebM; takes precedence over `backgroundImage`). Empty = no video. */
+  /** @deprecated Legacy video URL. New values are written to `backgroundMedia`. */
   backgroundVideo: string;
   /** Loop the background video; when false it plays once and holds the last frame. */
   backgroundVideoLoop: boolean;

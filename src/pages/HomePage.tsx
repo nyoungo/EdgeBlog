@@ -9,6 +9,7 @@ import { PostCard, cardGridClass } from '../components/blog/PostCard';
 import { HeroBackgroundVideo } from '../components/blog/HeroBackgroundVideo';
 import { PageWithSidebar } from '../components/layout/PageWithSidebar';
 import { api, qs } from '../lib/api';
+import { resolveHeroMedia } from '../lib/hero-media';
 import { fetchTags } from '../lib/resource';
 import { cn } from '../lib/utils';
 import { useAsync } from '../hooks';
@@ -47,10 +48,11 @@ function HomeHero({
   description: string;
   full: boolean;
 }) {
-  const hasCustomBg = Boolean(hero.backgroundImage || hero.background || hero.backgroundVideo);
+  const media = resolveHeroMedia(hero);
+  const hasCustomBg = Boolean(media.image || hero.background || media.video);
   const style: CSSProperties & Record<`--${string}`, string> = {};
-  if (hero.backgroundImage) {
-    style.backgroundImage = `url("${hero.backgroundImage}")`;
+  if (media.image) {
+    style.backgroundImage = `url("${media.image}")`;
     style.backgroundSize = 'cover';
     style.backgroundPosition = 'center';
     style.backgroundRepeat = 'no-repeat';
@@ -87,10 +89,10 @@ function HomeHero({
       )}
       style={style}
     >
-      {hero.backgroundVideo && (
+      {media.video && (
         <HeroBackgroundVideo
-          src={hero.backgroundVideo}
-          poster={hero.backgroundImage || undefined}
+          src={media.video}
+          poster={media.poster || undefined}
           loop={hero.backgroundVideoLoop}
           start={hero.backgroundVideoStart}
           end={hero.backgroundVideoEnd}
@@ -106,12 +108,12 @@ function HomeHero({
             {tagline || '欢迎'}
           </Badge>
           <h1
-            className="text-3xl font-bold leading-tight tracking-tight text-fg text-balance sm:text-4xl"
+            className="text-6xl font-bold leading-tight tracking-tight text-fg text-balance sm:text-7xl"
             style={{ color: titleColor, textShadow }}
           >
             {name}
           </h1>
-          <p className="mt-4 text-base text-muted text-pretty" style={{ color: descColor, textShadow }}>
+          <p className="mt-4 text-[2rem] text-muted text-pretty" style={{ color: descColor, textShadow }}>
             {description}
           </p>
         </div>

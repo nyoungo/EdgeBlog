@@ -40,7 +40,9 @@ export function MediaPicker({
   const onUpload = async (file: File) => {
     setUploading(true);
     try {
-      const item = await uploadMedia(await compressImage(file, compress));
+      // Video is uploaded as-is; canvas compression only applies to images.
+      const payload = file.type.startsWith('image/') ? await compressImage(file, compress) : file;
+      const item = await uploadMedia(payload);
       success('上传成功');
       reload();
       onSelect(item);
