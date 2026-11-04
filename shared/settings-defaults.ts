@@ -73,6 +73,8 @@ export const DEFAULT_SETTINGS: PublicSettings = {
       fullScreen: false,
       background: '',
       backgroundImage: '',
+      backgroundVideo: '',
+      backgroundVideoLoop: true,
       overlayLight: 0,
       overlayDark: 0,
       textColor: '',

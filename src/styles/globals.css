@@ -189,4 +189,11 @@
   [data-mode='dark'] .eb-hero-scrim {
     background: rgb(var(--c-bg) / var(--eb-hero-ol-dark, 0));
   }
+
+  /* Motion-sensitive visitors get the still poster/background instead. */
+  @media (prefers-reduced-motion: reduce) {
+    .eb-hero-video {
+      display: none;
+    }
+  }
 }

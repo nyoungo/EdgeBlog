@@ -236,8 +236,12 @@ export interface HeroSettings {
   fullScreen: boolean;
   /** CSS background (colour or gradient); empty = default gradient. */
   background: string;
-  /** Background image URL (takes precedence over `background`). */
+  /** Background image URL (takes precedence over `background`). Doubles as the video poster when `backgroundVideo` is set. */
   backgroundImage: string;
+  /** Background video URL (MP4/WebM; takes precedence over `backgroundImage`). Empty = no video. */
+  backgroundVideo: string;
+  /** Loop the background video; when false it plays once and holds the last frame. */
+  backgroundVideoLoop: boolean;
   /** Scrim opacity over the background in light mode (0–1). */
   overlayLight: number;
   /** Scrim opacity over the background in dark mode (0–1). */

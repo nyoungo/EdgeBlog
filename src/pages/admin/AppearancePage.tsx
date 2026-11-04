@@ -667,6 +667,23 @@ export function AppearancePage() {
                 wrapperClassName="sm:col-span-2"
               />
               <Input
+                label="背景视频 URL（可选）"
+                value={hero.backgroundVideo}
+                onChange={(e) => setHero({ backgroundVideo: e.target.value })}
+                placeholder="https://…/hero.mp4"
+                hint="支持 HTTPS 的 MP4 / WebM 外链，自动静音播放。媒体库目前只收录图片，建议使用 CDN 或 R2 公网地址；上面的背景图会作为视频封面与降级画面。"
+                wrapperClassName="sm:col-span-2"
+              />
+              {hero.backgroundVideo && (
+                <Switch
+                  checked={hero.backgroundVideoLoop}
+                  onChange={(backgroundVideoLoop) => setHero({ backgroundVideoLoop })}
+                  label="循环播放"
+                  description="开启后视频持续循环；关闭后只播放一次，并停留在最后一帧"
+                  className="rounded-lg border border-border p-3 sm:col-span-2"
+                />
+              )}
+              <Input
                 label="亮色主题遮罩（0–1）"
                 type="number"
                 min={0}

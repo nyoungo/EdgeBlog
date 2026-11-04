@@ -459,7 +459,7 @@ curl -s -b jar.txt -X POST localhost:8788/api/media/upload -F "file=@cover.png"
 
 - **主题 / 高级**：配置变化时 `SettingsProvider` 调用 `applyTheme` + `applyAdvanced`，实时写入 CSS 变量（`--c-brand` 主色、`--c-bg` 全局背景色等）、切换代码高亮主题、注入自定义 CSS 与页头/页脚 HTML（`<script>` 会被重建以真正执行）、统计脚本 → 后台改动即时预览。
 - **布局**：`layout.sidebar` 由 `PageWithSidebar` 在首页/列表/标签/归档/搜索页渲染侧边栏（居左 / 居右 / 不显示，`lg` 以下自动堆叠）；`layout.cardStyle` 驱动 `PostCard` 的五种形态（杂志 / 极简 / 网格 / 浮层 / 紧凑），`layout.cardSize`（大 / 中 / 小）控制内边距、字号与列表密度（经 `cardGridClass` 统一栅格），`layout.cardBlur`（无 / 弱 / 中 / 强）为卡片加毛玻璃 `backdrop-blur`；`layout.homeModules` 控制首页模块及顺序。
-- **欢迎区（Hero）**：`layout.hero` 定制宽度（标准 / 窄 / 全宽）、高度、铺满屏幕、背景色 / 渐变、背景图、亮/暗主题遮罩、标题 / 描述文字颜色与对齐；开启「铺满屏幕」后宽度与高度自动锁定（互斥），欢迎区渲染在侧边栏容器之外直接占满视口宽度、向上覆盖导航栏区域（内容略微上移）。
+- **欢迎区（Hero）**：`layout.hero` 定制宽度（标准 / 窄 / 全宽）、高度、铺满屏幕、背景色 / 渐变、背景图、背景视频（MP4 / WebM，自动静音，可切换循环播放或播放一次停于最后一帧，背景图兼作封面）、亮/暗主题遮罩、标题 / 描述文字颜色与对齐；开启「铺满屏幕」后宽度与高度自动锁定（互斥），欢迎区渲染在侧边栏容器之外直接占满视口宽度、向上覆盖导航栏区域（内容略微上移）。
 - **导航栏**：`layout.header` 定制位置（跟随页面 / 吸顶 / 固定 / 左侧竖向侧边栏）、样式（默认 / 极简 / 胶囊）、背景（纯色 / 玻璃 / 透明）、顶部透明、高度与对齐；固定定位时自动补占位高度，`左侧` 时桌面端（`lg` 起）渲染固定竖向侧边栏并把内容右移 `16rem`，移动端仍用顶部栏，且侧边栏同样应用样式（默认 / 极简 / 胶囊）、背景（纯色 / 玻璃 / 透明）、对齐（左 / 中 / 右）与高度设置。
 - **交互**：`features.viewTransitions` 开启时，站内导航使用 View Transitions API。
 - **音乐**：`music.enabled` 为真时 `MusicPlayerHost` 才动态加载 `xf-music-player` 并挂到页面右下角；后台改配置会销毁并按新参数重建。

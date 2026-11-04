@@ -46,7 +46,7 @@ function HomeHero({
   description: string;
   full: boolean;
 }) {
-  const hasCustomBg = Boolean(hero.backgroundImage || hero.background);
+  const hasCustomBg = Boolean(hero.backgroundImage || hero.background || hero.backgroundVideo);
   const style: CSSProperties & Record<`--${string}`, string> = {};
   if (hero.backgroundImage) {
     style.backgroundImage = `url("${hero.backgroundImage}")`;
@@ -86,6 +86,20 @@ function HomeHero({
       )}
       style={style}
     >
+      {hero.backgroundVideo && (
+        <video
+          className="eb-hero-video pointer-events-none absolute inset-0 h-full w-full object-cover"
+          src={hero.backgroundVideo}
+          poster={hero.backgroundImage || undefined}
+          autoPlay
+          muted
+          loop={hero.backgroundVideoLoop}
+          playsInline
+          preload="metadata"
+          aria-hidden="true"
+          tabIndex={-1}
+        />
+      )}
       {(hero.overlayLight > 0 || hero.overlayDark > 0) && (
         <div className="eb-hero-scrim pointer-events-none absolute inset-0" aria-hidden="true" />
       )}

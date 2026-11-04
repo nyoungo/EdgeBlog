@@ -77,6 +77,8 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
     "fullScreen": false,
     "background": "",
     "backgroundImage": "",
+    "backgroundVideo": "",
+    "backgroundVideoLoop": true,
     "overlayLight": 0,
     "overlayDark": 0,
     "textColor": "",
