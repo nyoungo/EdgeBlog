@@ -750,17 +750,24 @@ export function AppearancePage() {
                     description="开启后持续循环；关闭后只播放一次，停在结束时间或最后一帧"
                     className="rounded-lg border border-border p-3 sm:col-span-2"
                   />
+                  <Switch
+                    checked={hero.backgroundVideoFirstFromStart}
+                    onChange={(backgroundVideoFirstFromStart) => setHero({ backgroundVideoFirstFromStart })}
+                    label="第一遍从头播放"
+                    description="开启后首次从 0 秒开始；关闭后直接进入区间开始时间。之后每轮都从区间开始。"
+                    className="rounded-lg border border-border p-3 sm:col-span-2"
+                  />
                   <SecondsInput
                     label="区间开始（秒）"
                     value={hero.backgroundVideoStart}
                     onChange={(backgroundVideoStart) => setHero({ backgroundVideoStart })}
-                    hint="第一次仍从 0 播放；之后循环时回到这里。0 表示从头开始。"
+                    hint="循环回到这里；首轮是否从这里开始由上方开关决定。0 表示从头开始。"
                   />
                   <SecondsInput
                     label="区间结束（秒）"
                     value={hero.backgroundVideoEnd}
                     onChange={(backgroundVideoEnd) => setHero({ backgroundVideoEnd })}
-                    hint="播放到这里后回到开始时间；0 表示播放到视频末尾。"
+                    hint="播到这里直接切回开始时间（无淡入淡出）；0 表示播放到视频末尾。"
                   />
                   {hero.backgroundVideoEnd > 0 && hero.backgroundVideoEnd <= hero.backgroundVideoStart && (
                     <p className="text-xs text-warning sm:col-span-2">

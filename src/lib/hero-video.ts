@@ -1,6 +1,9 @@
 /** Treat positions within this distance of the end as "reached the end". */
 export const VIDEO_RANGE_EPSILON = 0.04;
 
+/** Seconds before the cut where the standby deck is already playing. */
+export const VIDEO_SWAP_LEAD_SECONDS = 0.04;
+
 export interface VideoRange {
   start: number;
   end: number;
@@ -26,4 +29,22 @@ export function normalizeVideoRange(duration: number, start: number, end: number
     return { start: 0, end: safeDuration };
   }
   return { start: rawStart, end: endAt };
+}
+
+/**
+ * Where the very first pass starts. "From the beginning" means the clip head;
+ * otherwise we skip the intro and enter the loop range immediately.
+ */
+export function initialVideoTime(range: VideoRange, firstFromStart: boolean): number {
+  return firstFromStart ? 0 : range.start;
+}
+
+/**
+ * How early to start the hidden deck before cutting. The lead is capped at a
+ * quarter of the loop so very short ranges still get a usable guard, and at
+ * 40 ms (about two 60 fps frames) so the visible deck never loses much tail.
+ */
+export function videoSwapLead(range: VideoRange): number {
+  const segment = Math.max(0, range.end - range.start);
+  return Math.min(VIDEO_SWAP_LEAD_SECONDS, segment / 4);
 }

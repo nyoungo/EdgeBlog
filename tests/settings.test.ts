@@ -19,6 +19,23 @@ describe('mergeSettings', () => {
     expect(merged.site.logo).toEqual(DEFAULT_SETTINGS.site.logo);
   });
 
+  it('fills new hero video fields for layouts saved before they existed', () => {
+    const merged = mergeSettings({
+      layout: {
+        hero: {
+          backgroundVideoLoop: false,
+          backgroundVideoStart: 4,
+          backgroundVideoEnd: 12,
+        },
+      },
+    });
+    expect(merged.layout.hero.backgroundVideoStart).toBe(4);
+    expect(merged.layout.hero.backgroundVideoEnd).toBe(12);
+    expect(merged.layout.hero.backgroundVideoFirstFromStart).toBe(
+      DEFAULT_SETTINGS.layout.hero.backgroundVideoFirstFromStart,
+    );
+  });
+
   it('replaces arrays wholesale instead of merging them by index', () => {
     const merged = mergeSettings({
       social: [{ id: 'x', label: 'X', type: 'x', url: 'https://x.example' }],

@@ -97,6 +97,7 @@ function HomeHero({
           loop={hero.backgroundVideoLoop}
           start={hero.backgroundVideoStart}
           end={hero.backgroundVideoEnd}
+          firstFromStart={hero.backgroundVideoFirstFromStart}
         />
       )}
       {(hero.overlayLight > 0 || hero.overlayDark > 0) && (

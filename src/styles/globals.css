@@ -182,8 +182,25 @@
     scrollbar-width: none;
   }
 
+  /* Two stacked hero video decks. The visible deck is never seeked; the parked
+     one sits above at 0.1% opacity so Chrome keeps compositing and decoding it
+     (a fully occluded or display:none video may stop producing frames). */
+  .eb-hero-video {
+    z-index: 1;
+    opacity: 0;
+  }
+  .eb-hero-video.is-active {
+    z-index: 1;
+    opacity: 1;
+  }
+  .eb-hero-video.is-standby {
+    z-index: 2;
+    opacity: 0.001;
+  }
+
   /* Theme-aware hero scrim so text stays readable over a background image. */
   .eb-hero-scrim {
+    z-index: 3;
     background: rgb(var(--c-bg) / var(--eb-hero-ol-light, 0));
   }
   [data-mode='dark'] .eb-hero-scrim {

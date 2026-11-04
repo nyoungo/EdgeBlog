@@ -248,7 +248,9 @@ export interface HeroSettings {
   backgroundVideo: string;
   /** Loop the background video; when false it plays once and holds the last frame. */
   backgroundVideoLoop: boolean;
-  /** Loop range start in seconds. The first pass still starts at 0. */
+  /** Play the first pass from 0 instead of starting directly at `backgroundVideoStart`. */
+  backgroundVideoFirstFromStart: boolean;
+  /** Loop range start in seconds. The first pass starts here when `backgroundVideoFirstFromStart` is off. */
   backgroundVideoStart: number;
   /** Loop range end in seconds; 0 = end of the clip. Also stops here when looping is off. */
   backgroundVideoEnd: number;

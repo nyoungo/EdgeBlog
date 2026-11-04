@@ -80,6 +80,7 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
     "backgroundImage": "",
     "backgroundVideo": "",
     "backgroundVideoLoop": true,
+    "backgroundVideoFirstFromStart": true,
     "backgroundVideoStart": 0,
     "backgroundVideoEnd": 0,
     "overlayLight": 0,
