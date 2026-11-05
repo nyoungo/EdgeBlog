@@ -72,18 +72,6 @@
 [data-theme='forest']   { --c-brand: 22 163 74;  }   /* 森绿 · green    */
 [data-theme='cyber']    { --c-brand: 217 70 239; }   /* 赛博 · fuchsia  */
 
-/* Reduced motion: neutralise all animation/transition globally. */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
 /* Smooth cross-fade when switching themes via the View Transitions API. */
 ::view-transition-old(root),
 ::view-transition-new(root) {
