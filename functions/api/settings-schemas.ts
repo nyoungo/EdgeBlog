@@ -74,6 +74,9 @@ const headerSchema = z.object({
   transparentOnTop: z.boolean(),
   height: z.string().trim().max(20),
   align: z.enum(['left', 'center', 'right']),
+  logoColor: z.string().trim().max(60),
+  navColor: z.string().trim().max(60),
+  actionColor: z.string().trim().max(60),
 });
 
 export const layoutSchema = z

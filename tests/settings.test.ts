@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '@shared/settings-defaults';
 import { mergeSettings } from '../functions/lib/settings';
+import { layoutSchema } from '../functions/api/settings-schemas';
 
 /**
  * `mergeSettings` is what protects a partially-filled `settings` table from
@@ -63,5 +64,30 @@ describe('mergeSettings', () => {
     expect(merged.features.comments).toBe(false);
     expect(merged.features.rss).toBe(false);
     expect(merged.comments.requireModeration).toBe(false);
+  });
+});
+
+/**
+ * 顶栏三个颜色是后加的字段：旧库没有它们时靠默认值兜底，写回时又必须能通过
+ * 校验（zod 的 object 会丢掉 schema 未声明的键，漏写就等于设置不生效）。
+ */
+describe('header colours', () => {
+  it('defaults to empty strings so the header falls back to the theme', () => {
+    expect(DEFAULT_SETTINGS.layout.header).toMatchObject({
+      logoColor: '',
+      navColor: '',
+      actionColor: '',
+    });
+  });
+
+  it('passes all three colours through layout validation', () => {
+    const parsed = layoutSchema.parse({
+      header: { logoColor: '#111111', navColor: '#222222', actionColor: '#333333' },
+    }) as { header: Record<string, unknown> };
+    expect(parsed.header).toEqual({
+      logoColor: '#111111',
+      navColor: '#222222',
+      actionColor: '#333333',
+    });
   });
 });

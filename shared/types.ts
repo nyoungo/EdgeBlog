@@ -281,6 +281,12 @@ export interface HeaderSettings {
   /** Bar height (CSS length, e.g. `64px`). */
   height: string;
   align: NavAlign;
+  /** Logo wordmark colour (CSS colour); empty = theme foreground. */
+  logoColor: string;
+  /** Navigation link colour (CSS colour); empty = theme active/muted colours. */
+  navColor: string;
+  /** Colour of the action icons on the right (search / theme / admin / menu); empty = theme. */
+  actionColor: string;
 }
 
 export interface LayoutSettings {

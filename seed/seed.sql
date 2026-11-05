@@ -95,7 +95,10 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
     "background": "glass",
     "transparentOnTop": true,
     "height": "64px",
-    "align": "center"
+    "align": "center",
+    "logoColor": "",
+    "navColor": "",
+    "actionColor": ""
   }
 }')),
 

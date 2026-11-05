@@ -25,54 +25,209 @@ import { useDocumentTitle } from '../../hooks';
 import { useSettings } from '../../providers/SettingsProvider';
 import { useToast } from '../../providers/ToastProvider';
 
-type Namespace = 'site' | 'theme' | 'layout' | 'navigation' | 'social' | 'features' | 'comments' | 'pages' | 'advanced' | 'music';
-
-interface TabDef {
-  id: Namespace;
-  label: string;
-  icon: IconName;
-}
+type Namespace =
+  | 'site'
+  | 'theme'
+  | 'layout'
+  | 'navigation'
+  | 'social'
+  | 'features'
+  | 'comments'
+  | 'pages'
+  | 'advanced'
+  | 'music';
 
 /**
- * 设置项按「用户想改什么」分组，而不是按数据命名空间平铺。
- * 每组是一块独立的入口，组内按改动频率从高到低排列：
- *   站点信息 → 外观主题 → 内容与功能 → 系统。
- * 命名空间与面板仍保持一一对应，保存 / 恢复默认的粒度不受分组影响。
+ * 设置页按「设置项作用的页面区域」拆分，而不是按数据命名空间平铺：
+ * 同一个区域（例如英雄区、顶栏）的选项集中在同一页，改一处不用来回跳。
+ * 一页可以同时读写多个命名空间，保存时仍按命名空间逐个提交。
  */
-const GROUPS: Array<{ label: string; description: string; tabs: TabDef[] }> = [
+type TabId =
+  | 'basic'
+  | 'header'
+  | 'footer'
+  | 'hero'
+  | 'modules'
+  | 'colors'
+  | 'typography'
+  | 'cards'
+  | 'features'
+  | 'comments'
+  | 'pages'
+  | 'music'
+  | 'advanced';
+
+/** 恢复本页默认时需要取回的字段路径。 */
+interface FieldPath {
+  ns: Namespace;
+  /** 空数组表示整个命名空间（数组或对象整体替换）。 */
+  path: string[];
+}
+
+interface TabDef {
+  id: TabId;
+  label: string;
+  icon: IconName;
+  hint: string;
+  /** 本页涉及哪些命名空间（用于「未保存」标记与保存粒度）。 */
+  namespaces: Namespace[];
+  defaults: FieldPath[];
+}
+
+const TAB_DEFS: TabDef[] = [
   {
-    label: '站点信息',
-    description: '博客的身份：名称、导航、社交',
-    tabs: [
-      { id: 'site', label: '基本信息', icon: 'home' },
-      { id: 'navigation', label: '导航菜单', icon: 'globe' },
-      { id: 'social', label: '社交链接', icon: 'link' },
+    id: 'basic',
+    label: '基本信息',
+    icon: 'home',
+    hint: '站点名称、标语、描述、语言与浏览器标签图标',
+    namespaces: ['site'],
+    defaults: [
+      { ns: 'site', path: ['name'] },
+      { ns: 'site', path: ['tagline'] },
+      { ns: 'site', path: ['description'] },
+      { ns: 'site', path: ['locale'] },
+      { ns: 'site', path: ['favicon'] },
     ],
   },
   {
-    label: '外观主题',
-    description: '配色、字体、布局与卡片样式',
-    tabs: [
-      { id: 'theme', label: '配色与字体', icon: 'palette' },
-      { id: 'layout', label: '布局与卡片', icon: 'dashboard' },
+    id: 'header',
+    label: '顶栏与导航',
+    icon: 'globe',
+    hint: '顶栏布局、Logo、三处颜色与导航菜单',
+    namespaces: ['site', 'layout', 'navigation'],
+    defaults: [
+      { ns: 'site', path: ['logo'] },
+      { ns: 'layout', path: ['header'] },
+      { ns: 'navigation', path: [] },
     ],
   },
   {
-    label: '内容与功能',
-    description: '站内功能开关与内容相关设置',
-    tabs: [
-      { id: 'features', label: '功能开关', icon: 'settings' },
-      { id: 'comments', label: '评论', icon: 'message' },
-      { id: 'pages', label: '页面', icon: 'fileText' },
-      { id: 'music', label: '音乐', icon: 'music' },
+    id: 'footer',
+    label: '页脚与社交',
+    icon: 'link',
+    hint: '页脚版权、页脚链接与社交图标',
+    namespaces: ['site', 'social'],
+    defaults: [
+      { ns: 'site', path: ['footerText'] },
+      { ns: 'site', path: ['footerLinks'] },
+      { ns: 'social', path: [] },
     ],
   },
   {
-    label: '系统',
-    description: '自定义代码与统计埋点',
-    tabs: [{ id: 'advanced', label: '高级', icon: 'sparkles' }],
+    id: 'hero',
+    label: '英雄区',
+    icon: 'image',
+    hint: '首页欢迎区的尺寸、背景媒体、遮罩与文字颜色',
+    namespaces: ['layout'],
+    defaults: [{ ns: 'layout', path: ['hero'] }],
+  },
+  {
+    id: 'modules',
+    label: '首页模块',
+    icon: 'dashboard',
+    hint: '首页各模块的显示开关与排列顺序',
+    namespaces: ['layout'],
+    defaults: [{ ns: 'layout', path: ['homeModules'] }],
+  },
+  {
+    id: 'colors',
+    label: '配色与背景',
+    icon: 'palette',
+    hint: '预设色板、主色、全局背景色与背景图',
+    namespaces: ['theme'],
+    defaults: [
+      { ns: 'theme', path: ['preset'] },
+      { ns: 'theme', path: ['mode'] },
+      { ns: 'theme', path: ['primaryColor'] },
+      { ns: 'theme', path: ['backgroundColor'] },
+      { ns: 'theme', path: ['backgroundImage'] },
+      { ns: 'theme', path: ['backgroundLayout'] },
+      { ns: 'theme', path: ['backgroundAttachment'] },
+      { ns: 'theme', path: ['backgroundScrim'] },
+    ],
+  },
+  {
+    id: 'typography',
+    label: '字体与排版',
+    icon: 'fileText',
+    hint: '字体、字号、行高、圆角、内容宽度与代码高亮',
+    namespaces: ['theme'],
+    defaults: [
+      { ns: 'theme', path: ['fontBody'] },
+      { ns: 'theme', path: ['fontHeading'] },
+      { ns: 'theme', path: ['fontScale'] },
+      { ns: 'theme', path: ['radius'] },
+      { ns: 'theme', path: ['maxWidth'] },
+      { ns: 'theme', path: ['lineHeight'] },
+      { ns: 'theme', path: ['codeTheme'] },
+    ],
+  },
+  {
+    id: 'cards',
+    label: '文章卡片',
+    icon: 'list',
+    hint: '文章卡片的形态、列表密度与侧边栏位置',
+    namespaces: ['layout'],
+    defaults: [
+      { ns: 'layout', path: ['cardStyle'] },
+      { ns: 'layout', path: ['cardSize'] },
+      { ns: 'layout', path: ['cardBlur'] },
+      { ns: 'layout', path: ['sidebar'] },
+      { ns: 'layout', path: ['postsPerPage'] },
+    ],
+  },
+  {
+    id: 'features',
+    label: '功能开关',
+    icon: 'settings',
+    hint: '前台功能的开启与关闭',
+    namespaces: ['features'],
+    defaults: [{ ns: 'features', path: [] }],
+  },
+  {
+    id: 'comments',
+    label: '评论',
+    icon: 'message',
+    hint: '审核策略、评论间隔与长度限制',
+    namespaces: ['comments'],
+    defaults: [{ ns: 'comments', path: [] }],
+  },
+  {
+    id: 'pages',
+    label: '页面内容',
+    icon: 'fileText',
+    hint: '独立页面的标题与 Markdown 正文',
+    namespaces: ['pages'],
+    defaults: [{ ns: 'pages', path: ['about'] }],
+  },
+  {
+    id: 'music',
+    label: '音乐',
+    icon: 'music',
+    hint: '悬浮音乐播放器、数据源与外观',
+    namespaces: ['music'],
+    defaults: [{ ns: 'music', path: [] }],
+  },
+  {
+    id: 'advanced',
+    label: '高级',
+    icon: 'sparkles',
+    hint: '自定义 CSS、注入 HTML 与访问统计',
+    namespaces: ['advanced'],
+    defaults: [{ ns: 'advanced', path: [] }],
   },
 ];
+
+/** 左侧导航的分组；分组只影响展示，不改变保存粒度。 */
+const GROUPS: Array<{ label: string; tabs: TabId[] }> = [
+  { label: '站点与导航', tabs: ['basic', 'header', 'footer'] },
+  { label: '首页', tabs: ['hero', 'modules'] },
+  { label: '外观', tabs: ['colors', 'typography', 'cards'] },
+  { label: '内容', tabs: ['features', 'comments', 'pages'] },
+  { label: '扩展', tabs: ['music', 'advanced'] },
+];
+
+const TAB_MAP = Object.fromEntries(TAB_DEFS.map((tab) => [tab.id, tab])) as Record<TabId, TabDef>;
 
 const PRESETS = [
   { value: 'ink', label: '墨白', color: '#6366f1' },
@@ -114,6 +269,49 @@ const BG_LAYOUT_OPTIONS: Array<{ value: ThemeSettings['backgroundLayout']; label
 ];
 
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 把局部补丁合并进对象（数组整体替换），用于本地预览恢复默认的结果。 */
+function applyPatch<T>(base: T, patch: unknown): T {
+  if (!isPlainObject(base) || !isPlainObject(patch)) return patch as T;
+  const out: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    out[key] = isPlainObject(out[key]) && isPlainObject(value) ? applyPatch(out[key], value) : value;
+  }
+  return out as T;
+}
+
+/** 从默认配置里取出指定字段，拼成「只覆盖这些字段」的命名空间补丁。 */
+function defaultsPatch(entries: FieldPath[]): Array<[Namespace, unknown]> {
+  const byNamespace = new Map<Namespace, unknown>();
+  for (const { ns, path } of entries) {
+    let value: unknown = DEFAULT_SETTINGS[ns];
+    for (const key of path) {
+      value = isPlainObject(value) ? value[key] : undefined;
+      if (value === undefined) break;
+    }
+    if (value === undefined) continue;
+
+    if (path.length === 0) {
+      byNamespace.set(ns, structuredClone(value));
+      continue;
+    }
+
+    // 反向重建嵌套结构：['hero','textColor'] -> { hero: { textColor } }
+    let branch: unknown = structuredClone(value);
+    for (let i = path.length - 1; i >= 0; i -= 1) {
+      const key = path[i];
+      if (key === undefined) continue;
+      branch = { [key]: branch };
+    }
+    const current = byNamespace.get(ns);
+    byNamespace.set(ns, isPlainObject(current) ? applyPatch(current, branch) : branch);
+  }
+  return [...byNamespace.entries()];
+}
 
 function Segmented<T extends string>({
   value,
@@ -247,6 +445,29 @@ function ColorInput({
   );
 }
 
+/** A colour setting with a title and hint, laid out as a full-width block. */
+function ColorField({
+  label,
+  hint,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <span className="text-sm font-medium text-fg">{label}</span>
+      <ColorInput value={value} onChange={onChange} placeholder={placeholder} />
+      {hint && <p className="text-xs text-muted">{hint}</p>}
+    </div>
+  );
+}
+
 /** Number input that can keep intermediate text like `1.` while typing. */
 function SecondsInput({
   label,
@@ -294,14 +515,23 @@ function SecondsInput({
   );
 }
 
+/** Dot shown on tabs with unsaved changes. */
+function DirtyDot({ className }: { className?: string }) {
+  return <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', className ?? 'bg-warning')} aria-hidden="true" />;
+}
+
 export function AppearancePage() {
   const { settings, loading, setSettings, reload } = useSettings();
   const { success, error: toastError } = useToast();
 
   const [draft, setDraft] = useState<PublicSettings>(settings);
-  const [tab, setTab] = useState<Namespace>('site');
+  const [tab, setTab] = useState<TabId>('basic');
+  /** 有未保存改动的命名空间（决定保存时提交哪些）。 */
   const [dirty, setDirty] = useState<Set<Namespace>>(new Set());
+  /** 有未保存改动的页面（决定导航上的标记）。 */
+  const [dirtyTabs, setDirtyTabs] = useState<Set<TabId>>(new Set());
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [ready, setReady] = useState(false);
   const [mediaPickerKind, setMediaPickerKind] = useState<'image' | 'video' | null>(null);
 
@@ -320,6 +550,7 @@ export function AppearancePage() {
     setDraft(next);
     setSettings(next); // live preview
     setDirty((prev) => new Set(prev).add(ns));
+    setDirtyTabs((prev) => new Set(prev).add(tab));
   };
 
   const save = async () => {
@@ -334,6 +565,7 @@ export function AppearancePage() {
       }
       success('设置已保存');
       setDirty(new Set());
+      setDirtyTabs(new Set());
       await reload();
       setReady(false);
     } catch (err) {
@@ -343,15 +575,31 @@ export function AppearancePage() {
     }
   };
 
+  /** 只把本页涉及的字段恢复默认，避免误伤其它页的设置。 */
   const resetTab = async () => {
+    setResetting(true);
     try {
-      const { data } = await api.post<PublicSettings>('/settings/reset', { namespace: tab });
-      setDraft(data);
-      setSettings(data);
-      setDirty(new Set());
-      success('已恢复该页默认设置');
+      const patches = defaultsPatch(TAB_MAP[tab].defaults);
+      for (const [ns, patch] of patches) {
+        await api.patch(`/settings/${ns}`, patch);
+      }
+
+      // 本地同步这些字段，保留其它页尚未保存的编辑。
+      const nextDraft = { ...draft };
+      for (const [ns, patch] of patches) {
+        Object.assign(nextDraft, { [ns]: applyPatch(draft[ns], patch) });
+      }
+      setDraft(nextDraft);
+      setSettings(nextDraft);
+
+      const remainingTabs = new Set([...dirtyTabs].filter((id) => id !== tab));
+      setDirtyTabs(remainingTabs);
+      setDirty(new Set([...remainingTabs].flatMap((id) => TAB_MAP[id].namespaces)));
+      success('已恢复本页默认设置');
     } catch (err) {
       toastError(err instanceof Error ? err.message : '恢复失败');
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -381,24 +629,68 @@ export function AppearancePage() {
     return <div className="py-20 text-center text-sm text-faint">载入中…</div>;
   }
 
+  const currentTab = TAB_MAP[tab];
+
+  const tabButton = (id: TabId, full: boolean) => {
+    const def = TAB_MAP[id];
+    const active = tab === id;
+    const marked = dirtyTabs.has(id);
+    if (full) {
+      return (
+        <button
+          key={id}
+          type="button"
+          onClick={() => setTab(id)}
+          aria-current={active ? 'page' : undefined}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
+            active ? 'bg-brand/10 font-semibold text-brand' : 'text-muted hover:bg-surface-2 hover:text-fg',
+          )}
+        >
+          <Icon name={def.icon} size={16} className="shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{def.label}</span>
+          {marked && <DirtyDot />}
+        </button>
+      );
+    }
+    return (
+      <button
+        key={id}
+        type="button"
+        onClick={() => setTab(id)}
+        aria-current={active ? 'page' : undefined}
+        className={cn(
+          'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
+          active
+            ? 'border-brand bg-brand text-brand-fg'
+            : 'border-border bg-surface text-muted hover:bg-surface-2 hover:text-fg',
+        )}
+      >
+        <Icon name={def.icon} size={15} />
+        {def.label}
+        {marked && <DirtyDot className={active ? 'bg-brand-fg' : 'bg-warning'} />}
+      </button>
+    );
+  };
+
   return (
     <div className="pb-16">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-fg">站点设置</h1>
           <p className="mt-1 text-sm text-muted">
-            站点信息、外观主题与功能开关都集中在这里，修改实时预览、保存后永久生效
+            按页面区域分组，修改实时预览、保存后永久生效
           </p>
         </div>
         <div className="flex items-center gap-2">
           {dirty.size > 0 && (
             <span className="hidden items-center gap-1.5 text-xs text-warning sm:inline-flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+              <DirtyDot />
               有未保存的修改
             </span>
           )}
-          <Button variant="ghost" onClick={() => void resetTab()}>
-            <Icon name="close" size={16} /> 恢复本页默认
+          <Button variant="ghost" onClick={() => void resetTab()} loading={resetting}>
+            <Icon name="refresh" size={16} /> 恢复本页默认
           </Button>
           <Button onClick={() => void save()} loading={saving} disabled={dirty.size === 0}>
             <Icon name="save" size={16} /> 保存修改
@@ -406,176 +698,688 @@ export function AppearancePage() {
         </div>
       </header>
 
-      <nav
-        aria-label="设置分组"
-        className="mb-5 grid gap-3 rounded-xl border border-border bg-surface p-2 sm:mb-6 sm:gap-4 sm:p-3 sm:grid-cols-2 xl:grid-cols-4"
-      >
-        {GROUPS.map((group) => (
-          <div key={group.label} className="min-w-0">
-            <p className="px-2 text-[11px] font-semibold uppercase tracking-wider text-faint">{group.label}</p>
-            <p className="mb-1.5 hidden px-2 text-[11px] leading-tight text-faint/70 sm:block">
-              {group.description}
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {group.tabs.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTab(t.id)}
-                  aria-current={tab === t.id ? 'page' : undefined}
-                  className={cn(
-                    'relative flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-colors sm:gap-2 sm:px-3',
-                    tab === t.id ? 'bg-brand text-brand-fg' : 'text-muted hover:bg-surface-2 hover:text-fg',
-                  )}
-                >
-                  <Icon name={t.icon} size={16} />
-                  {t.label}
-                  {dirty.has(t.id) && (
-                    <span
-                      className={cn('h-1.5 w-1.5 rounded-full', tab === t.id ? 'bg-brand-fg' : 'bg-warning')}
-                      aria-hidden="true"
-                    />
-                  )}
-                </button>
-              ))}
-            </div>
+      {/* 窄屏：横向滚动的页签 */}
+      <div className="-mx-1 mb-4 flex gap-1.5 overflow-x-auto px-1 pb-2 lg:hidden">
+        {TAB_DEFS.map((def) => tabButton(def.id, false))}
+      </div>
+
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
+        {/* 宽屏：左侧分组导航 */}
+        <aside className="hidden w-56 shrink-0 lg:sticky lg:top-20 lg:block">
+          <nav aria-label="设置分组" className="space-y-5 rounded-xl border border-border bg-surface p-3">
+            {GROUPS.map((group) => (
+              <div key={group.label}>
+                <p className="mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-wider text-faint">
+                  {group.label}
+                </p>
+                <div className="space-y-0.5">{group.tabs.map((id) => tabButton(id, true))}</div>
+              </div>
+            ))}
+          </nav>
+        </aside>
+
+        <div className="min-w-0 flex-1">
+          <div className="mb-4">
+            <h2 className="text-base font-semibold text-fg">{currentTab.label}</h2>
+            <p className="mt-0.5 text-xs text-muted">{currentTab.hint}</p>
           </div>
-        ))}
-      </nav>
 
-      {tab === 'theme' && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Section title="配色" description="选择一个基础色板，可再自定义主色" icon="palette">
-            <div className="grid grid-cols-3 gap-2.5">
-              {PRESETS.map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  aria-pressed={theme.preset === p.value}
-                  onClick={() => setTheme({ preset: p.value })}
-                  className={cn(
-                    'flex flex-col items-center gap-2 rounded-lg border p-3 transition-colors',
-                    theme.preset === p.value ? 'border-brand bg-brand/5' : 'border-border hover:bg-surface-2',
-                  )}
-                >
-                  <span className="h-8 w-8 rounded-full" style={{ background: p.color }} />
-                  <span className="text-xs font-medium text-fg">{p.label}</span>
-                </button>
-              ))}
-            </div>
-            <Row label="默认模式">
-              <Segmented
-                value={theme.mode}
-                onChange={(mode) => setTheme({ mode })}
-                options={[
-                  { value: 'light', label: '明亮' },
-                  { value: 'dark', label: '暗黑' },
-                  { value: 'system', label: '跟随系统' },
-                ]}
-              />
-            </Row>
-            <div className="space-y-1.5">
-              <span className="text-sm font-medium text-fg">自定义主色</span>
-              <ColorInput
-                value={theme.primaryColor}
-                onChange={(primaryColor) => setTheme({ primaryColor })}
-                placeholder="留空使用预设色"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <span className="text-sm font-medium text-fg">全局背景色</span>
-              <ColorInput
-                value={theme.backgroundColor}
-                onChange={(backgroundColor) => setTheme({ backgroundColor })}
-                placeholder="留空使用预设背景"
-              />
-              <p className="text-xs text-muted">仅影响浅色模式的页面背景；暗色模式仍使用预设深色背景。</p>
-            </div>
-          </Section>
-
-          <Section title="排版" description="字体、字号、行高与圆角" icon="fileText">
-            <div className="grid grid-cols-2 gap-3">
-              <Select
-                label="正文字体"
-                value={theme.fontBody}
-                onChange={(e) => setTheme({ fontBody: e.target.value as ThemeSettings['fontBody'] })}
-              >
-                <option value="sans">无衬线</option>
-                <option value="serif">衬线</option>
-              </Select>
-              <Select
-                label="标题字体"
-                value={theme.fontHeading}
-                onChange={(e) => setTheme({ fontHeading: e.target.value as ThemeSettings['fontHeading'] })}
-              >
-                <option value="sans">无衬线</option>
-                <option value="serif">衬线</option>
-              </Select>
-            </div>
-            <Row label="字号">
-              <Segmented
-                value={theme.fontScale}
-                onChange={(fontScale) => setTheme({ fontScale })}
-                options={[
-                  { value: 'sm', label: '小' },
-                  { value: 'md', label: '中' },
-                  { value: 'lg', label: '大' },
-                ]}
-              />
-            </Row>
-            <Row label="行高">
-              <Segmented
-                value={theme.lineHeight}
-                onChange={(lineHeight) => setTheme({ lineHeight })}
-                options={[
-                  { value: 'compact', label: '紧凑' },
-                  { value: 'normal', label: '标准' },
-                  { value: 'relaxed', label: '宽松' },
-                ]}
-              />
-            </Row>
-            <Row label="圆角">
-              <Segmented
-                value={theme.radius}
-                onChange={(radius) => setTheme({ radius })}
-                options={[
-                  { value: 'none', label: '直角' },
-                  { value: 'sm', label: '小' },
-                  { value: 'md', label: '中' },
-                  { value: 'lg', label: '大' },
-                ]}
-              />
-            </Row>
-            <Input
-              label="内容最大宽度"
-              value={theme.maxWidth}
-              onChange={(e) => setTheme({ maxWidth: e.target.value })}
-              placeholder="72ch"
-              hint="支持 ch / px / rem，如 72ch 或 760px"
-            />
-            <Select
-              label="代码高亮主题"
-              value={theme.codeTheme}
-              onChange={(e) => setTheme({ codeTheme: e.target.value })}
-            >
-              {Object.entries(CODE_THEMES).map(([value, { label }]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </Select>
-          </Section>
-
-          <Section
-            title="背景图"
-            description="全站背景图片，支持多种布局方式；留空则不显示"
-            icon="image"
-            className="lg:col-span-2"
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2 sm:col-span-2">
+          {tab === 'basic' && (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Section title="站点信息" description="用于浏览器标题、搜索结果与站内文案" icon="home">
+                <Input label="站点名称" value={site.name} onChange={(e) => setSite({ name: e.target.value })} />
+                <Input label="标语" value={site.tagline} onChange={(e) => setSite({ tagline: e.target.value })} />
+                <Textarea
+                  label="站点描述"
+                  value={site.description}
+                  onChange={(e) => setSite({ description: e.target.value })}
+                  rows={3}
+                />
                 <Input
-                  label="图片地址"
+                  label="语言（locale）"
+                  value={site.locale}
+                  onChange={(e) => setSite({ locale: e.target.value })}
+                  placeholder="zh-CN"
+                />
+              </Section>
+
+              <Section title="站点图标" description="浏览器标签页上显示的 favicon" icon="image">
+                <div className="flex items-center gap-3">
+                  <span
+                    aria-hidden
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-sm font-bold text-white"
+                    style={{ background: 'rgb(var(--c-brand))' }}
+                  >
+                    {(site.logo.text || site.name || 'E').slice(0, 1).toUpperCase()}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <Input
+                      value={site.favicon}
+                      placeholder="https://example.com/icon.png（留空自动生成）"
+                      onChange={(e) => setSite({ favicon: e.target.value })}
+                    />
+                  </div>
+                  {site.favicon ? (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setSite({ favicon: '' })}>
+                      重置
+                    </Button>
+                  ) : null}
+                </div>
+                <p className="text-xs text-muted">
+                  留空则自动生成：品牌主色圆角块 + 站点名首字母。也可填图片地址（支持上传到媒体库后的链接）。
+                </p>
+              </Section>
+            </div>
+          )}
+
+          {tab === 'header' && (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Section
+                title="Logo 与颜色"
+                description="顶栏的品牌标识与三处文字、图标颜色；颜色留空跟随主题"
+                icon="palette"
+              >
+                <Row label="Logo 类型">
+                  <Segmented
+                    value={site.logo.type}
+                    onChange={(type) => setSite({ logo: { ...site.logo, type } })}
+                    options={[
+                      { value: 'text', label: '文字' },
+                      { value: 'image', label: '图片' },
+                    ]}
+                  />
+                </Row>
+                {site.logo.type === 'text' ? (
+                  <Input
+                    label="Logo 文字"
+                    value={site.logo.text}
+                    onChange={(e) => setSite({ logo: { ...site.logo, text: e.target.value } })}
+                  />
+                ) : (
+                  <Input
+                    label="Logo 图片地址"
+                    value={site.logo.imageUrl}
+                    onChange={(e) => setSite({ logo: { ...site.logo, imageUrl: e.target.value } })}
+                  />
+                )}
+                <ColorField
+                  label="Logo 字体颜色"
+                  value={header.logoColor}
+                  onChange={(logoColor) => setHeader({ logoColor })}
+                  placeholder="留空跟随主题"
+                  hint={site.logo.type === 'image' ? '仅文字 Logo 生效；图片 Logo 使用图片本身的颜色。' : undefined}
+                />
+                <ColorField
+                  label="导航字体颜色"
+                  value={header.navColor}
+                  onChange={(navColor) => setHeader({ navColor })}
+                  placeholder="留空跟随主题"
+                  hint="作用于顶部导航与移动端菜单的所有菜单项。"
+                />
+                <ColorField
+                  label="右上角图标颜色"
+                  value={header.actionColor}
+                  onChange={(actionColor) => setHeader({ actionColor })}
+                  placeholder="留空跟随主题"
+                  hint="作用于搜索、主题切换、后台入口与菜单按钮的图标。"
+                />
+              </Section>
+
+              <Section title="顶栏布局" description="顶栏的位置、样式、背景与尺寸" icon="globe">
+                <Row label="位置" description="「左侧」在桌面端显示竖向侧边栏，移动端仍用顶部栏">
+                  <Segmented
+                    value={header.position}
+                    onChange={(position) => setHeader({ position })}
+                    options={[
+                      { value: 'static', label: '跟随页面' },
+                      { value: 'sticky', label: '吸顶' },
+                      { value: 'fixed', label: '固定' },
+                      { value: 'left', label: '左侧' },
+                    ]}
+                  />
+                </Row>
+                <Row label="样式">
+                  <Segmented
+                    value={header.style}
+                    onChange={(style) => setHeader({ style })}
+                    options={[
+                      { value: 'default', label: '默认' },
+                      { value: 'minimal', label: '极简' },
+                      { value: 'pill', label: '胶囊' },
+                    ]}
+                  />
+                </Row>
+                <Row label="背景">
+                  <Segmented
+                    value={header.background}
+                    onChange={(background) => setHeader({ background })}
+                    options={[
+                      { value: 'solid', label: '纯色' },
+                      { value: 'glass', label: '玻璃' },
+                      { value: 'transparent', label: '透明' },
+                    ]}
+                  />
+                </Row>
+                <Row label="对齐">
+                  <Segmented
+                    value={header.align}
+                    onChange={(align) => setHeader({ align })}
+                    options={[
+                      { value: 'left', label: '居左' },
+                      { value: 'center', label: '居中' },
+                      { value: 'right', label: '居右' },
+                    ]}
+                  />
+                </Row>
+                <Input
+                  label="高度（如 64px）"
+                  value={header.height}
+                  onChange={(e) => setHeader({ height: e.target.value })}
+                  placeholder="64px"
+                />
+                <Switch
+                  checked={header.transparentOnTop}
+                  onChange={(transparentOnTop) => setHeader({ transparentOnTop })}
+                  label="顶部透明"
+                  description="未滚动时透明，滚动后显示背景"
+                  className="rounded-lg border border-border p-3"
+                />
+              </Section>
+
+              <Section
+                title="导航菜单"
+                description="顺序即为显示顺序；可设为外部链接或新窗口打开"
+                icon="list"
+                className="xl:col-span-2"
+              >
+                <div className="space-y-2">
+                  {draft.navigation.map((item: NavItem, i) => (
+                    <div key={item.id} className="space-y-2 rounded-lg border border-border p-3">
+                      <div className="flex gap-2">
+                        <Input
+                          value={item.label}
+                          placeholder="名称"
+                          wrapperClassName="w-28"
+                          onChange={(e) =>
+                            update(
+                              'navigation',
+                              draft.navigation.map((n, idx) => (idx === i ? { ...n, label: e.target.value } : n)),
+                            )
+                          }
+                        />
+                        <Input
+                          value={item.href}
+                          placeholder="/path 或 https://…"
+                          wrapperClassName="flex-1"
+                          onChange={(e) =>
+                            update(
+                              'navigation',
+                              draft.navigation.map((n, idx) => (idx === i ? { ...n, href: e.target.value } : n)),
+                            )
+                          }
+                        />
+                        <button
+                          type="button"
+                          disabled={i === 0}
+                          onClick={() => update('navigation', swap(draft.navigation, i - 1, i))}
+                          className="flex h-10 w-9 items-center justify-center rounded-md text-muted hover:bg-surface-2 disabled:opacity-30"
+                          aria-label="上移"
+                        >
+                          <Icon name="chevronDown" size={15} className="rotate-180" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => update('navigation', draft.navigation.filter((_, idx) => idx !== i))}
+                          className="flex h-10 w-9 items-center justify-center rounded-md text-muted hover:bg-danger/10 hover:text-danger"
+                          aria-label="删除"
+                        >
+                          <Icon name="trash" size={16} />
+                        </button>
+                      </div>
+                      <div className="flex gap-4 pl-1">
+                        <Switch
+                          checked={item.external}
+                          onChange={(external) =>
+                            update(
+                              'navigation',
+                              draft.navigation.map((n, idx) => (idx === i ? { ...n, external } : n)),
+                            )
+                          }
+                          label="外部链接"
+                        />
+                        <Switch
+                          checked={item.newTab}
+                          onChange={(newTab) =>
+                            update(
+                              'navigation',
+                              draft.navigation.map((n, idx) => (idx === i ? { ...n, newTab } : n)),
+                            )
+                          }
+                          label="新窗口打开"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() =>
+                    update('navigation', [
+                      ...draft.navigation,
+                      {
+                        id: `nav-${Date.now().toString(36)}`,
+                        label: '新页面',
+                        href: '/',
+                        external: false,
+                        newTab: false,
+                      },
+                    ])
+                  }
+                >
+                  <Icon name="plus" size={16} /> 添加导航项
+                </Button>
+              </Section>
+            </div>
+          )}
+
+          {tab === 'footer' && (
+            <div className="space-y-4">
+              <Section title="页脚内容" description="版权文字与页脚链接" icon="fileText">
+                <Textarea
+                  label="页脚版权文字"
+                  value={site.footerText}
+                  onChange={(e) => setSite({ footerText: e.target.value })}
+                  rows={2}
+                />
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-fg">页脚链接</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSite({ footerLinks: [...site.footerLinks, { label: '新链接', href: '/' }] })}
+                    >
+                      <Icon name="plus" size={15} /> 添加
+                    </Button>
+                  </div>
+                  {site.footerLinks.map((link, i) => (
+                    <div key={i} className="flex gap-2">
+                      <Input
+                        value={link.label}
+                        wrapperClassName="w-32"
+                        onChange={(e) => {
+                          const next = site.footerLinks.map((l, idx) =>
+                            idx === i ? { ...l, label: e.target.value } : l,
+                          );
+                          setSite({ footerLinks: next });
+                        }}
+                      />
+                      <Input
+                        value={link.href}
+                        wrapperClassName="flex-1"
+                        onChange={(e) => {
+                          const next = site.footerLinks.map((l, idx) =>
+                            idx === i ? { ...l, href: e.target.value } : l,
+                          );
+                          setSite({ footerLinks: next });
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setSite({ footerLinks: site.footerLinks.filter((_, idx) => idx !== i) })}
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted hover:bg-danger/10 hover:text-danger"
+                        aria-label="删除"
+                      >
+                        <Icon name="trash" size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+
+              <Section title="社交链接" description="显示在页脚，图标按类型自动匹配" icon="link">
+                <div className="space-y-2">
+                  {draft.social.map((item: SocialLink, i) => (
+                    <div key={item.id} className="flex flex-wrap gap-2 rounded-lg border border-border p-3">
+                      <Select
+                        value={item.type}
+                        wrapperClassName="w-32"
+                        onChange={(e) =>
+                          update(
+                            'social',
+                            draft.social.map((s, idx) =>
+                              idx === i ? { ...s, type: e.target.value as SocialLink['type'] } : s,
+                            ),
+                          )
+                        }
+                      >
+                        {[
+                          'github',
+                          'x',
+                          'email',
+                          'rss',
+                          'mastodon',
+                          'bluesky',
+                          'linkedin',
+                          'youtube',
+                          'wechat',
+                          'link',
+                        ].map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </Select>
+                      <Input
+                        value={item.label}
+                        placeholder="名称"
+                        wrapperClassName="w-32"
+                        onChange={(e) =>
+                          update(
+                            'social',
+                            draft.social.map((s, idx) => (idx === i ? { ...s, label: e.target.value } : s)),
+                          )
+                        }
+                      />
+                      <Input
+                        value={item.url}
+                        placeholder="https:// 或 mailto:"
+                        wrapperClassName="min-w-[12rem] flex-1"
+                        onChange={(e) =>
+                          update(
+                            'social',
+                            draft.social.map((s, idx) => (idx === i ? { ...s, url: e.target.value } : s)),
+                          )
+                        }
+                      />
+                      <button
+                        type="button"
+                        onClick={() => update('social', draft.social.filter((_, idx) => idx !== i))}
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted hover:bg-danger/10 hover:text-danger"
+                        aria-label="删除"
+                      >
+                        <Icon name="trash" size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() =>
+                    update('social', [
+                      ...draft.social,
+                      { id: `soc-${Date.now().toString(36)}`, type: 'link', label: '新链接', url: 'https://' },
+                    ])
+                  }
+                >
+                  <Icon name="plus" size={16} /> 添加社交链接
+                </Button>
+              </Section>
+            </div>
+          )}
+
+          {tab === 'hero' && (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Section
+                title="背景媒体"
+                description="图片或视频只填一个地址，按扩展名自动识别"
+                icon="image"
+                className="xl:col-span-2"
+              >
+                <Input
+                  label="背景图片 / 视频 URL"
+                  value={heroMedia.value}
+                  onChange={(e) => setHeroMedia(e.target.value)}
+                  placeholder="https://…/hero.jpg、…/hero.mp4 或 /media/…"
+                  hint="视频支持 MP4 / WebM（单个 ≤ 25MB），自动静音播放；图片则作为背景图。"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setMediaPickerKind('image')}>
+                    <Icon name="image" size={15} /> 从媒体库选择图片
+                  </Button>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setMediaPickerKind('video')}>
+                    <Icon name="play" size={15} /> 从媒体库选择视频
+                  </Button>
+                  {heroMedia.value && (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setHeroMedia('')}>
+                      <Icon name="close" size={15} /> 清除背景媒体
+                    </Button>
+                  )}
+                </div>
+                {heroMedia.value && (
+                  <p className="flex items-center gap-1.5 text-xs text-faint">
+                    <Icon name={heroIsVideo ? 'play' : 'image'} size={13} />
+                    已识别为{heroIsVideo ? '视频，可设置循环与播放区间' : '图片'}
+                  </p>
+                )}
+
+                {heroIsVideo && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Switch
+                      checked={hero.backgroundVideoLoop}
+                      onChange={(backgroundVideoLoop) => setHero({ backgroundVideoLoop })}
+                      label="循环播放"
+                      description="开启后持续循环；关闭后只播放一次，停在结束时间或最后一帧"
+                      className="rounded-lg border border-border p-3 sm:col-span-2"
+                    />
+                    <Switch
+                      checked={hero.backgroundVideoFirstFromStart}
+                      onChange={(backgroundVideoFirstFromStart) => setHero({ backgroundVideoFirstFromStart })}
+                      label="第一遍从头播放"
+                      description="开启后首次从 0 秒开始；关闭后直接进入区间开始时间。之后每轮都从区间开始。"
+                      className="rounded-lg border border-border p-3 sm:col-span-2"
+                    />
+                    <SecondsInput
+                      label="区间开始（秒）"
+                      value={hero.backgroundVideoStart}
+                      onChange={(backgroundVideoStart) => setHero({ backgroundVideoStart })}
+                      hint="循环回到这里；首轮是否从这里开始由上方开关决定。0 表示从头开始。"
+                    />
+                    <SecondsInput
+                      label="区间结束（秒）"
+                      value={hero.backgroundVideoEnd}
+                      onChange={(backgroundVideoEnd) => setHero({ backgroundVideoEnd })}
+                      hint="播到这里直接切回开始时间（无淡入淡出）；0 表示播放到视频末尾。"
+                    />
+                    {hero.backgroundVideoEnd > 0 && hero.backgroundVideoEnd <= hero.backgroundVideoStart && (
+                      <p className="text-xs text-warning sm:col-span-2">
+                        结束时间需大于开始时间，否则会按整段视频循环。
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <Input
+                  label="背景颜色 / 渐变"
+                  value={hero.background}
+                  onChange={(e) => setHero({ background: e.target.value })}
+                  placeholder="#0f172a 或 linear-gradient(...)"
+                  hint="未设置背景媒体时生效。"
+                />
+              </Section>
+
+              <Section title="尺寸与对齐" description="欢迎区的宽高与内容对齐" icon="dashboard">
+                <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-3">
+                  <div>
+                    <div className="text-sm font-medium text-fg">铺满屏幕</div>
+                    <p className="mt-0.5 text-xs text-muted">
+                      全宽并占满整个视口高度；开启后将忽略下方「宽度」与「高度」
+                    </p>
+                  </div>
+                  <Switch checked={hero.fullScreen} onChange={(fullScreen) => setHero({ fullScreen })} />
+                </div>
+
+                {hero.fullScreen ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-brand/30 bg-brand/5 px-3 py-2 text-xs text-muted">
+                    <Icon name="info" size={15} className="shrink-0 text-brand" />
+                    当前为「铺满屏幕」模式，宽度与高度已锁定。
+                  </div>
+                ) : (
+                  <>
+                    <Row label="宽度">
+                      <Segmented
+                        value={hero.width}
+                        onChange={(width) => setHero({ width })}
+                        options={[
+                          { value: 'contained', label: '标准' },
+                          { value: 'narrow', label: '窄' },
+                          { value: 'full', label: '全宽' },
+                        ]}
+                      />
+                    </Row>
+                    <Input
+                      label="高度（如 360px / 60vh，留空自适应）"
+                      value={hero.height}
+                      onChange={(e) => setHero({ height: e.target.value })}
+                      placeholder="auto"
+                    />
+                  </>
+                )}
+
+                <Row label="对齐">
+                  <Segmented
+                    value={hero.align}
+                    onChange={(align) => setHero({ align })}
+                    options={[
+                      { value: 'left', label: '居左' },
+                      { value: 'center', label: '居中' },
+                    ]}
+                  />
+                </Row>
+              </Section>
+
+              <Section title="遮罩与文字" description="压暗背景保证可读性，并单独指定文字颜色" icon="palette">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Input
+                    label="亮色主题遮罩（0–1）"
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={hero.overlayLight}
+                    onChange={(e) =>
+                      setHero({ overlayLight: Math.min(1, Math.max(0, Number(e.target.value) || 0)) })
+                    }
+                  />
+                  <Input
+                    label="暗色主题遮罩（0–1）"
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={hero.overlayDark}
+                    onChange={(e) => setHero({ overlayDark: Math.min(1, Math.max(0, Number(e.target.value) || 0)) })}
+                  />
+                </div>
+                <ColorField
+                  label="标题颜色"
+                  value={hero.textColor}
+                  onChange={(textColor) => setHero({ textColor })}
+                  placeholder="留空跟随主题"
+                />
+                <ColorField
+                  label="描述颜色"
+                  value={hero.textMutedColor}
+                  onChange={(textMutedColor) => setHero({ textMutedColor })}
+                  placeholder="留空跟随主题"
+                />
+              </Section>
+            </div>
+          )}
+
+          {tab === 'modules' && (
+            <Section title="首页模块" description="顺序即为显示顺序，开关控制是否显示" icon="dashboard">
+              <ul className="space-y-2">
+                {layout.homeModules.map((module, index) => (
+                  <li key={module.id} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
+                    <Icon name="drag" size={15} className="shrink-0 text-faint" />
+                    <span className="flex-1 text-sm font-medium text-fg">
+                      {MODULE_LABELS[module.id] ?? module.id}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={index === 0}
+                      onClick={() => setLayout({ homeModules: swap(layout.homeModules, index - 1, index) })}
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 disabled:opacity-30"
+                      aria-label="上移"
+                    >
+                      <Icon name="chevronDown" size={15} className="rotate-180" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={index === layout.homeModules.length - 1}
+                      onClick={() => setLayout({ homeModules: swap(layout.homeModules, index, index + 1) })}
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 disabled:opacity-30"
+                      aria-label="下移"
+                    >
+                      <Icon name="chevronDown" size={15} />
+                    </button>
+                    <Switch
+                      checked={module.enabled}
+                      onChange={(enabled) => {
+                        const next = layout.homeModules.map((m) => (m.id === module.id ? { ...m, enabled } : m));
+                        setLayout({ homeModules: next });
+                      }}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          {tab === 'colors' && (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Section title="配色方案" description="选择预设色板，可再自定义主色" icon="palette">
+                <div className="grid grid-cols-3 gap-2.5">
+                  {PRESETS.map((p) => (
+                    <button
+                      key={p.value}
+                      type="button"
+                      aria-pressed={theme.preset === p.value}
+                      onClick={() => setTheme({ preset: p.value })}
+                      className={cn(
+                        'flex flex-col items-center gap-2 rounded-lg border p-3 transition-colors',
+                        theme.preset === p.value ? 'border-brand bg-brand/5' : 'border-border hover:bg-surface-2',
+                      )}
+                    >
+                      <span className="h-8 w-8 rounded-full" style={{ background: p.color }} />
+                      <span className="text-xs font-medium text-fg">{p.label}</span>
+                    </button>
+                  ))}
+                </div>
+                <Row label="默认模式">
+                  <Segmented
+                    value={theme.mode}
+                    onChange={(mode) => setTheme({ mode })}
+                    options={[
+                      { value: 'light', label: '明亮' },
+                      { value: 'dark', label: '暗黑' },
+                      { value: 'system', label: '跟随系统' },
+                    ]}
+                  />
+                </Row>
+                <ColorField
+                  label="自定义主色"
+                  value={theme.primaryColor}
+                  onChange={(primaryColor) => setTheme({ primaryColor })}
+                  placeholder="留空使用预设色"
+                  hint="按钮、链接、选中态等强调色都跟随它。"
+                />
+              </Section>
+
+              <Section title="全局背景" description="页面底色与背景图；留空则不显示背景图" icon="image">
+                <ColorField
+                  label="全局背景色"
+                  value={theme.backgroundColor}
+                  onChange={(backgroundColor) => setTheme({ backgroundColor })}
+                  placeholder="留空使用预设背景"
+                  hint="仅影响浅色模式的页面背景；暗色模式仍使用预设深色背景。"
+                />
+                <Input
+                  label="背景图地址"
                   value={theme.backgroundImage}
                   onChange={(e) => setTheme({ backgroundImage: e.target.value })}
                   placeholder="https://example.com/bg.jpg"
@@ -612,933 +1416,589 @@ export function AppearancePage() {
                     </div>
                   </div>
                 )}
-              </div>
-
-              <div className="space-y-1.5 sm:col-span-2">
-                <span className="text-sm font-medium text-fg">布局方式</span>
-                <Segmented
-                  value={theme.backgroundLayout}
-                  onChange={(backgroundLayout) => setTheme({ backgroundLayout })}
-                  options={BG_LAYOUT_OPTIONS}
-                />
-                <p className="text-xs text-muted">
-                  「铺满裁剪」自动缩放填满屏幕；「平铺」适合纹理/花纹图，按原始尺寸重复。
-                </p>
-              </div>
-
-              <Row label="滚动方式" description="固定 = 背景不动，内容滚动（类视差）">
-                <Segmented
-                  value={theme.backgroundAttachment}
-                  onChange={(backgroundAttachment) => setTheme({ backgroundAttachment })}
-                  options={[
-                    { value: 'fixed', label: '固定' },
-                    { value: 'scroll', label: '跟随滚动' },
-                  ]}
-                />
-              </Row>
-              <Input
-                label="遮罩浓度（0–0.9）"
-                type="number"
-                min={0}
-                max={0.9}
-                step={0.05}
-                value={theme.backgroundScrim}
-                onChange={(e) =>
-                  setTheme({ backgroundScrim: Math.min(0.9, Math.max(0, Number(e.target.value) || 0)) })
-                }
-                hint="用主题背景色压暗/提亮图片，保证文字可读"
-              />
-            </div>
-          </Section>
-        </div>
-      )}
-
-      {tab === 'layout' && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Section
-            title="欢迎区域（Hero）"
-            description="首页顶部欢迎区的尺寸、背景、遮罩与文字颜色"
-            icon="image"
-            className="lg:col-span-2"
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-3 sm:col-span-2">
-                <div>
-                  <div className="text-sm font-medium text-fg">铺满屏幕</div>
-                  <p className="mt-0.5 text-xs text-muted">全宽并占满整个视口高度；开启后将忽略下方「宽度」与「高度」</p>
-                </div>
-                <Switch checked={hero.fullScreen} onChange={(fullScreen) => setHero({ fullScreen })} />
-              </div>
-
-              {hero.fullScreen ? (
-                <div className="flex items-center gap-2 rounded-lg border border-brand/30 bg-brand/5 px-3 py-2 text-xs text-muted sm:col-span-2">
-                  <Icon name="info" size={15} className="shrink-0 text-brand" />
-                  当前为「铺满屏幕」模式，宽度与高度已锁定。
-                </div>
-              ) : (
-                <>
-                  <Row label="宽度">
-                    <Segmented
-                      value={hero.width}
-                      onChange={(width) => setHero({ width })}
-                      options={[
-                        { value: 'contained', label: '标准' },
-                        { value: 'narrow', label: '窄' },
-                        { value: 'full', label: '全宽' },
-                      ]}
-                    />
-                  </Row>
-                  <Input
-                    label="高度（如 360px / 60vh，留空自适应）"
-                    value={hero.height}
-                    onChange={(e) => setHero({ height: e.target.value })}
-                    placeholder="auto"
+                <div className="space-y-1.5">
+                  <span className="text-sm font-medium text-fg">布局方式</span>
+                  <Segmented
+                    value={theme.backgroundLayout}
+                    onChange={(backgroundLayout) => setTheme({ backgroundLayout })}
+                    options={BG_LAYOUT_OPTIONS}
                   />
-                </>
-              )}
-
-              <Row label="对齐">
-                <Segmented
-                  value={hero.align}
-                  onChange={(align) => setHero({ align })}
-                  options={[
-                    { value: 'left', label: '居左' },
-                    { value: 'center', label: '居中' },
-                  ]}
-                />
-              </Row>
-              <Input
-                label="背景颜色 / 渐变"
-                value={hero.background}
-                onChange={(e) => setHero({ background: e.target.value })}
-                placeholder="#0f172a 或 linear-gradient(...)"
-              />
-              <div className="space-y-2 sm:col-span-2">
-                <Input
-                  label="背景图片 / 视频 URL"
-                  value={heroMedia.value}
-                  onChange={(e) => setHeroMedia(e.target.value)}
-                  placeholder="https://…/hero.jpg、…/hero.mp4 或 /media/…"
-                  hint="只需填写一个地址，按扩展名自动识别图片或视频。视频支持 MP4 / WebM（单个 ≤ 25MB），自动静音播放；图片则作为背景图。"
-                />
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="secondary" size="sm" onClick={() => setMediaPickerKind('image')}>
-                    <Icon name="image" size={15} /> 从媒体库选择图片
-                  </Button>
-                  <Button type="button" variant="secondary" size="sm" onClick={() => setMediaPickerKind('video')}>
-                    <Icon name="play" size={15} /> 从媒体库选择视频
-                  </Button>
-                  {heroMedia.value && (
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setHeroMedia('')}>
-                      <Icon name="close" size={15} /> 清除背景媒体
-                    </Button>
-                  )}
-                </div>
-                {heroMedia.value && (
-                  <p className="flex items-center gap-1.5 text-xs text-faint">
-                    <Icon name={heroIsVideo ? 'play' : 'image'} size={13} />
-                    已识别为{heroIsVideo ? '视频，可设置循环与播放区间' : '图片'}
+                  <p className="text-xs text-muted">
+                    「铺满裁剪」自动缩放填满屏幕；「平铺」适合纹理/花纹图，按原始尺寸重复。
                   </p>
-                )}
-              </div>
-              {heroIsVideo && (
-                <>
-                  <Switch
-                    checked={hero.backgroundVideoLoop}
-                    onChange={(backgroundVideoLoop) => setHero({ backgroundVideoLoop })}
-                    label="循环播放"
-                    description="开启后持续循环；关闭后只播放一次，停在结束时间或最后一帧"
-                    className="rounded-lg border border-border p-3 sm:col-span-2"
-                  />
-                  <Switch
-                    checked={hero.backgroundVideoFirstFromStart}
-                    onChange={(backgroundVideoFirstFromStart) => setHero({ backgroundVideoFirstFromStart })}
-                    label="第一遍从头播放"
-                    description="开启后首次从 0 秒开始；关闭后直接进入区间开始时间。之后每轮都从区间开始。"
-                    className="rounded-lg border border-border p-3 sm:col-span-2"
-                  />
-                  <SecondsInput
-                    label="区间开始（秒）"
-                    value={hero.backgroundVideoStart}
-                    onChange={(backgroundVideoStart) => setHero({ backgroundVideoStart })}
-                    hint="循环回到这里；首轮是否从这里开始由上方开关决定。0 表示从头开始。"
-                  />
-                  <SecondsInput
-                    label="区间结束（秒）"
-                    value={hero.backgroundVideoEnd}
-                    onChange={(backgroundVideoEnd) => setHero({ backgroundVideoEnd })}
-                    hint="播到这里直接切回开始时间（无淡入淡出）；0 表示播放到视频末尾。"
-                  />
-                  {hero.backgroundVideoEnd > 0 && hero.backgroundVideoEnd <= hero.backgroundVideoStart && (
-                    <p className="text-xs text-warning sm:col-span-2">
-                      结束时间需大于开始时间，否则会按整段视频循环。
-                    </p>
-                  )}
-                </>
-              )}
-              <Input
-                label="亮色主题遮罩（0–1）"
-                type="number"
-                min={0}
-                max={1}
-                step={0.05}
-                value={hero.overlayLight}
-                onChange={(e) => setHero({ overlayLight: Math.min(1, Math.max(0, Number(e.target.value) || 0)) })}
-              />
-              <Input
-                label="暗色主题遮罩（0–1）"
-                type="number"
-                min={0}
-                max={1}
-                step={0.05}
-                value={hero.overlayDark}
-                onChange={(e) => setHero({ overlayDark: Math.min(1, Math.max(0, Number(e.target.value) || 0)) })}
-              />
-              <div className="space-y-1.5">
-                <span className="text-sm font-medium text-fg">标题颜色</span>
-                <ColorInput
-                  value={hero.textColor}
-                  onChange={(textColor) => setHero({ textColor })}
-                  placeholder="留空跟随主题"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <span className="text-sm font-medium text-fg">描述颜色</span>
-                <ColorInput
-                  value={hero.textMutedColor}
-                  onChange={(textMutedColor) => setHero({ textMutedColor })}
-                  placeholder="留空跟随主题"
-                />
-              </div>
-            </div>
-          </Section>
-
-          <Section title="首页模块" description="顺序即为显示顺序，开关控制显示" icon="dashboard">
-            <ul className="space-y-2">
-              {layout.homeModules.map((module, index) => (
-                <li key={module.id} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
-                  <Icon name="drag" size={15} className="shrink-0 text-faint" />
-                  <span className="flex-1 text-sm font-medium text-fg">{MODULE_LABELS[module.id] ?? module.id}</span>
-                  <button
-                    type="button"
-                    disabled={index === 0}
-                    onClick={() => setLayout({ homeModules: swap(layout.homeModules, index - 1, index) })}
-                    className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 disabled:opacity-30"
-                    aria-label="上移"
-                  >
-                    <Icon name="chevronDown" size={15} className="rotate-180" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={index === layout.homeModules.length - 1}
-                    onClick={() => setLayout({ homeModules: swap(layout.homeModules, index, index + 1) })}
-                    className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 disabled:opacity-30"
-                    aria-label="下移"
-                  >
-                    <Icon name="chevronDown" size={15} />
-                  </button>
-                  <Switch
-                    checked={module.enabled}
-                    onChange={(enabled) => {
-                      const next = layout.homeModules.map((m) => (m.id === module.id ? { ...m, enabled } : m));
-                      setLayout({ homeModules: next });
-                    }}
-                  />
-                </li>
-              ))}
-            </ul>
-          </Section>
-
-          <Section title="列表与卡片" description="文章列表的展示方式" icon="list">
-            <Row label="卡片风格">
-              <Segmented
-                value={layout.cardStyle}
-                onChange={(cardStyle) => setLayout({ cardStyle })}
-                options={[
-                  { value: 'magazine', label: '杂志' },
-                  { value: 'minimal', label: '极简' },
-                  { value: 'grid', label: '网格' },
-                  { value: 'overlay', label: '浮层' },
-                  { value: 'compact', label: '紧凑' },
-                ]}
-              />
-            </Row>
-            <Row label="尺寸" description="影响内边距、字号与列表密度">
-              <Segmented
-                value={layout.cardSize}
-                onChange={(cardSize) => setLayout({ cardSize })}
-                options={[
-                  { value: 'lg', label: '大' },
-                  { value: 'md', label: '中' },
-                  { value: 'sm', label: '小' },
-                ]}
-              />
-            </Row>
-            <Row label="模糊" description="卡片毛玻璃效果（极简风格不适用）">
-              <Segmented
-                value={layout.cardBlur}
-                onChange={(cardBlur) => setLayout({ cardBlur })}
-                options={[
-                  { value: 'none', label: '无' },
-                  { value: 'sm', label: '弱' },
-                  { value: 'md', label: '中' },
-                  { value: 'lg', label: '强' },
-                ]}
-              />
-            </Row>
-            <Row label="侧边栏">
-              <Segmented
-                value={layout.sidebar}
-                onChange={(sidebar) => setLayout({ sidebar })}
-                options={[
-                  { value: 'left', label: '居左' },
-                  { value: 'right', label: '居右' },
-                  { value: 'none', label: '无' },
-                ]}
-              />
-            </Row>
-            <Input
-              label="每页文章数"
-              type="number"
-              min={1}
-              max={50}
-              value={layout.postsPerPage}
-              onChange={(e) => setLayout({ postsPerPage: Number(e.target.value) || 1 })}
-            />
-          </Section>
-        </div>
-      )}
-
-      {tab === 'navigation' && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Section title="导航栏" description="顶部导航栏的位置、样式与背景" icon="globe">
-            <Row label="位置" description="「左侧」在桌面端显示竖向侧边栏，移动端仍用顶部栏">
-              <Segmented
-                value={header.position}
-                onChange={(position) => setHeader({ position })}
-                options={[
-                  { value: 'static', label: '跟随页面' },
-                  { value: 'sticky', label: '吸顶' },
-                  { value: 'fixed', label: '固定' },
-                  { value: 'left', label: '左侧' },
-                ]}
-              />
-            </Row>
-            <Row label="样式">
-              <Segmented
-                value={header.style}
-                onChange={(style) => setHeader({ style })}
-                options={[
-                  { value: 'default', label: '默认' },
-                  { value: 'minimal', label: '极简' },
-                  { value: 'pill', label: '胶囊' },
-                ]}
-              />
-            </Row>
-            <Row label="背景">
-              <Segmented
-                value={header.background}
-                onChange={(background) => setHeader({ background })}
-                options={[
-                  { value: 'solid', label: '纯色' },
-                  { value: 'glass', label: '玻璃' },
-                  { value: 'transparent', label: '透明' },
-                ]}
-              />
-            </Row>
-            <Row label="对齐">
-              <Segmented
-                value={header.align}
-                onChange={(align) => setHeader({ align })}
-                options={[
-                  { value: 'left', label: '居左' },
-                  { value: 'center', label: '居中' },
-                  { value: 'right', label: '居右' },
-                ]}
-              />
-            </Row>
-            <Input
-              label="高度（如 64px）"
-              value={header.height}
-              onChange={(e) => setHeader({ height: e.target.value })}
-              placeholder="64px"
-            />
-            <Switch
-              checked={header.transparentOnTop}
-              onChange={(transparentOnTop) => setHeader({ transparentOnTop })}
-              label="顶部透明"
-              description="未滚动时透明，滚动后显示背景"
-              className="rounded-lg border border-border p-3"
-            />
-          </Section>
-
-          <Section title="导航菜单" description="顺序即为显示顺序" icon="list">
-            <div className="space-y-2">
-              {draft.navigation.map((item: NavItem, i) => (
-                <div key={item.id} className="space-y-2 rounded-lg border border-border p-3">
-                  <div className="flex gap-2">
-                    <Input
-                      value={item.label}
-                      placeholder="名称"
-                      wrapperClassName="w-28"
-                      onChange={(e) => update('navigation', draft.navigation.map((n, idx) => (idx === i ? { ...n, label: e.target.value } : n)))}
-                    />
-                    <Input
-                      value={item.href}
-                      placeholder="/path 或 https://…"
-                      wrapperClassName="flex-1"
-                      onChange={(e) => update('navigation', draft.navigation.map((n, idx) => (idx === i ? { ...n, href: e.target.value } : n)))}
-                    />
-                    <button
-                      type="button"
-                      disabled={i === 0}
-                      onClick={() => update('navigation', swap(draft.navigation, i - 1, i))}
-                      className="flex h-10 w-9 items-center justify-center rounded-md text-muted hover:bg-surface-2 disabled:opacity-30"
-                      aria-label="上移"
-                    >
-                      <Icon name="chevronDown" size={15} className="rotate-180" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => update('navigation', draft.navigation.filter((_, idx) => idx !== i))}
-                      className="flex h-10 w-9 items-center justify-center rounded-md text-muted hover:bg-danger/10 hover:text-danger"
-                      aria-label="删除"
-                    >
-                      <Icon name="trash" size={16} />
-                    </button>
-                  </div>
-                  <div className="flex gap-4 pl-1">
-                    <Switch
-                      checked={item.external}
-                      onChange={(external) => update('navigation', draft.navigation.map((n, idx) => (idx === i ? { ...n, external } : n)))}
-                      label="外部链接"
-                    />
-                    <Switch
-                      checked={item.newTab}
-                      onChange={(newTab) => update('navigation', draft.navigation.map((n, idx) => (idx === i ? { ...n, newTab } : n)))}
-                      label="新窗口打开"
-                    />
-                  </div>
                 </div>
-              ))}
-            </div>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() =>
-                update('navigation', [
-                  ...draft.navigation,
-                  { id: `nav-${Date.now().toString(36)}`, label: '新页面', href: '/', external: false, newTab: false },
-                ])
-              }
-            >
-              <Icon name="plus" size={16} /> 添加导航项
-            </Button>
-          </Section>
-        </div>
-      )}
-
-      {tab === 'site' && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Section title="站点信息" description="名称、标语与描述" icon="home">
-            <Input label="站点名称" value={site.name} onChange={(e) => setSite({ name: e.target.value })} />
-            <Input label="标语" value={site.tagline} onChange={(e) => setSite({ tagline: e.target.value })} />
-            <Textarea label="站点描述" value={site.description} onChange={(e) => setSite({ description: e.target.value })} rows={3} />
-            <Input label="语言（locale）" value={site.locale} onChange={(e) => setSite({ locale: e.target.value })} placeholder="zh-CN" />
-          </Section>
-          <Section title="Logo 与页脚" description="品牌标识与底部内容" icon="image">
-            <Row label="Logo 类型">
-              <Segmented
-                value={site.logo.type}
-                onChange={(type) => setSite({ logo: { ...site.logo, type } })}
-                options={[
-                  { value: 'text', label: '文字' },
-                  { value: 'image', label: '图片' },
-                ]}
-              />
-            </Row>
-            {site.logo.type === 'text' ? (
-              <Input label="Logo 文字" value={site.logo.text} onChange={(e) => setSite({ logo: { ...site.logo, text: e.target.value } })} />
-            ) : (
-              <Input label="Logo 图片地址" value={site.logo.imageUrl} onChange={(e) => setSite({ logo: { ...site.logo, imageUrl: e.target.value } })} />
-            )}
-            <div className="space-y-1.5">
-              <span className="text-sm font-medium text-fg">站点图标（favicon）</span>
-              <div className="flex items-center gap-2">
-                <span
-                  aria-hidden
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-sm font-bold text-white"
-                  style={{ background: 'rgb(var(--c-brand))' }}
-                >
-                  {(site.logo.text || site.name || 'E').slice(0, 1).toUpperCase()}
-                </span>
+                <Row label="滚动方式" description="固定 = 背景不动，内容滚动（类视差）">
+                  <Segmented
+                    value={theme.backgroundAttachment}
+                    onChange={(backgroundAttachment) => setTheme({ backgroundAttachment })}
+                    options={[
+                      { value: 'fixed', label: '固定' },
+                      { value: 'scroll', label: '跟随滚动' },
+                    ]}
+                  />
+                </Row>
                 <Input
-                  value={site.favicon}
-                  wrapperClassName="flex-1"
-                  placeholder="https://example.com/icon.png（留空自动生成）"
-                  onChange={(e) => setSite({ favicon: e.target.value })}
+                  label="遮罩浓度（0–0.9）"
+                  type="number"
+                  min={0}
+                  max={0.9}
+                  step={0.05}
+                  value={theme.backgroundScrim}
+                  onChange={(e) =>
+                    setTheme({ backgroundScrim: Math.min(0.9, Math.max(0, Number(e.target.value) || 0)) })
+                  }
+                  hint="用主题背景色压暗/提亮图片，保证文字可读"
                 />
-                {site.favicon ? (
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setSite({ favicon: '' })}>
-                    重置
-                  </Button>
-                ) : null}
-              </div>
-              <p className="text-xs text-muted">
-                留空则自动生成：品牌主色圆角块 + 站点名首字母。也可填图片地址（支持上传到媒体库后的链接）。
-              </p>
+              </Section>
             </div>
-            <Textarea label="页脚版权文字" value={site.footerText} onChange={(e) => setSite({ footerText: e.target.value })} rows={2} />
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-fg">页脚链接</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSite({ footerLinks: [...site.footerLinks, { label: '新链接', href: '/' }] })}
-                >
-                  <Icon name="plus" size={15} /> 添加
-                </Button>
-              </div>
-              {site.footerLinks.map((link, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    value={link.label}
-                    wrapperClassName="w-28"
-                    onChange={(e) => {
-                      const next = site.footerLinks.map((l, idx) => (idx === i ? { ...l, label: e.target.value } : l));
-                      setSite({ footerLinks: next });
-                    }}
-                  />
-                  <Input
-                    value={link.href}
-                    wrapperClassName="flex-1"
-                    onChange={(e) => {
-                      const next = site.footerLinks.map((l, idx) => (idx === i ? { ...l, href: e.target.value } : l));
-                      setSite({ footerLinks: next });
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setSite({ footerLinks: site.footerLinks.filter((_, idx) => idx !== i) })}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted hover:bg-danger/10 hover:text-danger"
-                    aria-label="删除"
-                  >
-                    <Icon name="trash" size={16} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </Section>
-        </div>
-      )}
+          )}
 
-      {tab === 'social' && (
-        <Section title="社交链接" description="显示在页脚" icon="link">
-          <div className="space-y-2">
-            {draft.social.map((item: SocialLink, i) => (
-              <div key={item.id} className="flex flex-wrap gap-2 rounded-lg border border-border p-3">
+          {tab === 'typography' && (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Section title="字体" description="正文与标题的字体、字号与行高" icon="fileText">
+                <div className="grid grid-cols-2 gap-3">
+                  <Select
+                    label="正文字体"
+                    value={theme.fontBody}
+                    onChange={(e) => setTheme({ fontBody: e.target.value as ThemeSettings['fontBody'] })}
+                  >
+                    <option value="sans">无衬线</option>
+                    <option value="serif">衬线</option>
+                  </Select>
+                  <Select
+                    label="标题字体"
+                    value={theme.fontHeading}
+                    onChange={(e) => setTheme({ fontHeading: e.target.value as ThemeSettings['fontHeading'] })}
+                  >
+                    <option value="sans">无衬线</option>
+                    <option value="serif">衬线</option>
+                  </Select>
+                </div>
+                <Row label="字号">
+                  <Segmented
+                    value={theme.fontScale}
+                    onChange={(fontScale) => setTheme({ fontScale })}
+                    options={[
+                      { value: 'sm', label: '小' },
+                      { value: 'md', label: '中' },
+                      { value: 'lg', label: '大' },
+                    ]}
+                  />
+                </Row>
+                <Row label="行高">
+                  <Segmented
+                    value={theme.lineHeight}
+                    onChange={(lineHeight) => setTheme({ lineHeight })}
+                    options={[
+                      { value: 'compact', label: '紧凑' },
+                      { value: 'normal', label: '标准' },
+                      { value: 'relaxed', label: '宽松' },
+                    ]}
+                  />
+                </Row>
+              </Section>
+
+              <Section title="版式与代码" description="圆角、内容宽度与代码块配色" icon="palette">
+                <Row label="圆角">
+                  <Segmented
+                    value={theme.radius}
+                    onChange={(radius) => setTheme({ radius })}
+                    options={[
+                      { value: 'none', label: '直角' },
+                      { value: 'sm', label: '小' },
+                      { value: 'md', label: '中' },
+                      { value: 'lg', label: '大' },
+                    ]}
+                  />
+                </Row>
+                <Input
+                  label="内容最大宽度"
+                  value={theme.maxWidth}
+                  onChange={(e) => setTheme({ maxWidth: e.target.value })}
+                  placeholder="72ch"
+                  hint="支持 ch / px / rem，如 72ch 或 760px"
+                />
                 <Select
-                  value={item.type}
-                  wrapperClassName="w-32"
-                  onChange={(e) => update('social', draft.social.map((s, idx) => (idx === i ? { ...s, type: e.target.value as SocialLink['type'] } : s)))}
+                  label="代码高亮主题"
+                  value={theme.codeTheme}
+                  onChange={(e) => setTheme({ codeTheme: e.target.value })}
                 >
-                  {['github', 'x', 'email', 'rss', 'mastodon', 'bluesky', 'linkedin', 'youtube', 'wechat', 'link'].map((t) => (
-                    <option key={t} value={t}>
-                      {t}
+                  {Object.entries(CODE_THEMES).map(([value, { label }]) => (
+                    <option key={value} value={value}>
+                      {label}
                     </option>
                   ))}
                 </Select>
+              </Section>
+            </div>
+          )}
+
+          {tab === 'cards' && (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Section title="文章卡片" description="列表与首页文章的展示形态" icon="list">
+                <Row label="卡片风格">
+                  <Segmented
+                    value={layout.cardStyle}
+                    onChange={(cardStyle) => setLayout({ cardStyle })}
+                    options={[
+                      { value: 'magazine', label: '杂志' },
+                      { value: 'minimal', label: '极简' },
+                      { value: 'grid', label: '网格' },
+                      { value: 'overlay', label: '浮层' },
+                      { value: 'compact', label: '紧凑' },
+                    ]}
+                  />
+                </Row>
+                <Row label="尺寸" description="影响内边距、字号与列表密度">
+                  <Segmented
+                    value={layout.cardSize}
+                    onChange={(cardSize) => setLayout({ cardSize })}
+                    options={[
+                      { value: 'lg', label: '大' },
+                      { value: 'md', label: '中' },
+                      { value: 'sm', label: '小' },
+                    ]}
+                  />
+                </Row>
+                <Row label="模糊" description="卡片毛玻璃效果（极简风格不适用）">
+                  <Segmented
+                    value={layout.cardBlur}
+                    onChange={(cardBlur) => setLayout({ cardBlur })}
+                    options={[
+                      { value: 'none', label: '无' },
+                      { value: 'sm', label: '弱' },
+                      { value: 'md', label: '中' },
+                      { value: 'lg', label: '强' },
+                    ]}
+                  />
+                </Row>
+              </Section>
+
+              <Section title="列表布局" description="侧边栏与分页" icon="dashboard">
+                <Row label="侧边栏">
+                  <Segmented
+                    value={layout.sidebar}
+                    onChange={(sidebar) => setLayout({ sidebar })}
+                    options={[
+                      { value: 'left', label: '居左' },
+                      { value: 'right', label: '居右' },
+                      { value: 'none', label: '无' },
+                    ]}
+                  />
+                </Row>
                 <Input
-                  value={item.label}
-                  placeholder="名称"
-                  wrapperClassName="w-32"
-                  onChange={(e) => update('social', draft.social.map((s, idx) => (idx === i ? { ...s, label: e.target.value } : s)))}
+                  label="每页文章数"
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={layout.postsPerPage}
+                  onChange={(e) => setLayout({ postsPerPage: Number(e.target.value) || 1 })}
                 />
-                <Input
-                  value={item.url}
-                  placeholder="https:// 或 mailto:"
-                  wrapperClassName="min-w-[12rem] flex-1"
-                  onChange={(e) => update('social', draft.social.map((s, idx) => (idx === i ? { ...s, url: e.target.value } : s)))}
-                />
-                <button
-                  type="button"
-                  onClick={() => update('social', draft.social.filter((_, idx) => idx !== i))}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted hover:bg-danger/10 hover:text-danger"
-                  aria-label="删除"
-                >
-                  <Icon name="trash" size={16} />
-                </button>
-              </div>
-            ))}
-          </div>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() =>
-              update('social', [...draft.social, { id: `soc-${Date.now().toString(36)}`, type: 'link', label: '新链接', url: 'https://' }])
-            }
-          >
-            <Icon name="plus" size={16} /> 添加社交链接
-          </Button>
-        </Section>
-      )}
+              </Section>
+            </div>
+          )}
 
-      {tab === 'features' && (
-        <Section title="功能开关" description="随时开启或关闭站点功能" icon="settings">
-          <div className="grid gap-4 sm:grid-cols-2">
-            {(Object.keys(FEATURE_LABELS) as Array<keyof FeatureFlags>).map((key) => (
-              <Switch
-                key={key}
-                checked={features[key]}
-                onChange={(value) => update('features', { ...features, [key]: value })}
-                label={FEATURE_LABELS[key].label}
-                description={FEATURE_LABELS[key].description}
-                className="rounded-lg border border-border p-3"
-              />
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {tab === 'comments' && (
-        <Section title="评论设置" description="审核、频率与长度限制" icon="message">
-          <Switch
-            checked={draft.comments.requireModeration}
-            onChange={(requireModeration) => update('comments', { ...draft.comments, requireModeration })}
-            label="评论需要审核"
-            description="开启后，新评论需审核通过才显示"
-            className="rounded-lg border border-border p-3"
-          />
-          <Switch
-            checked={draft.comments.allowGuests}
-            onChange={(allowGuests) => update('comments', { ...draft.comments, allowGuests })}
-            label="允许访客评论"
-            description="关闭后仅登录用户可评论"
-            className="rounded-lg border border-border p-3"
-          />
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Input
-              label="最大回复层级"
-              type="number"
-              min={0}
-              max={5}
-              value={draft.comments.maxDepth}
-              onChange={(e) => update('comments', { ...draft.comments, maxDepth: Number(e.target.value) })}
-            />
-            <Input
-              label="评论间隔（秒）"
-              type="number"
-              min={5}
-              max={3600}
-              value={draft.comments.rateLimitSeconds}
-              onChange={(e) => update('comments', { ...draft.comments, rateLimitSeconds: Number(e.target.value) })}
-            />
-            <Input
-              label="最短长度"
-              type="number"
-              min={1}
-              max={100}
-              value={draft.comments.minLength}
-              onChange={(e) => update('comments', { ...draft.comments, minLength: Number(e.target.value) })}
-            />
-            <Input
-              label="最长长度"
-              type="number"
-              min={10}
-              max={10000}
-              value={draft.comments.maxLength}
-              onChange={(e) => update('comments', { ...draft.comments, maxLength: Number(e.target.value) })}
-            />
-          </div>
-        </Section>
-      )}
-
-      {tab === 'pages' && (
-        <Section title="关于页" description="使用 Markdown 撰写" icon="fileText">
-          <Input
-            label="页面标题"
-            value={draft.pages.about.title}
-            onChange={(e) => update('pages', { about: { ...draft.pages.about, title: e.target.value } })}
-          />
-          <Textarea
-            label="内容（Markdown）"
-            value={draft.pages.about.contentMd}
-            onChange={(e) => update('pages', { about: { ...draft.pages.about, contentMd: e.target.value } })}
-            rows={14}
-            className="font-mono text-sm"
-          />
-        </Section>
-      )}
-
-      {tab === 'music' && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Section title="音乐播放器" description="基于 XF Music Player 的悬浮播放器，默认关闭，开启后仅在访客前台加载" icon="music">
-            <Switch
-              checked={draft.music.enabled}
-              onChange={(enabled) => setMusic({ enabled })}
-              label="启用音乐播放器"
-              description="开启后访客页面会出现悬浮播放器（懒加载，不影响首屏）"
-              className="rounded-lg border border-border p-3"
-            />
-            <Row label="界面语言">
-              <Segmented
-                value={draft.music.language}
-                onChange={(language) => setMusic({ language })}
-                options={[
-                  { value: 'zh', label: '中文' },
-                  { value: 'en', label: 'English' },
-                ]}
-              />
-            </Row>
-            <Select
-              label="播放模式"
-              value={draft.music.playMode}
-              onChange={(e) => setMusic({ playMode: e.target.value as MusicPlayMode })}
-            >
-              <option value="order">顺序播放</option>
-              <option value="single">单曲循环</option>
-              <option value="random">随机播放</option>
-            </Select>
-          </Section>
-
-          <Section title="数据源" description="云端接口拉取歌单，或使用本地歌单" icon="globe">
-            <Row label="数据源">
-              <Segmented
-                value={draft.music.mode}
-                onChange={(mode) => setMusic({ mode })}
-                options={[
-                  { value: 'cloud', label: '云端接口' },
-                  { value: 'local', label: '本地歌单' },
-                ]}
-              />
-            </Row>
-
-            {draft.music.mode === 'cloud' ? (
-              <Input
-                label="歌单接口 (apiUrl)"
-                value={draft.music.apiUrl}
-                onChange={(e) => setMusic({ apiUrl: e.target.value })}
-                placeholder="https://music.api.xfyun.club/api/v1/music/top?platform=netease&topId=3778678"
-                hint="需返回 { code, msg, data: [...] } 结构；播放器将在访客端请求该接口"
-              />
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-fg">本地歌单</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      setMusic({
-                        playlist: [
-                          ...draft.music.playlist,
-                          { id: `track-${Date.now().toString(36)}`, title: '新歌曲', artist: '', cover: '', src: '' },
-                        ],
-                      })
-                    }
-                  >
-                    <Icon name="plus" size={15} /> 添加
-                  </Button>
-                </div>
-                {draft.music.playlist.length === 0 && <p className="text-xs text-faint">暂无歌曲，点击「添加」。</p>}
-                {draft.music.playlist.map((track, i) => (
-                  <div key={track.id} className="space-y-2 rounded-lg border border-border p-3">
-                    <div className="flex gap-2">
-                      <Input
-                        value={track.title}
-                        placeholder="标题"
-                        wrapperClassName="flex-1"
-                        onChange={(e) => updateTrack(i, { title: e.target.value })}
-                      />
-                      <Input
-                        value={track.artist ?? ''}
-                        placeholder="歌手"
-                        wrapperClassName="w-32"
-                        onChange={(e) => updateTrack(i, { artist: e.target.value })}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setMusic({ playlist: draft.music.playlist.filter((_, idx) => idx !== i) })}
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted hover:bg-danger/10 hover:text-danger"
-                        aria-label="删除"
-                      >
-                        <Icon name="trash" size={16} />
-                      </button>
-                    </div>
-                    <Input
-                      value={track.src}
-                      placeholder="音频地址 https://… 或 /media/…"
-                      onChange={(e) => updateTrack(i, { src: e.target.value })}
-                    />
-                    <Input
-                      value={track.cover ?? ''}
-                      placeholder="封面地址（可选）"
-                      onChange={(e) => updateTrack(i, { cover: e.target.value })}
-                    />
-                  </div>
+          {tab === 'features' && (
+            <Section title="功能开关" description="随时开启或关闭站点功能" icon="settings">
+              <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                {(Object.keys(FEATURE_LABELS) as Array<keyof FeatureFlags>).map((key) => (
+                  <Switch
+                    key={key}
+                    checked={features[key]}
+                    onChange={(value) => update('features', { ...features, [key]: value })}
+                    label={FEATURE_LABELS[key].label}
+                    description={FEATURE_LABELS[key].description}
+                    className="rounded-lg border border-border p-3"
+                  />
                 ))}
               </div>
-            )}
-          </Section>
+            </Section>
+          )}
 
-          <Section
-            title="外观与交互"
-            description="主题、尺寸与视觉选项"
-            icon="palette"
-            className="lg:col-span-2"
-          >
-            <Select
-              label="主题"
-              value={draft.music.theme}
-              onChange={(e) => setMusic({ theme: e.target.value })}
-              hint="无论选哪个主题，播放器强调色都会跟随博客「主题色」；auto-theme 跟随博客亮暗模式。"
-            >
-              <option value="auto-theme">跟随博客亮暗（auto-theme）</option>
-              <option value="xf-original-theme">原始 · 浅色</option>
-              <option value="xf-theme">默认</option>
-              <option value="xf-dark-theme">暗色</option>
-              <option value="xf-orange-theme">橙色</option>
-              <option value="xf-pink-theme">粉色</option>
-              <option value="xf-sky-theme">天空</option>
-              <option value="xf-dark-green-theme">墨绿</option>
-              <option value="xf-wine-theme">酒红</option>
-              <option value="random-theme">随机</option>
-            </Select>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Input
-                label="播放器宽度"
-                value={draft.music.playerWidth}
-                onChange={(e) => setMusic({ playerWidth: e.target.value })}
-              />
-              <Input label="底部距离" value={draft.music.bottom} onChange={(e) => setMusic({ bottom: e.target.value })} />
-              <Input
-                label="歌单高度"
-                value={draft.music.songListHeight}
-                onChange={(e) => setMusic({ songListHeight: e.target.value })}
-              />
-              <Input
-                label="歌单可视数量"
-                type="number"
-                min={1}
-                max={20}
-                value={draft.music.visibleSongListCount}
-                onChange={(e) => setMusic({ visibleSongListCount: Number(e.target.value) || 4 })}
-              />
-            </div>
-            <Input
-              label="音量（0 - 1）"
-              type="number"
-              min={0}
-              max={1}
-              step={0.05}
-              value={draft.music.volume}
-              onChange={(e) => setMusic({ volume: Math.min(1, Math.max(0, Number(e.target.value) || 0)) })}
-              wrapperClassName="sm:max-w-xs"
-            />
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Switch
-                checked={draft.music.isAutoPopup}
-                onChange={(isAutoPopup) => setMusic({ isAutoPopup })}
-                label="自动展开播放器"
-                description="仅展开界面，不触发播放"
-                className="rounded-lg border border-border p-3"
-              />
-              <Switch
-                checked={draft.music.isAutoPlaylist}
-                onChange={(isAutoPlaylist) => setMusic({ isAutoPlaylist })}
-                label="默认展开歌单"
-                className="rounded-lg border border-border p-3"
-              />
-              <Switch
-                checked={draft.music.autoplay}
-                onChange={(autoplay) => setMusic({ autoplay })}
-                label="自动播放"
-                description="进入页面即尝试播放；受浏览器策略限制，通常需要访客首次点击后才出声"
-                className="rounded-lg border border-border p-3"
-              />
-              <Switch
-                checked={draft.music.colorfulLyric}
-                onChange={(colorfulLyric) => setMusic({ colorfulLyric })}
-                label="彩色歌词"
-                className="rounded-lg border border-border p-3"
-              />
-              <Switch
-                checked={draft.music.audioVisualizer}
-                onChange={(audioVisualizer) => setMusic({ audioVisualizer })}
-                label="音频可视化"
-                description="波形进度条（需音频允许跨域分析）"
-                className="rounded-lg border border-border p-3"
-              />
-              <Switch
-                checked={draft.music.rememberPlayback}
-                onChange={(rememberPlayback) => setMusic({ rememberPlayback })}
-                label="记忆播放"
-                description="记住上次的歌曲与进度"
-                className="rounded-lg border border-border p-3"
-              />
-            </div>
-          </Section>
-        </div>
-      )}
+          {tab === 'comments' && (
+            <Section title="评论设置" description="审核、频率与长度限制" icon="message">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Switch
+                  checked={draft.comments.requireModeration}
+                  onChange={(requireModeration) => update('comments', { ...draft.comments, requireModeration })}
+                  label="评论需要审核"
+                  description="开启后，新评论需审核通过才显示"
+                  className="rounded-lg border border-border p-3"
+                />
+                <Switch
+                  checked={draft.comments.allowGuests}
+                  onChange={(allowGuests) => update('comments', { ...draft.comments, allowGuests })}
+                  label="允许访客评论"
+                  description="关闭后仅登录用户可评论"
+                  className="rounded-lg border border-border p-3"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Input
+                  label="最大回复层级"
+                  type="number"
+                  min={0}
+                  max={5}
+                  value={draft.comments.maxDepth}
+                  onChange={(e) => update('comments', { ...draft.comments, maxDepth: Number(e.target.value) })}
+                />
+                <Input
+                  label="评论间隔（秒）"
+                  type="number"
+                  min={5}
+                  max={3600}
+                  value={draft.comments.rateLimitSeconds}
+                  onChange={(e) =>
+                    update('comments', { ...draft.comments, rateLimitSeconds: Number(e.target.value) })
+                  }
+                />
+                <Input
+                  label="最短长度"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={draft.comments.minLength}
+                  onChange={(e) => update('comments', { ...draft.comments, minLength: Number(e.target.value) })}
+                />
+                <Input
+                  label="最长长度"
+                  type="number"
+                  min={10}
+                  max={10000}
+                  value={draft.comments.maxLength}
+                  onChange={(e) => update('comments', { ...draft.comments, maxLength: Number(e.target.value) })}
+                />
+              </div>
+            </Section>
+          )}
 
-      {tab === 'advanced' && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Section title="自定义 CSS" description="直接注入到页面，可用于微调样式" icon="palette">
-            <Textarea
-              value={draft.advanced.customCss}
-              onChange={(e) => update('advanced', { ...draft.advanced, customCss: e.target.value })}
-              rows={10}
-              className="font-mono text-sm"
-              placeholder=".prose-article h2 { letter-spacing: -0.01em; }"
-            />
-          </Section>
-          <Section title="注入 HTML" description="页头 / 页脚注入（统计脚本、验证标签等），请谨慎使用" icon="fileText">
-            <Textarea
-              label="页头 HTML"
-              value={draft.advanced.headHtml}
-              onChange={(e) => update('advanced', { ...draft.advanced, headHtml: e.target.value })}
-              rows={5}
-              className="font-mono text-sm"
-            />
-            <Textarea
-              label="页脚 HTML"
-              value={draft.advanced.footerHtml}
-              onChange={(e) => update('advanced', { ...draft.advanced, footerHtml: e.target.value })}
-              rows={5}
-              className="font-mono text-sm"
-            />
-          </Section>
-          <Section title="访问统计" description="选择统计服务并填入对应标识" icon="globe">
-            <Select
-              label="统计服务"
-              value={draft.advanced.analytics.provider}
-              onChange={(e) =>
-                update('advanced', {
-                  ...draft.advanced,
-                  analytics: { ...draft.advanced.analytics, provider: e.target.value as 'none' | 'plausible' | 'umami' | 'ga4' },
-                })
-              }
-            >
-              <option value="none">不启用</option>
-              <option value="plausible">Plausible（域名）</option>
-              <option value="umami">Umami（脚本地址）</option>
-              <option value="ga4">Google Analytics 4（衡量 ID）</option>
-            </Select>
-            {draft.advanced.analytics.provider !== 'none' && (
+          {tab === 'pages' && (
+            <Section title="关于页" description="使用 Markdown 撰写，保存后前台即时更新" icon="fileText">
               <Input
-                label="标识"
-                value={draft.advanced.analytics.token}
-                onChange={(e) =>
-                  update('advanced', { ...draft.advanced, analytics: { ...draft.advanced.analytics, token: e.target.value } })
-                }
+                label="页面标题"
+                value={draft.pages.about.title}
+                onChange={(e) => update('pages', { about: { ...draft.pages.about, title: e.target.value } })}
               />
+              <Textarea
+                label="内容（Markdown）"
+                value={draft.pages.about.contentMd}
+                onChange={(e) => update('pages', { about: { ...draft.pages.about, contentMd: e.target.value } })}
+                rows={16}
+                className="font-mono text-sm"
+              />
+            </Section>
+          )}
+
+          {tab === 'music' && (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Section
+                title="音乐播放器"
+                description="基于 XF Music Player 的悬浮播放器，默认关闭，开启后仅在访客前台加载"
+                icon="music"
+              >
+                <Switch
+                  checked={draft.music.enabled}
+                  onChange={(enabled) => setMusic({ enabled })}
+                  label="启用音乐播放器"
+                  description="开启后访客页面会出现悬浮播放器（懒加载，不影响首屏）"
+                  className="rounded-lg border border-border p-3"
+                />
+                <Row label="界面语言">
+                  <Segmented
+                    value={draft.music.language}
+                    onChange={(language) => setMusic({ language })}
+                    options={[
+                      { value: 'zh', label: '中文' },
+                      { value: 'en', label: 'English' },
+                    ]}
+                  />
+                </Row>
+                <Select
+                  label="播放模式"
+                  value={draft.music.playMode}
+                  onChange={(e) => setMusic({ playMode: e.target.value as MusicPlayMode })}
+                >
+                  <option value="order">顺序播放</option>
+                  <option value="single">单曲循环</option>
+                  <option value="random">随机播放</option>
+                </Select>
+              </Section>
+
+              <Section title="数据源" description="云端接口拉取歌单，或使用本地歌单" icon="globe">
+                <Row label="数据源">
+                  <Segmented
+                    value={draft.music.mode}
+                    onChange={(mode) => setMusic({ mode })}
+                    options={[
+                      { value: 'cloud', label: '云端接口' },
+                      { value: 'local', label: '本地歌单' },
+                    ]}
+                  />
+                </Row>
+
+                {draft.music.mode === 'cloud' ? (
+                  <Input
+                    label="歌单接口 (apiUrl)"
+                    value={draft.music.apiUrl}
+                    onChange={(e) => setMusic({ apiUrl: e.target.value })}
+                    placeholder="https://music.api.xfyun.club/api/v1/music/top?platform=netease&topId=3778678"
+                    hint="需返回 { code, msg, data: [...] } 结构；播放器将在访客端请求该接口"
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-fg">本地歌单</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setMusic({
+                            playlist: [
+                              ...draft.music.playlist,
+                              {
+                                id: `track-${Date.now().toString(36)}`,
+                                title: '新歌曲',
+                                artist: '',
+                                cover: '',
+                                src: '',
+                              },
+                            ],
+                          })
+                        }
+                      >
+                        <Icon name="plus" size={15} /> 添加
+                      </Button>
+                    </div>
+                    {draft.music.playlist.length === 0 && (
+                      <p className="text-xs text-faint">暂无歌曲，点击「添加」。</p>
+                    )}
+                    {draft.music.playlist.map((track, i) => (
+                      <div key={track.id} className="space-y-2 rounded-lg border border-border p-3">
+                        <div className="flex gap-2">
+                          <Input
+                            value={track.title}
+                            placeholder="标题"
+                            wrapperClassName="flex-1"
+                            onChange={(e) => updateTrack(i, { title: e.target.value })}
+                          />
+                          <Input
+                            value={track.artist ?? ''}
+                            placeholder="歌手"
+                            wrapperClassName="w-32"
+                            onChange={(e) => updateTrack(i, { artist: e.target.value })}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setMusic({ playlist: draft.music.playlist.filter((_, idx) => idx !== i) })}
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted hover:bg-danger/10 hover:text-danger"
+                            aria-label="删除"
+                          >
+                            <Icon name="trash" size={16} />
+                          </button>
+                        </div>
+                        <Input
+                          value={track.src}
+                          placeholder="音频地址 https://… 或 /media/…"
+                          onChange={(e) => updateTrack(i, { src: e.target.value })}
+                        />
+                        <Input
+                          value={track.cover ?? ''}
+                          placeholder="封面地址（可选）"
+                          onChange={(e) => updateTrack(i, { cover: e.target.value })}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Section>
+
+              <Section title="外观与交互" description="主题、尺寸与视觉选项" icon="palette" className="xl:col-span-2">
+                <Select
+                  label="主题"
+                  value={draft.music.theme}
+                  onChange={(e) => setMusic({ theme: e.target.value })}
+                  hint="无论选哪个主题，播放器强调色都会跟随博客「主题色」；auto-theme 跟随博客亮暗模式。"
+                >
+                  <option value="auto-theme">跟随博客亮暗（auto-theme）</option>
+                  <option value="xf-original-theme">原始 · 浅色</option>
+                  <option value="xf-theme">默认</option>
+                  <option value="xf-dark-theme">暗色</option>
+                  <option value="xf-orange-theme">橙色</option>
+                  <option value="xf-pink-theme">粉色</option>
+                  <option value="xf-sky-theme">天空</option>
+                  <option value="xf-dark-green-theme">墨绿</option>
+                  <option value="xf-wine-theme">酒红</option>
+                  <option value="random-theme">随机</option>
+                </Select>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <Input
+                    label="播放器宽度"
+                    value={draft.music.playerWidth}
+                    onChange={(e) => setMusic({ playerWidth: e.target.value })}
+                  />
+                  <Input
+                    label="底部距离"
+                    value={draft.music.bottom}
+                    onChange={(e) => setMusic({ bottom: e.target.value })}
+                  />
+                  <Input
+                    label="歌单高度"
+                    value={draft.music.songListHeight}
+                    onChange={(e) => setMusic({ songListHeight: e.target.value })}
+                  />
+                  <Input
+                    label="歌单可视数量"
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={draft.music.visibleSongListCount}
+                    onChange={(e) => setMusic({ visibleSongListCount: Number(e.target.value) || 4 })}
+                  />
+                </div>
+                <Input
+                  label="音量（0 - 1）"
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={draft.music.volume}
+                  onChange={(e) => setMusic({ volume: Math.min(1, Math.max(0, Number(e.target.value) || 0)) })}
+                  wrapperClassName="sm:max-w-xs"
+                />
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Switch
+                    checked={draft.music.isAutoPopup}
+                    onChange={(isAutoPopup) => setMusic({ isAutoPopup })}
+                    label="自动展开播放器"
+                    description="仅展开界面，不触发播放"
+                    className="rounded-lg border border-border p-3"
+                  />
+                  <Switch
+                    checked={draft.music.isAutoPlaylist}
+                    onChange={(isAutoPlaylist) => setMusic({ isAutoPlaylist })}
+                    label="默认展开歌单"
+                    className="rounded-lg border border-border p-3"
+                  />
+                  <Switch
+                    checked={draft.music.autoplay}
+                    onChange={(autoplay) => setMusic({ autoplay })}
+                    label="自动播放"
+                    description="进入页面即尝试播放；受浏览器策略限制，通常需要访客首次点击后才出声"
+                    className="rounded-lg border border-border p-3"
+                  />
+                  <Switch
+                    checked={draft.music.colorfulLyric}
+                    onChange={(colorfulLyric) => setMusic({ colorfulLyric })}
+                    label="彩色歌词"
+                    className="rounded-lg border border-border p-3"
+                  />
+                  <Switch
+                    checked={draft.music.audioVisualizer}
+                    onChange={(audioVisualizer) => setMusic({ audioVisualizer })}
+                    label="音频可视化"
+                    description="波形进度条（需音频允许跨域分析）"
+                    className="rounded-lg border border-border p-3"
+                  />
+                  <Switch
+                    checked={draft.music.rememberPlayback}
+                    onChange={(rememberPlayback) => setMusic({ rememberPlayback })}
+                    label="记忆播放"
+                    description="记住上次的歌曲与进度"
+                    className="rounded-lg border border-border p-3"
+                  />
+                </div>
+              </Section>
+            </div>
+          )}
+
+          {tab === 'advanced' && (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Section title="自定义 CSS" description="直接注入到页面，可用于微调样式" icon="palette">
+                <Textarea
+                  value={draft.advanced.customCss}
+                  onChange={(e) => update('advanced', { ...draft.advanced, customCss: e.target.value })}
+                  rows={10}
+                  className="font-mono text-sm"
+                  placeholder=".prose-article h2 { letter-spacing: -0.01em; }"
+                />
+              </Section>
+              <Section
+                title="注入 HTML"
+                description="页头 / 页脚注入（统计脚本、验证标签等），请谨慎使用"
+                icon="fileText"
+              >
+                <Textarea
+                  label="页头 HTML"
+                  value={draft.advanced.headHtml}
+                  onChange={(e) => update('advanced', { ...draft.advanced, headHtml: e.target.value })}
+                  rows={5}
+                  className="font-mono text-sm"
+                />
+                <Textarea
+                  label="页脚 HTML"
+                  value={draft.advanced.footerHtml}
+                  onChange={(e) => update('advanced', { ...draft.advanced, footerHtml: e.target.value })}
+                  rows={5}
+                  className="font-mono text-sm"
+                />
+              </Section>
+              <Section title="访问统计" description="选择统计服务并填入对应标识" icon="globe" className="xl:col-span-2">
+                <Select
+                  label="统计服务"
+                  value={draft.advanced.analytics.provider}
+                  onChange={(e) =>
+                    update('advanced', {
+                      ...draft.advanced,
+                      analytics: {
+                        ...draft.advanced.analytics,
+                        provider: e.target.value as 'none' | 'plausible' | 'umami' | 'ga4',
+                      },
+                    })
+                  }
+                >
+                  <option value="none">不启用</option>
+                  <option value="plausible">Plausible（域名）</option>
+                  <option value="umami">Umami（脚本地址）</option>
+                  <option value="ga4">Google Analytics 4（衡量 ID）</option>
+                </Select>
+                {draft.advanced.analytics.provider !== 'none' && (
+                  <Input
+                    label="标识"
+                    value={draft.advanced.analytics.token}
+                    onChange={(e) =>
+                      update('advanced', {
+                        ...draft.advanced,
+                        analytics: { ...draft.advanced.analytics, token: e.target.value },
+                      })
+                    }
+                  />
+                )}
+              </Section>
+            </div>
+          )}
+
+          {/* 页面底部的保存入口，长表单不用滚回顶部 */}
+          <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+            {dirty.size > 0 && (
+              <span className="mr-auto flex items-center gap-1.5 text-xs text-warning">
+                <DirtyDot />
+                有未保存的修改
+              </span>
             )}
-          </Section>
+            <Button variant="ghost" onClick={() => void resetTab()} loading={resetting}>
+              <Icon name="refresh" size={16} /> 恢复本页默认
+            </Button>
+            <Button onClick={() => void save()} loading={saving} disabled={dirty.size === 0}>
+              <Icon name="save" size={16} /> 保存修改
+            </Button>
+          </div>
+
+          <p className="mt-6 text-center text-xs text-faint">
+            默认值参考：站点 {DEFAULT_SETTINGS.site.name} · 主题预设 {DEFAULT_SETTINGS.theme.preset}
+          </p>
         </div>
-      )}
+      </div>
 
       <MediaPicker
         open={mediaPickerKind !== null}
@@ -1546,10 +2006,6 @@ export function AppearancePage() {
         onClose={() => setMediaPickerKind(null)}
         onSelect={(item) => setHeroMedia(item.url)}
       />
-
-      <p className="mt-6 text-center text-xs text-faint">
-        默认值参考：站点 {DEFAULT_SETTINGS.site.name} · 主题预设 {DEFAULT_SETTINGS.theme.preset}
-      </p>
     </div>
   );
 }

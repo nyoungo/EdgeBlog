@@ -53,7 +53,10 @@ function verticalNavItemClass(style: NavStyle, align: NavAlign, active: boolean)
 
 function NavItems({ vertical, vt, onNavigate }: { vertical: boolean; vt: boolean; onNavigate?: () => void }) {
   const { settings } = useSettings();
-  const { style, align } = settings.layout.header;
+  const { style, align, navColor } = settings.layout.header;
+
+  // 自定义导航文字颜色：留空时沿用主题的 active / muted 配色。
+  const itemStyle = navColor ? { color: navColor } : undefined;
 
   const itemClass = (active: boolean) =>
     vertical ? verticalNavItemClass(style, align, active) : navLinkClass(style, active);
@@ -69,6 +72,7 @@ function NavItems({ vertical, vt, onNavigate }: { vertical: boolean; vt: boolean
             rel={item.newTab ? 'noopener noreferrer' : undefined}
             onClick={onNavigate}
             className={itemClass(false)}
+            style={itemStyle}
           >
             {item.label}
           </a>
@@ -79,6 +83,7 @@ function NavItems({ vertical, vt, onNavigate }: { vertical: boolean; vt: boolean
             viewTransition={vt}
             onClick={onNavigate}
             className={({ isActive }) => itemClass(isActive)}
+            style={itemStyle}
             end={item.href === '/'}
           >
             {item.label}
@@ -139,6 +144,13 @@ export function Header() {
   const logoText = site.logo.text || site.name;
   const vt = features.viewTransitions;
 
+  // 顶栏三个可自定义颜色：留空时跟随主题。
+  const logoStyle: CSSProperties | undefined = header.logoColor ? { color: header.logoColor } : undefined;
+  const navStyle: CSSProperties | undefined = header.navColor ? { color: header.navColor } : undefined;
+  const actionStyle = header.actionColor
+    ? ({ '--eb-header-action-color': header.actionColor } as CSSProperties)
+    : undefined;
+
   const barStyle: CSSProperties = { height: header.height || '64px' };
   const positionClass =
     header.position === 'fixed'
@@ -159,6 +171,7 @@ export function Header() {
     <Link
       to="/"
       className={cn('flex items-center gap-2.5 text-fg no-underline', className)}
+      style={logoStyle}
       onClick={() => setOpen(false)}
       viewTransition={vt}
     >
@@ -229,6 +242,7 @@ export function Header() {
               rel={item.newTab ? 'noopener noreferrer' : undefined}
               onClick={() => setOpen(false)}
               className="rounded-md px-3 py-2.5 text-sm font-medium text-muted hover:bg-surface-2 hover:text-fg"
+              style={navStyle}
             >
               {item.label}
             </a>
@@ -239,6 +253,7 @@ export function Header() {
               end={item.href === '/'}
               viewTransition={vt}
               onClick={() => setOpen(false)}
+              style={navStyle}
               className={({ isActive }) =>
                 cn(
                   'rounded-md px-3 py-2.5 text-sm font-medium hover:bg-surface-2',
@@ -272,7 +287,12 @@ export function Header() {
             <NavItems vertical vt={vt} />
           </nav>
           <div
-            className={cn('flex shrink-0 items-center gap-1 border-t px-3 py-3', mutedEdge ? 'border-transparent' : 'border-border', justify)}
+            className={cn(
+              'eb-header-actions flex shrink-0 items-center gap-1 border-t px-3 py-3',
+              mutedEdge ? 'border-transparent' : 'border-border',
+              justify,
+            )}
+            style={actionStyle}
           >
             {actions}
           </div>
@@ -289,7 +309,9 @@ export function Header() {
             >
               <NavItems vertical={false} vt={vt} />
             </nav>
-            <div className="ml-auto flex items-center gap-1">{actions}</div>
+            <div className="eb-header-actions ml-auto flex items-center gap-1" style={actionStyle}>
+              {actions}
+            </div>
           </div>
           {mobileMenu}
         </header>
@@ -323,7 +345,9 @@ export function Header() {
             <NavItems vertical={false} vt={vt} />
           </nav>
 
-          <div className={actionsClass}>{actions}</div>
+          <div className={cn(actionsClass, 'eb-header-actions')} style={actionStyle}>
+            {actions}
+          </div>
         </div>
 
         {mobileMenu}

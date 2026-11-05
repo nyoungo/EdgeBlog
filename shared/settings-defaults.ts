@@ -92,6 +92,9 @@ export const DEFAULT_SETTINGS: PublicSettings = {
       transparentOnTop: true,
       height: '64px',
       align: 'center',
+      logoColor: '',
+      navColor: '',
+      actionColor: '',
     },
   },
   navigation: [
