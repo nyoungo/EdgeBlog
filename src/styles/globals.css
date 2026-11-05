@@ -215,11 +215,4 @@
       0 0 4px rgb(var(--c-bg) / 0.85),
       0 1px 8px rgb(var(--c-bg) / 0.55);
   }
-
-  /* Motion-sensitive visitors get the still poster/background instead. */
-  @media (prefers-reduced-motion: reduce) {
-    .eb-hero-video {
-      display: none;
-    }
-  }
 }
