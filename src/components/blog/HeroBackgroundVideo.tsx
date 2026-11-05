@@ -30,6 +30,18 @@ const SWAP_WATCHDOG_MS = 1600;
 const BASE_CLASS =
   'eb-hero-video pointer-events-none absolute inset-0 h-full w-full object-cover';
 
+/** Keep background decks inline and prevent browsers from exposing optional media controls. */
+function configureBackgroundVideo(video: HTMLVideoElement) {
+  video.controls = false;
+  video.removeAttribute('controls');
+  video.setAttribute('playsinline', '');
+  // Older iOS Safari versions use this prefixed attribute to avoid native fullscreen playback.
+  video.setAttribute('webkit-playsinline', '');
+  video.setAttribute('controlslist', 'nodownload nofullscreen noremoteplayback');
+  video.setAttribute('disablepictureinpicture', '');
+  video.setAttribute('disableremoteplayback', '');
+}
+
 /** Schedule work on the presented frame, falling back to rAF where unsupported. */
 function scheduleFrame(
   video: HTMLVideoElement,
@@ -579,6 +591,8 @@ export function HeroBackgroundVideo({
     const boot = async () => {
       first.classList.add('is-active');
       second.classList.remove('is-active', 'is-standby');
+      configureBackgroundVideo(first);
+      configureBackgroundVideo(second);
       first.muted = true;
       second.muted = true;
       first.src = src;
