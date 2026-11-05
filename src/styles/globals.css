@@ -182,6 +182,16 @@
     scrollbar-width: none;
   }
 
+  /* Hide native browser media controls from background video decks. */
+  .eb-hero-video::-webkit-media-controls,
+  .eb-hero-video::-webkit-media-controls-panel,
+  .eb-hero-video::-webkit-media-controls-enclosure {
+    display: none !important;
+  }
+  .eb-hero-video::-moz-media-controls {
+    display: none !important;
+  }
+
   /* Two stacked hero video decks. The visible deck is never seeked; the parked
      one sits above at 0.1% opacity so Chrome keeps compositing and decoding it
      (a fully occluded or display:none video may stop producing frames). */
