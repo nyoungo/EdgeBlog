@@ -1,5 +1,7 @@
 /** Thin fetch wrapper implementing the API envelope + typed errors. */
 import type { ApiMeta, ApiResponse } from '@shared/types';
+import { captureVideoThumbnail } from './video-thumbnail';
+import { isVideoUrl } from './hero-media';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -85,6 +87,12 @@ export const api = {
 export async function uploadMedia(file: File): Promise<import('@shared/types').MediaItem> {
   const form = new FormData();
   form.append('file', file);
+  // 视频上传时顺带抽首帧当封面：移动端英雄区与视频加载前都靠它兜底。
+  // 抽帧失败（编码不支持/跨域/超时）不阻塞上传，只是没有封面。
+  if (file.type.startsWith('video/') || isVideoUrl(file.name)) {
+    const thumbnail = await captureVideoThumbnail(file);
+    if (thumbnail) form.append('thumbnail', thumbnail);
+  }
   const res = await fetch('/api/media/upload', {
     method: 'POST',
     credentials: 'same-origin',

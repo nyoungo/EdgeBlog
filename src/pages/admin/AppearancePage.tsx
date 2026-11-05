@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   FeatureFlags,
+  MediaItem,
   MusicPlayMode,
   MusicTrack,
   NavItem,
@@ -19,8 +20,9 @@ import { MediaPicker } from '../../components/admin/MediaPicker';
 import { cn } from '../../lib/utils';
 import { CODE_THEMES } from '../../lib/code-themes';
 import { BACKGROUND_LAYOUT } from '../../lib/theme';
-import { resolveHeroMedia } from '../../lib/hero-media';
-import { api } from '../../lib/api';
+import { resolveHeroMedia, isVideoUrl } from '../../lib/hero-media';
+import { captureVideoThumbnail } from '../../lib/video-thumbnail';
+import { api, uploadMedia } from '../../lib/api';
 import { useDocumentTitle } from '../../hooks';
 import { useSettings } from '../../providers/SettingsProvider';
 import { useToast } from '../../providers/ToastProvider';
@@ -534,6 +536,9 @@ export function AppearancePage() {
   const [resetting, setResetting] = useState(false);
   const [ready, setReady] = useState(false);
   const [mediaPickerKind, setMediaPickerKind] = useState<'image' | 'video' | null>(null);
+  /** 媒体库弹窗当前服务的字段：背景媒体本身，还是视频封面。 */
+  const [mediaPickerTarget, setMediaPickerTarget] = useState<'hero' | 'poster'>('hero');
+  const [posterBusy, setPosterBusy] = useState(false);
 
   useDocumentTitle('站点设置', settings.site.name);
 
@@ -616,8 +621,31 @@ export function AppearancePage() {
   const setHero = (patch: Partial<typeof hero>) => setLayout({ hero: { ...hero, ...patch } });
   const heroMedia = resolveHeroMedia(hero);
   const heroIsVideo = heroMedia.kind === 'video';
-  const setHeroMedia = (backgroundMedia: string) =>
-    setHero({ backgroundMedia, backgroundImage: '', backgroundVideo: '' });
+  /** 视频封面存在 backgroundImage；选视频时自动带上媒体库已生成的封面。 */
+  const setHeroMedia = (backgroundMedia: string, poster = '') =>
+    setHero({ backgroundMedia, backgroundImage: poster, backgroundVideo: '' });
+  const applyHeroPick = (item: MediaItem) => {
+    setHeroMedia(item.url, isVideoUrl(item.url) ? (item.thumbnail_url ?? '') : '');
+  };
+  /** 从当前视频重新抽一帧当封面（历史视频没有上传时生成的封面时用）。 */
+  const generateHeroPoster = async () => {
+    if (!heroMedia.video) return;
+    setPosterBusy(true);
+    try {
+      const file = await captureVideoThumbnail(heroMedia.video);
+      if (!file) {
+        toastError('无法从该视频生成封面（可能是跨域限制或浏览器不支持该编码），请改为手动选择图片');
+        return;
+      }
+      const item = await uploadMedia(file);
+      setHero({ backgroundImage: item.url });
+      success('封面已生成');
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : '生成封面失败');
+    } finally {
+      setPosterBusy(false);
+    }
+  };
   const setHeader = (patch: Partial<typeof header>) => setLayout({ header: { ...header, ...patch } });
   const setSite = (patch: Partial<SiteSettings>) => update('site', { ...site, ...patch });
   const setMusic = (patch: Partial<typeof draft.music>) => update('music', { ...draft.music, ...patch });
@@ -1137,10 +1165,26 @@ export function AppearancePage() {
                   hint="视频支持 MP4 / WebM（单个 ≤ 25MB），自动静音播放；图片则作为背景图。"
                 />
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="secondary" size="sm" onClick={() => setMediaPickerKind('image')}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setMediaPickerTarget('hero');
+                      setMediaPickerKind('image');
+                    }}
+                  >
                     <Icon name="image" size={15} /> 从媒体库选择图片
                   </Button>
-                  <Button type="button" variant="secondary" size="sm" onClick={() => setMediaPickerKind('video')}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setMediaPickerTarget('hero');
+                      setMediaPickerKind('video');
+                    }}
+                  >
                     <Icon name="play" size={15} /> 从媒体库选择视频
                   </Button>
                   {heroMedia.value && (
@@ -1154,6 +1198,67 @@ export function AppearancePage() {
                     <Icon name={heroIsVideo ? 'play' : 'image'} size={13} />
                     已识别为{heroIsVideo ? '视频，可设置循环与播放区间' : '图片'}
                   </p>
+                )}
+
+                {heroIsVideo && (
+                  <div className="space-y-2.5 rounded-lg border border-border p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <span className="text-sm font-medium text-fg">视频封面图</span>
+                        <p className="mt-0.5 text-xs text-muted">
+                          手机端不播放视频，直接显示这张图；桌面端在视频加载前也用它占位。
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            setMediaPickerTarget('poster');
+                            setMediaPickerKind('image');
+                          }}
+                        >
+                          <Icon name="image" size={15} /> 选择图片
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          loading={posterBusy}
+                          onClick={() => void generateHeroPoster()}
+                        >
+                          <Icon name="refresh" size={15} /> 从视频生成
+                        </Button>
+                        {hero.backgroundImage && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setHero({ backgroundImage: '' })}
+                          >
+                            <Icon name="close" size={15} /> 清除
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <Input
+                      value={hero.backgroundImage}
+                      onChange={(e) => setHero({ backgroundImage: e.target.value })}
+                      placeholder="https://…/poster.jpg 或 /media/…"
+                    />
+                    {hero.backgroundImage ? (
+                      <img
+                        src={hero.backgroundImage}
+                        alt="视频封面预览"
+                        className="h-24 w-full rounded-md border border-border object-cover"
+                      />
+                    ) : (
+                      <p className="text-xs text-faint">
+                        还没有封面：可从媒体库选图，或点「从视频生成」自动抽帧（上传时也会自动生成）。
+                      </p>
+                    )}
+                  </div>
                 )}
 
                 {heroIsVideo && (
@@ -2003,8 +2108,17 @@ export function AppearancePage() {
       <MediaPicker
         open={mediaPickerKind !== null}
         kind={mediaPickerKind ?? 'image'}
-        onClose={() => setMediaPickerKind(null)}
-        onSelect={(item) => setHeroMedia(item.url)}
+        onClose={() => {
+          setMediaPickerKind(null);
+          setMediaPickerTarget('hero');
+        }}
+        onSelect={(item) => {
+          if (mediaPickerTarget === 'poster') {
+            setHero({ backgroundImage: item.url });
+            return;
+          }
+          applyHeroPick(item);
+        }}
       />
     </div>
   );

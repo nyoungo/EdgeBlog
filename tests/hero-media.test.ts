@@ -29,7 +29,26 @@ describe('resolveHeroMedia', () => {
       kind: 'video',
       image: '',
       video: '/media/a.mp4',
+      poster: '',
     });
+  });
+
+  it('uses the saved cover image as the video poster and fallback background', () => {
+    expect(
+      resolveHeroMedia({ ...empty, backgroundMedia: '/media/hero.mp4', backgroundImage: '/media/hero-thumb.jpg' }),
+    ).toMatchObject({
+      kind: 'video',
+      value: '/media/hero.mp4',
+      video: '/media/hero.mp4',
+      image: '/media/hero-thumb.jpg',
+      poster: '/media/hero-thumb.jpg',
+    });
+  });
+
+  it('ignores a video URL mistakenly stored as the poster', () => {
+    expect(
+      resolveHeroMedia({ ...empty, backgroundMedia: '/media/hero.mp4', backgroundImage: '/media/other.mp4' }),
+    ).toMatchObject({ kind: 'video', image: '', poster: '' });
   });
 
   it('falls back to the legacy video + image fields', () => {

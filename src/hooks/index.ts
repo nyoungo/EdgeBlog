@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 export interface AsyncState<T> {
   data: T | null;
@@ -40,6 +40,25 @@ export function useAsync<T>(loader: () => Promise<T>, deps: unknown[]): AsyncSta
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
   return { data, error, loading, reload, setData };
+}
+
+/**
+ * 订阅 CSS 媒体查询。
+ *
+ * `useSyncExternalStore` 在首次渲染时同步读取真实结果，因此移动端不会先渲染
+ * 视频再由 effect 收起来（那会白白发起一次视频请求）。
+ */
+export function useMediaQuery(query: string): boolean {
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      const mql = window.matchMedia(query);
+      mql.addEventListener('change', onStoreChange);
+      return () => mql.removeEventListener('change', onStoreChange);
+    },
+    [query],
+  );
+  const getSnapshot = useCallback(() => window.matchMedia(query).matches, [query]);
+  return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
 
 /** Debounce a rapidly-changing value (e.g. a search input). */

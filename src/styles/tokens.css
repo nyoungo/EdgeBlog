@@ -38,6 +38,11 @@
   --line-height: 1.75;
   --gutter: 1.5rem;
 
+  /* 压在图片/视频上的文字阴影：英雄区标题与顶栏文字共用，避免两处观感不一致。 */
+  --eb-hero-text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 6px 22px rgba(0, 0, 0, 0.3);
+  /* 图标不能用 text-shadow，用等价参数的两层投影。 */
+  --eb-hero-icon-shadow: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35)) drop-shadow(0 6px 22px rgba(0, 0, 0, 0.3));
+
   /* type stacks */
   --font-sans: 'Inter', 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;

@@ -123,6 +123,8 @@ export interface MediaItem {
   mime: string;
   width: number | null;
   height: number | null;
+  /** 视频封面图地址（上传时由首帧生成）；旧数据或图片为 null。 */
+  thumbnail_url: string | null;
   created_at: string;
 }
 

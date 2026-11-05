@@ -232,7 +232,7 @@ export function Header() {
         header.background === 'glass' || header.background === 'transparent' ? 'bg-bg/95 backdrop-blur-md' : 'bg-bg',
       )}
     >
-      <nav className="container-page flex flex-col py-2">
+      <nav className="eb-header-nav container-page flex flex-col py-2">
         {settings.navigation.map((item) =>
           item.external ? (
             <a
@@ -283,7 +283,7 @@ export function Header() {
           <div className={cn('flex shrink-0 items-center px-5', justify)} style={barStyle}>
             {renderLogo()}
           </div>
-          <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-2">
+          <nav className="eb-header-nav flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-2">
             <NavItems vertical vt={vt} />
           </nav>
           <div
@@ -303,7 +303,7 @@ export function Header() {
             {renderLogo()}
             <nav
               className={cn(
-                'hidden items-center gap-1 md:flex',
+                'eb-header-nav hidden items-center gap-1 md:flex',
                 header.style === 'pill' && 'rounded-full border border-border bg-surface-2/50 p-1',
               )}
             >
@@ -326,7 +326,7 @@ export function Header() {
   const barInnerClass = cn('container-page flex items-center gap-4', centered && 'md:grid md:grid-cols-[1fr_auto_1fr]');
 
   const navClass = cn(
-    'hidden items-center md:flex',
+    'eb-header-nav hidden items-center md:flex',
     header.style === 'pill' ? 'gap-1 rounded-full border border-border bg-surface-2/50 p-1' : 'gap-1',
     !centered && header.align === 'left' && 'mr-auto',
     !centered && header.align === 'right' && 'ml-auto',

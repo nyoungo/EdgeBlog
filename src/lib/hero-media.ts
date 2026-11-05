@@ -40,24 +40,28 @@ export interface HeroMedia {
 /**
  * Resolve the unified media field while staying compatible with settings saved
  * before `backgroundMedia` existed. Legacy videos win over the old poster image.
+ *
+ * 视频的 `poster` 存在 `backgroundImage` 里（后台「视频封面图」），同时充当
+ * 移动端/视频加载前的退避背景图，所以 video 场景下 `image` 与 `poster` 相同。
  */
 export function resolveHeroMedia(
   hero: Pick<HeroSettings, 'backgroundMedia' | 'backgroundImage' | 'backgroundVideo'>,
 ): HeroMedia {
+  const rawPoster = hero.backgroundImage?.trim() ?? '';
+  const poster = rawPoster && !isVideoUrl(rawPoster) ? rawPoster : '';
   const media = hero.backgroundMedia?.trim() ?? '';
   if (media) {
     return isVideoUrl(media)
-      ? { kind: 'video', value: media, image: '', video: media, poster: '' }
+      ? { kind: 'video', value: media, image: poster, video: media, poster }
       : { kind: 'image', value: media, image: media, video: '', poster: '' };
   }
 
-  const image = hero.backgroundImage?.trim() ?? '';
   const video = hero.backgroundVideo?.trim() ?? '';
   if (video) {
-    return { kind: 'video', value: video, image, video, poster: image };
+    return { kind: 'video', value: video, image: poster, video, poster };
   }
-  if (image) {
-    return { kind: 'image', value: image, image, video: '', poster: '' };
+  if (poster) {
+    return { kind: 'image', value: poster, image: poster, video: '', poster: '' };
   }
   return { kind: 'none', value: '', image: '', video: '', poster: '' };
 }

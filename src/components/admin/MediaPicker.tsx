@@ -131,13 +131,22 @@ export function MediaPicker({
               title={item.filename ?? item.key}
             >
               {item.mime.startsWith('video/') ? (
-                <video
-                  src={`${item.url}#t=0.1`}
-                  muted
-                  playsInline
-                  preload="metadata"
-                  className="aspect-square w-full object-cover"
-                />
+                item.thumbnail_url ? (
+                  <img
+                    src={item.thumbnail_url}
+                    alt={item.filename ?? ''}
+                    loading="lazy"
+                    className="aspect-square w-full object-cover"
+                  />
+                ) : (
+                  <video
+                    src={`${item.url}#t=0.1`}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    className="aspect-square w-full object-cover"
+                  />
+                )
               ) : (
                 <img src={item.url} alt={item.filename ?? ''} loading="lazy" className="aspect-square w-full object-cover" />
               )}

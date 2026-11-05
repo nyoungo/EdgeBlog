@@ -217,18 +217,22 @@
     background: rgb(var(--c-bg) / var(--eb-hero-ol-dark, 0));
   }
 
-  /* The header can float transparently over hero media. A halo in the opposite
-     theme colour keeps the logo wordmark legible on arbitrary backgrounds. */
+  /* The header can float transparently over hero media. Reuse the hero text
+     shadow so the logo wordmark looks the same as the hero copy. */
   .eb-logo-text {
-    text-shadow:
-      0 0 1px rgb(var(--c-bg) / 0.95),
-      0 0 4px rgb(var(--c-bg) / 0.85),
-      0 1px 8px rgb(var(--c-bg) / 0.55);
+    text-shadow: var(--eb-hero-text-shadow);
+  }
+
+  /* 顶栏导航文字沿用英雄区的文字阴影。 */
+  .eb-header-nav a {
+    text-shadow: var(--eb-hero-text-shadow);
   }
 
   /* 顶栏右侧操作图标（搜索 / 主题 / 后台 / 菜单）支持自定义颜色；
-     未配置 `--eb-header-action-color` 时跟随按钮自身的文字颜色。 */
+     未配置 `--eb-header-action-color` 时跟随按钮自身的文字颜色。
+     图标无法使用 text-shadow，这里换成参数一致的两层投影。 */
   .eb-header-actions svg {
     color: var(--eb-header-action-color, currentColor);
+    filter: var(--eb-hero-icon-shadow);
   }
 }

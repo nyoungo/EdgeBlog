@@ -14,14 +14,21 @@ import { recordAudit } from '../lib/audit';
 import {
   EXT_BY_MIME,
   IMAGE_MAX_SIZE,
+  THUMBNAIL_MAX_SIZE,
   VIDEO_MAX_SIZE,
   isVideoMime,
+  keyFromPublicUrl,
+  sniffImageMime,
   sniffMediaMime,
+  thumbnailKey,
 } from '../lib/media-file';
 
 export const mediaRoutes = new Hono<AppEnv>();
 
 mediaRoutes.use('*', requireAuth);
+
+/** 视频封面允许的图片类型（浏览器抽帧只会产出这三类）。 */
+const THUMBNAIL_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 /**
  * Public URL stored in `media.url`.
@@ -171,22 +178,52 @@ mediaRoutes.post('/upload', async (c) => {
     },
   });
 
+  // 视频封面：浏览器在客户端抽首帧生成，作为 multipart 的第二个文件一起上传。
+  // 视频已经写入 R2，封面校验失败时把它删掉再报错，避免留下没有索引记录的孤儿对象。
+  let thumb: { key: string; url: string } | null = null;
+  const thumbEntry: unknown = form.get('thumbnail');
+  if (video && thumbEntry instanceof File && thumbEntry.size > 0) {
+    try {
+      const thumbHead = new Uint8Array(await thumbEntry.slice(0, 32).arrayBuffer());
+      const thumbMime = sniffImageMime(thumbHead);
+      if (!thumbMime || !THUMBNAIL_MIMES.has(thumbMime)) {
+        throw AppError.unsupportedMedia('视频封面仅支持 JPG / PNG / WebP 图片');
+      }
+      if (thumbEntry.size > THUMBNAIL_MAX_SIZE) {
+        throw AppError.payloadTooLarge('视频封面超过 2MB 限制');
+      }
+      const thumbObjectKey = thumbnailKey(key, thumbMime);
+      await c.env.MEDIA.put(thumbObjectKey, thumbEntry.stream(), {
+        httpMetadata: {
+          contentType: thumbMime,
+          cacheControl: 'public, max-age=31536000, immutable',
+        },
+      });
+      thumb = { key: thumbObjectKey, url: publicUrl(c.env, thumbObjectKey) };
+    } catch (err) {
+      await c.env.MEDIA.delete(key).catch(() => undefined);
+      throw err;
+    }
+  }
+
   const url = publicUrl(c.env, key);
   let result: D1Result;
   try {
     result = await run(
       c.env,
-      'INSERT INTO media (key, url, filename, size, mime) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO media (key, url, filename, size, mime, thumbnail_url) VALUES (?, ?, ?, ?, ?, ?)',
       key,
       url,
       file.name || null,
       file.size,
       mime,
+      thumb?.url ?? null,
     );
   } catch (err) {
     // Roll the object back so a failed index write cannot leave a paid-for
     // orphan in R2 forever.
     await c.env.MEDIA.delete(key).catch(() => undefined);
+    if (thumb) await c.env.MEDIA.delete(thumb.key).catch(() => undefined);
     throw err;
   }
 
@@ -201,10 +238,19 @@ mediaRoutes.post('/upload', async (c) => {
 mediaRoutes.delete('/:id', async (c) => {
   const id = Number.parseInt(c.req.param('id'), 10);
   if (!Number.isInteger(id)) throw AppError.badRequest('非法媒体 ID');
-  const row = await first<{ key: string }>(c.env, 'SELECT key FROM media WHERE id = ?', id);
+  const row = await first<{ key: string; thumbnail_url: string | null }>(
+    c.env,
+    'SELECT key, thumbnail_url FROM media WHERE id = ?',
+    id,
+  );
   if (!row) throw AppError.notFound('媒体不存在');
 
   await c.env.MEDIA.delete(row.key);
+  // 视频封面是同一次上传写进 R2 的独立对象，删除视频时一并清理。
+  if (row.thumbnail_url) {
+    const thumbKey = keyFromPublicUrl(row.thumbnail_url, c.env.MEDIA_PUBLIC_BASE ?? '');
+    if (thumbKey && thumbKey !== row.key) await c.env.MEDIA.delete(thumbKey).catch(() => undefined);
+  }
   await run(c.env, 'DELETE FROM media WHERE id = ?', id);
   await recordAudit(c.env, c.get('user'), 'media.delete', 'media', id, { key: row.key });
   return ok(c, { deleted: true });

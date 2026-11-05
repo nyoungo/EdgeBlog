@@ -12,7 +12,7 @@ import { api, qs } from '../lib/api';
 import { resolveHeroMedia } from '../lib/hero-media';
 import { fetchTags } from '../lib/resource';
 import { cn } from '../lib/utils';
-import { useAsync } from '../hooks';
+import { useAsync, useMediaQuery } from '../hooks';
 import { useSettings } from '../providers/SettingsProvider';
 
 function SectionHeading({ title, href, linkLabel = '查看全部' }: { title: string; href?: string; linkLabel?: string }) {
@@ -49,6 +49,9 @@ function HomeHero({
   full: boolean;
 }) {
   const media = resolveHeroMedia(hero);
+  // 手机 / 平板不加载视频：直接显示封面图（media.image 已包含 poster），
+  // 省流量，也避免移动端的自动播放限制。窗口缩到 768px 以下同理。
+  const compact = useMediaQuery('(max-width: 767px), (hover: none) and (pointer: coarse)');
   const hasCustomBg = Boolean(media.image || hero.background || media.video);
   const style: CSSProperties & Record<`--${string}`, string> = {};
   if (media.image) {
@@ -77,7 +80,7 @@ function HomeHero({
   const titleColor = hero.textColor || undefined;
   const descColor = hero.textMutedColor || hero.textColor || undefined;
   const taglineColor = titleColor || descColor || 'rgb(var(--c-fg))';
-  const textShadow = '0 1px 3px rgba(0,0,0,0.35), 0 6px 22px rgba(0,0,0,0.3)';
+  const textShadow = 'var(--eb-hero-text-shadow)';
 
   return (
     <section
@@ -90,7 +93,7 @@ function HomeHero({
       )}
       style={style}
     >
-      {media.video && (
+      {media.video && !compact && (
         <HeroBackgroundVideo
           src={media.video}
           poster={media.poster || undefined}

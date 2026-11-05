@@ -63,7 +63,8 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 │  ├─ 0002_fts.sql            #   FTS5 全文索引 + 同步触发器
 │  ├─ 0003_auth_hardening.sql #   会话版本（token_version）+ 评论索引
 │  ├─ 0004_write_amplification.sql # 浏览量不再触发 updated_at / FTS 重写
-│  └─ 0005_audit_and_soft_delete.sql # 审计日志 + 文章软删除(deleted_at)
+│  ├─ 0005_audit_and_soft_delete.sql # 审计日志 + 文章软删除(deleted_at)
+│  └─ 0006_media_thumbnail.sql # 视频封面（缩略图）地址
 ├─ seed/seed.sql              # 种子数据（默认设置 / 示例文章 / 管理员）
 ├─ scripts/hash-password.mjs  # 生成 PBKDF2 密码哈希
 ├─ public/                    # 静态资源（_headers / favicon 等）
@@ -308,7 +309,7 @@ npm run deploy
 | PATCH | `/api/settings/:namespace` 🔑 | 增量更新某命名空间（对象深合并 / 数组整体替换） |
 | POST | `/api/settings/reset` 🔑 | 恢复默认（可指定命名空间） |
 | GET | `/api/media` 🔒 | 媒体库分页（支持 `q` 文件名搜索、`kind=image\|video` 过滤） |
-| POST | `/api/media/upload` 🔒 | 上传图片 / MP4 / WebM 到 R2（multipart；图片 ≤8MB、视频 ≤25MB；前端仅压缩图片） |
+| POST | `/api/media/upload` 🔒 | 上传图片 / MP4 / WebM 到 R2（multipart；图片 ≤8MB、视频 ≤25MB；视频可附带 `thumbnail` 封面，≤2MB） |
 | GET | `/api/media/:id/usage` 🔒 | 图片被哪些文章引用(删除前检查) |
 | DELETE | `/api/media/:id` 🔒 | 删除媒体（同时删 R2 对象） |
 | GET | `/api/search?q=` | 全文搜索（FTS5，短词自动回退 LIKE） |
@@ -418,7 +419,8 @@ curl -s -b jar.txt -X POST localhost:8788/api/media/upload -F "file=@hero.mp4"
 上传图片时可切换压缩档位（不压缩 / 轻度 / 中等 / 高度，默认**中等**，记住上次选择）。
 前端用 canvas 等比缩放并按质量重编码为 WebP（不支持 WebP 时回退 JPEG / PNG），
 动图与 SVG 原样上传；重编码后反而更大时保留原图。视频（MP4 / WebM）不做转码，按原文件上传，
-媒体库用 `<video>` 首帧作为缩略图，并提供可播放的预览弹窗；`/media/*` 支持 HTTP Range（206），
+上传时会用 canvas 抽取首帧生成 JPEG 封面（`media.thumbnail_url`，随视频同一次 multipart 请求写入 R2），
+媒体库列表直接用封面展示，并提供可播放的预览弹窗；`/media/*` 支持 HTTP Range（206），
 循环区间播放时可正常拖动与定位。
 
 **本阶段已实机验证通过（32 项）**：公开读 / FTS 中英检索 / 登录限流与错误密码 401 /
@@ -460,7 +462,7 @@ curl -s -b jar.txt -X POST localhost:8788/api/media/upload -F "file=@hero.mp4"
 
 - **主题 / 高级**：配置变化时 `SettingsProvider` 调用 `applyTheme` + `applyAdvanced`，实时写入 CSS 变量（`--c-brand` 主色、`--c-bg` 全局背景色等）、切换代码高亮主题、注入自定义 CSS 与页头/页脚 HTML（`<script>` 会被重建以真正执行）、统计脚本 → 后台改动即时预览。
 - **布局**：`layout.sidebar` 由 `PageWithSidebar` 在首页/列表/标签/归档/搜索页渲染侧边栏（居左 / 居右 / 不显示，`lg` 以下自动堆叠）；`layout.cardStyle` 驱动 `PostCard` 的五种形态（杂志 / 极简 / 网格 / 浮层 / 紧凑），`layout.cardSize`（大 / 中 / 小）控制内边距、字号与列表密度（经 `cardGridClass` 统一栅格），`layout.cardBlur`（无 / 弱 / 中 / 强）为卡片加毛玻璃 `backdrop-blur`；`layout.homeModules` 控制首页模块及顺序。
-- **欢迎区（Hero）**：`layout.hero` 定制宽度（标准 / 窄 / 全宽）、高度、铺满屏幕、背景色 / 渐变、统一背景媒体 URL（同一个输入框填写图片或视频地址，按扩展名自动识别；视频支持 MP4 / WebM，自动静音，可切换循环播放或播放一次停于最后一帧；支持设置循环区间——首轮可选择从 0 播放或直接进入区间起点，之后在开始→结束之间循环，到达结束时直接切回开始时间，0 表示视频末尾）、亮/暗主题遮罩、标题 / 描述文字颜色与对齐；开启「铺满屏幕」后宽度与高度自动锁定（互斥），欢迎区渲染在侧边栏容器之外直接占满视口宽度、向上覆盖导航栏区域（内容略微上移）。区间循环使用双解码面：可见视频从不 seek，隐藏的备用面预先定位到开始时间并提前起播，在它呈现首帧时原子换层，所以切点没有交叉淡入、黑帧或 seek 卡顿。
+- **欢迎区（Hero）**：`layout.hero` 定制宽度（标准 / 窄 / 全宽）、高度、铺满屏幕、背景色 / 渐变、统一背景媒体 URL（同一个输入框填写图片或视频地址，按扩展名自动识别；视频支持 MP4 / WebM，自动静音，可切换循环播放或播放一次停于最后一帧；支持设置循环区间——首轮可选择从 0 播放或直接进入区间起点，之后在开始→结束之间循环，到达结束时直接切回开始时间，0 表示视频末尾）、视频封面图（上传到媒体库时自动抽首帧生成，也可手动更换；手机端不加载视频、直接用封面作背景，桌面端在视频加载前用它占位）、亮/暗主题遮罩、标题 / 描述文字颜色与对齐；开启「铺满屏幕」后宽度与高度自动锁定（互斥），欢迎区渲染在侧边栏容器之外直接占满视口宽度、向上覆盖导航栏区域（内容略微上移）。区间循环使用双解码面：可见视频从不 seek，隐藏的备用面预先定位到开始时间并提前起播，在它呈现首帧时原子换层，所以切点没有交叉淡入、黑帧或 seek 卡顿。
 - **导航栏**：`layout.header` 定制位置（跟随页面 / 吸顶 / 固定 / 左侧竖向侧边栏）、样式（默认 / 极简 / 胶囊）、背景（纯色 / 玻璃 / 透明）、顶部透明、高度与对齐；`logoColor` / `navColor` / `actionColor` 分别覆盖 Logo 字色、导航字色与右上角操作图标颜色（留空跟随主题，`--eb-header-action-color` 由顶栏内联注入）；固定定位时自动补占位高度，`左侧` 时桌面端（`lg` 起）渲染固定竖向侧边栏并把内容右移 `16rem`，移动端仍用顶部栏，且侧边栏同样应用样式（默认 / 极简 / 胶囊）、背景（纯色 / 玻璃 / 透明）、对齐（左 / 中 / 右）与高度设置。
 - **交互**：`features.viewTransitions` 开启时，站内导航使用 View Transitions API。
 - **音乐**：`music.enabled` 为真时 `MusicPlayerHost` 才动态加载 `xf-music-player` 并挂到页面右下角；后台改配置会销毁并按新参数重建。

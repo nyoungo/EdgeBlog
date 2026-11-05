@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  keyFromPublicUrl,
   parseByteRange,
   sniffImageMime,
   sniffMediaMime,
   sniffVideoMime,
+  thumbnailKey,
 } from '../functions/lib/media-file';
 import { normalizeVideoRange } from '../src/lib/hero-video';
 
@@ -58,6 +60,32 @@ describe('parseByteRange', () => {
     expect(parseByteRange('bytes=0-1,5-6', 100)).toBeNull();
     expect(parseByteRange(null, 100)).toBeNull();
     expect(parseByteRange('bytes=0-10', 0)).toBeNull();
+  });
+});
+
+describe('video thumbnails', () => {
+  it('stores the cover next to the video with a -thumb suffix', () => {
+    expect(thumbnailKey('uploads/2026/11/hero-abc.mp4', 'image/jpeg')).toBe(
+      'uploads/2026/11/hero-abc-thumb.jpg',
+    );
+    expect(thumbnailKey('uploads/2026/11/hero-abc.webm', 'image/webp')).toBe(
+      'uploads/2026/11/hero-abc-thumb.webp',
+    );
+  });
+
+  it('maps a public URL back to its R2 key', () => {
+    expect(keyFromPublicUrl('/media/uploads/2026/11/hero-abc-thumb.jpg')).toBe(
+      'uploads/2026/11/hero-abc-thumb.jpg',
+    );
+    expect(keyFromPublicUrl('https://cdn.example.com/uploads/a.jpg', 'https://cdn.example.com')).toBe(
+      'uploads/a.jpg',
+    );
+  });
+
+  it('refuses URLs outside the media prefix or with traversal', () => {
+    expect(keyFromPublicUrl('https://other.example/a.jpg')).toBeNull();
+    expect(keyFromPublicUrl('/media/../secret')).toBeNull();
+    expect(keyFromPublicUrl('/media/')).toBeNull();
   });
 });
 

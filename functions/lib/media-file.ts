@@ -7,6 +7,8 @@
 /** Raster images stay small; video gets a more generous (but still safe) cap. */
 export const IMAGE_MAX_SIZE = 8 * 1024 * 1024; // 8 MB
 export const VIDEO_MAX_SIZE = 25 * 1024 * 1024; // 25 MB
+/** 视频封面由浏览器抽帧生成，体积很小，限制得比普通图片更严格。 */
+export const THUMBNAIL_MAX_SIZE = 2 * 1024 * 1024; // 2 MB
 
 /**
  * Raster images plus MP4/WebM video. SVG is intentionally rejected: it can
@@ -102,6 +104,29 @@ export function sniffMediaMime(bytes: Uint8Array): string | null {
 export interface ByteRange {
   offset: number;
   length: number;
+}
+
+/**
+ * 视频封面的 R2 key：与视频同目录、同名，加 `-thumb` 后缀。
+ * 例如 `uploads/2026/11/hero-abc.mp4` → `uploads/2026/11/hero-abc-thumb.jpg`。
+ */
+export function thumbnailKey(videoKey: string, mime: string): string {
+  const ext = EXT_BY_MIME[mime] ?? 'jpg';
+  const base = videoKey.replace(/\.[^./]+$/, '');
+  return `${base}-thumb.${ext}`;
+}
+
+/**
+ * 由公开 URL 反推 R2 key（删除媒体时用来一并清理封面）。
+ * `publicBase` 传 MEDIA_PUBLIC_BASE；为空表示默认的 `/media/` 前缀。
+ */
+export function keyFromPublicUrl(url: string, publicBase = ''): string | null {
+  const base = publicBase.replace(/\/+$/, '');
+  const prefix = base ? `${base}/` : '/media/';
+  if (!url.startsWith(prefix)) return null;
+  const key = url.slice(prefix.length);
+  if (!key || key.includes('..')) return null;
+  return key;
 }
 
 /**

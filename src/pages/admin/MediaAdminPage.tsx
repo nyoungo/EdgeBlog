@@ -203,13 +203,22 @@ export function MediaAdminPage() {
               <div className="relative aspect-square">
                 {isVideo(item) ? (
                   <>
-                    <video
-                      src={`${item.url}#t=0.1`}
-                      muted
-                      playsInline
-                      preload="metadata"
-                      className="h-full w-full object-cover"
-                    />
+                    {item.thumbnail_url ? (
+                      <img
+                        src={item.thumbnail_url}
+                        alt={item.filename ?? ''}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <video
+                        src={`${item.url}#t=0.1`}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        className="h-full w-full object-cover"
+                      />
+                    )}
                     <span className="pointer-events-none absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white">
                       <Icon name="play" size={10} /> 视频
                     </span>
