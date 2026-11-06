@@ -1,6 +1,9 @@
 import type { PublicSettings, ThemeMode, ThemeSettings } from '@shared/types';
+import { brandShades, hexToRgbChannels, parseChannels } from './color';
 import { codeThemeCss } from './code-themes';
 import { injectInto } from './dom-inject';
+
+export { hexToRgbChannels } from './color';
 
 const MODE_KEY = 'eb:mode';
 const THEME_KEY = 'eb:theme';
@@ -11,7 +14,7 @@ const FONT_SIZE: Record<ThemeSettings['fontScale'], string> = {
   lg: '19px',
 };
 
-const RADIUS: Record<ThemeSettings['radius'], string> = {
+export const RADIUS: Record<ThemeSettings['radius'], string> = {
   none: '0px',
   sm: '8px',
   md: '12px',
@@ -25,8 +28,6 @@ const LINE_HEIGHT: Record<ThemeSettings['lineHeight'], string> = {
 };
 
 const SANS_STACK = [
-  "'Inter'",
-  "'Geist'",
   '-apple-system',
   'BlinkMacSystemFont',
   "'Segoe UI'",
@@ -39,13 +40,29 @@ const SANS_STACK = [
 ].join(', ');
 
 const SERIF_STACK = [
-  "'Source Serif 4'",
-  "'Noto Serif SC'",
   "'Songti SC'",
+  "'Noto Serif SC'",
+  "'Source Han Serif SC'",
   'Georgia',
-  'Cambria',
+  "'Times New Roman'",
   'serif',
 ].join(', ');
+
+const MONO_STACK = [
+  'ui-monospace',
+  "'SFMono-Regular'",
+  "'SF Mono'",
+  'Menlo',
+  'Consolas',
+  "'Liberation Mono'",
+  'monospace',
+].join(', ');
+
+const FONT_STACKS: Record<ThemeSettings['fontBody'], string> = {
+  sans: SANS_STACK,
+  serif: SERIF_STACK,
+  mono: MONO_STACK,
+};
 
 export const BACKGROUND_LAYOUT: Record<
   ThemeSettings['backgroundLayout'],
@@ -98,23 +115,28 @@ function applyBackground(theme: ThemeSettings, style: CSSStyleDeclaration): void
   style.setProperty('--eb-bg-scrim', String(Math.min(0.9, Math.max(0, theme.backgroundScrim ?? 0))));
 }
 
-/** Convert `#rrggbb` (or `#rgb`) to a space-separated RGB channel triple. */
-export function hexToRgbChannels(hex: string): string | null {
-  const value = hex.trim().replace(/^#/, '');
-  const full = value.length === 3 ? value.split('').map((c) => c + c).join('') : value;
-  if (!/^[0-9a-fA-F]{6}$/.test(full)) return null;
-  const r = parseInt(full.slice(0, 2), 16);
-  const g = parseInt(full.slice(2, 4), 16);
-  const b = parseInt(full.slice(4, 6), 16);
-  return `${r} ${g} ${b}`;
-}
-
 export function prefersDark(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
 export function resolveDark(mode: ThemeMode): boolean {
   return mode === 'dark' || (mode === 'system' && prefersDark());
+}
+
+/**
+ * Split the legacy single `backgroundColor` (which only ever affected light
+ * mode) into the two independent fields. The legacy value is cleared so it
+ * cannot keep overriding the light background after the split.
+ */
+export function normalizeThemeBackground(
+  theme: Pick<ThemeSettings, 'backgroundColor' | 'backgroundColorLight' | 'backgroundColorDark'>,
+): Pick<ThemeSettings, 'backgroundColor' | 'backgroundColorLight' | 'backgroundColorDark'> {
+  const legacy = theme.backgroundColor?.trim() ?? '';
+  return {
+    backgroundColor: '',
+    backgroundColorLight: theme.backgroundColorLight?.trim() || legacy,
+    backgroundColorDark: theme.backgroundColorDark?.trim() ?? '',
+  };
 }
 
 function injectStyle(id: string, css: string): void {
@@ -138,25 +160,46 @@ function injectStyle(id: string, css: string): void {
 export function applyTheme(theme: ThemeSettings): void {
   const root = document.documentElement;
   const style = root.style;
+  const dark = resolveDark(theme.mode);
 
   root.dataset.theme = theme.preset;
-  root.dataset.mode = resolveDark(theme.mode) ? 'dark' : 'light';
+  root.dataset.mode = dark ? 'dark' : 'light';
 
-  const brand = theme.primaryColor ? hexToRgbChannels(theme.primaryColor) : null;
-  if (brand) style.setProperty('--c-brand', brand);
+  // 自定义主色：同时派生前景色与 hover/active，避免白字压浅色导致不可读。
+  // 没有自定义主色时，从当前预设解析出实际主色，派生规则保持一致。
+  const custom = theme.primaryColor ? hexToRgbChannels(theme.primaryColor) : null;
+  if (custom) style.setProperty('--c-brand', custom);
   else style.removeProperty('--c-brand');
 
-  // Global background only overrides the light palette; dark mode keeps the preset.
-  const bg = theme.backgroundColor ? hexToRgbChannels(theme.backgroundColor) : null;
-  if (bg && !resolveDark(theme.mode)) style.setProperty('--c-bg', bg);
+  // 必须读计算值：预设的主色定义在样式表里，内联覆盖移除后才拿得到。
+  const effective =
+    custom ?? getComputedStyle(root).getPropertyValue('--c-brand').trim();
+  const brandRgb = parseChannels(effective);
+  if (brandRgb) {
+    const shades = brandShades(brandRgb, dark);
+    style.setProperty('--c-brand-fg', shades.fg);
+    style.setProperty('--c-brand-hover', shades.hover);
+    style.setProperty('--c-brand-active', shades.active);
+  } else {
+    for (const prop of ['--c-brand-fg', '--c-brand-hover', '--c-brand-active']) {
+      style.removeProperty(prop);
+    }
+  }
+
+  // 亮/暗背景分别配置；旧字段 `backgroundColor` 仅作为浅色模式的回退值。
+  const bgHex = dark
+    ? theme.backgroundColorDark
+    : theme.backgroundColorLight || theme.backgroundColor;
+  const bg = bgHex ? hexToRgbChannels(bgHex) : null;
+  if (bg) style.setProperty('--c-bg', bg);
   else style.removeProperty('--c-bg');
 
   style.setProperty('--radius', RADIUS[theme.radius] ?? RADIUS.md);
   style.setProperty('--max-width', theme.maxWidth || '72ch');
   style.setProperty('--font-size-base', FONT_SIZE[theme.fontScale] ?? FONT_SIZE.md);
   style.setProperty('--line-height', LINE_HEIGHT[theme.lineHeight] ?? LINE_HEIGHT.normal);
-  style.setProperty('--font-body', theme.fontBody === 'serif' ? SERIF_STACK : SANS_STACK);
-  style.setProperty('--font-heading', theme.fontHeading === 'serif' ? SERIF_STACK : SANS_STACK);
+  style.setProperty('--font-body', FONT_STACKS[theme.fontBody] ?? SANS_STACK);
+  style.setProperty('--font-heading', FONT_STACKS[theme.fontHeading] ?? SANS_STACK);
 
   applyBackground(theme, style);
 

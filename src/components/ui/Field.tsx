@@ -8,10 +8,13 @@ import {
 } from 'react';
 import { cn } from '../../lib/utils';
 
-const CONTROL =
+/** Shared control styling so one-off inputs (e.g. with an inline clear button) match `Input`. */
+export const controlClass =
   'w-full rounded-md border border-border bg-bg px-3 py-2 text-sm text-fg placeholder:text-faint ' +
   'transition-colors focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30 ' +
   'disabled:cursor-not-allowed disabled:opacity-60';
+
+const CONTROL = controlClass;
 
 export interface FieldProps {
   label?: ReactNode;

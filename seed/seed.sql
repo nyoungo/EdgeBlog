@@ -44,7 +44,9 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
   "preset": "ink",
   "mode": "system",
   "primaryColor": "",
-  "backgroundColor": "#f5f7ff",
+  "backgroundColor": "",
+  "backgroundColorLight": "",
+  "backgroundColorDark": "",
   "backgroundImage": "",
   "backgroundLayout": "cover",
   "backgroundAttachment": "fixed",
@@ -125,7 +127,6 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
   "viewTransitions": true,
   "toc": true,
   "backToTop": true,
-  "newsletter": false,
   "relatedPosts": true,
   "prevNext": true
 }')),

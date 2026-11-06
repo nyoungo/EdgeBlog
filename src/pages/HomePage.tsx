@@ -52,9 +52,12 @@ function HomeHero({
   // 手机 / 平板不加载视频：直接显示封面图（media.image 已包含 poster），
   // 省流量，也避免移动端的自动播放限制。窗口缩到 768px 以下同理。
   const compact = useMediaQuery('(max-width: 767px), (hover: none) and (pointer: coarse)');
-  const hasCustomBg = Boolean(media.image || hero.background || media.video);
+  // 回退链：视频 → 图片 → 颜色；三者都没有时用主题渐变。
+  const hasCustomBg = Boolean(media.image || hero.background);
   const style: CSSProperties & Record<`--${string}`, string> = {};
   if (media.image) {
+    // 颜色/渐变垫在图片下面：图片加载失败时仍能看到回退背景。
+    if (hero.background) style.background = hero.background;
     style.backgroundImage = `url("${media.image}")`;
     style.backgroundSize = 'cover';
     style.backgroundPosition = 'center';
@@ -154,7 +157,7 @@ function CardGridSkeleton({ count = 6 }: { count?: number }) {
 
 export function HomePage() {
   const { settings } = useSettings();
-  const { site, layout, features } = settings;
+  const { site, layout } = settings;
   const perPage = layout.postsPerPage;
 
   const modules = layout.homeModules.filter((m) => m.enabled);
@@ -254,7 +257,6 @@ export function HomePage() {
               );
 
             case 'newsletter':
-              if (!features.newsletter) return null;
               return (
                 <section key="newsletter" className="mb-16 rounded-2xl border border-border bg-surface p-8 text-center">
                   <Icon name="rss" size={28} className="mx-auto mb-3 text-brand" />

@@ -27,10 +27,18 @@ interface ToastApi {
 
 const ToastContext = createContext<ToastApi | null>(null);
 
+// 半透明色块在纯黑/纯白背景上会失去保证,统一用实色面板承载文字,
+// 状态只通过边框和图标颜色表达。
 const STYLES: Record<ToastKind, string> = {
   info: 'border-border bg-surface text-fg',
-  success: 'border-success/40 bg-success/10 text-fg',
-  error: 'border-danger/40 bg-danger/10 text-fg',
+  success: 'border-success/60 bg-surface text-fg',
+  error: 'border-danger/60 bg-surface text-fg',
+};
+
+const ICON_STYLES: Record<ToastKind, string> = {
+  info: 'text-muted',
+  success: 'text-success',
+  error: 'text-danger',
 };
 
 const ICONS: Record<ToastKind, 'info' | 'check' | 'alert'> = {
@@ -83,7 +91,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               STYLES[item.kind],
             )}
           >
-            <Icon name={ICONS[item.kind]} size={18} className="mt-0.5 shrink-0" />
+            <Icon name={ICONS[item.kind]} size={18} className={cn('mt-0.5 shrink-0', ICON_STYLES[item.kind])} />
             <p className="flex-1 text-sm leading-snug">{item.message}</p>
             <button
               type="button"

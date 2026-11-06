@@ -159,6 +159,58 @@
   .prose-article input[type='checkbox'] {
     @apply mr-2 h-4 w-4 translate-y-0.5 accent-brand;
   }
+
+  /* ---- translucent / glass surfaces ----------------------------------- */
+  /* 玻璃面板统一用主题背景色 + 固定不透明度 0.86。这个取值经过对比度校验:
+     面板背后无论是纯黑还是纯白,正文与次要文字仍能保持至少 4.5:1。
+     模糊只是“玻璃”质感的加成,可读性由不透明度保证。 */
+  .eb-glass {
+    background-color: rgb(var(--c-bg) / 0.86);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+  }
+  .eb-glass-surface {
+    background-color: rgb(var(--c-surface) / 0.9);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    backdrop-filter: blur(12px) saturate(140%);
+  }
+  /* 不支持背景模糊时,背后内容会直接透出,提高不透明度补偿。 */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .eb-glass {
+      background-color: rgb(var(--c-bg) / 0.96);
+    }
+    .eb-glass-surface {
+      background-color: rgb(var(--c-surface) / 0.97);
+    }
+  }
+  /* 系统要求降低透明度时,直接退回实色。 */
+  @media (prefers-reduced-transparency: reduce) {
+    .eb-glass {
+      background-color: rgb(var(--c-bg));
+    }
+    .eb-glass-surface {
+      background-color: rgb(var(--c-surface));
+    }
+  }
+
+  /* 透明顶栏背后的主题色渐变遮罩。使用主题背景色而非固定黑色,同时适配明暗
+     模式;不透明度在整条顶栏内保持在 0.78 以上,保证纯黑/纯白底上正文与
+     次要文字都仍然清晰(纯黑底亮色模式需 ≥0.78 才够 4.5:1)。 */
+  .eb-header-scrim {
+    background-image: linear-gradient(
+      to bottom,
+      rgb(var(--c-bg) / 0.88),
+      rgb(var(--c-bg) / 0.78)
+    );
+  }
+
+  /* 压在图片/视频上的文字与图标。 */
+  .eb-on-media {
+    text-shadow: var(--eb-hero-text-shadow);
+  }
+  .eb-media-icon {
+    filter: var(--eb-hero-icon-shadow);
+  }
 }
 
 @layer utilities {

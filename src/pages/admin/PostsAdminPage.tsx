@@ -179,7 +179,7 @@ export function PostsAdminPage() {
           {!trash && (
             <Link
               to="/admin/posts/new"
-              className="inline-flex h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-medium text-brand-fg transition-colors hover:bg-brand/90"
+              className="inline-flex h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-medium text-brand-fg transition-colors hover:bg-brand-hover"
             >
               <Icon name="plus" size={17} />
               新建文章

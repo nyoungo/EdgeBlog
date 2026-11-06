@@ -27,22 +27,51 @@ export function isVideoUrl(url: string): boolean {
 
 export interface HeroMedia {
   kind: 'none' | 'image' | 'video';
-  /** Value shown in the single admin URL field. */
+  /** URL of whichever source wins the fallback chain. */
   value: string;
   /** Image URL for the CSS background / video poster. */
   image: string;
   /** Video URL when the media is a video. */
   video: string;
-  /** Optional poster for legacy image + video combinations. */
+  /** Poster shown behind the video (same as `image` in the video case). */
   poster: string;
 }
 
 /**
- * Resolve the unified media field while staying compatible with settings saved
- * before `backgroundMedia` existed. Legacy videos win over the old poster image.
+ * Split the legacy unified `backgroundMedia` value into the two independent
+ * fields the settings editor writes. The result never contains a legacy media
+ * value, so a stale URL cannot override a freshly picked video or image.
+ */
+export function normalizeHeroMedia(
+  hero: Pick<HeroSettings, 'backgroundMedia' | 'backgroundImage' | 'backgroundVideo'>,
+): Pick<HeroSettings, 'backgroundMedia' | 'backgroundImage' | 'backgroundVideo'> {
+  const media = hero.backgroundMedia?.trim() ?? '';
+  let video = hero.backgroundVideo?.trim() ?? '';
+  let image = hero.backgroundImage?.trim() ?? '';
+
+  // A video URL accidentally stored in the image/poster slot belongs to video.
+  if (isVideoUrl(image)) {
+    if (!video) video = image;
+    image = '';
+  }
+
+  if (media) {
+    if (isVideoUrl(media)) {
+      if (!video) video = media;
+    } else {
+      image = media;
+    }
+  }
+
+  return { backgroundMedia: '', backgroundImage: image, backgroundVideo: video };
+}
+
+/**
+ * Resolve hero media with the video → image fallback, while staying compatible
+ * with rows saved before the split (`backgroundMedia` still wins when present).
  *
- * 视频的 `poster` 存在 `backgroundImage` 里（后台「视频封面图」），同时充当
- * 移动端/视频加载前的退避背景图，所以 video 场景下 `image` 与 `poster` 相同。
+ * 视频的封面存在 `backgroundImage` 里，同时充当移动端/视频加载前的退避背景图，
+ * 所以 video 场景下 `image` 与 `poster` 相同。
  */
 export function resolveHeroMedia(
   hero: Pick<HeroSettings, 'backgroundMedia' | 'backgroundImage' | 'backgroundVideo'>,

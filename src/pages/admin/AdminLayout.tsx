@@ -62,7 +62,7 @@ export function AdminLayout() {
   return (
     <div className="flex min-h-dvh bg-bg">
       {/* desktop sidebar */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-surface/50 md:flex">
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-border eb-glass-surface md:flex">
         <Link to="/admin" className="flex h-16 items-center gap-2.5 border-b border-border px-5 no-underline">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-sm font-bold text-brand-fg">
             {(settings.site.logo.text || settings.site.name).slice(0, 1).toUpperCase()}
@@ -82,7 +82,7 @@ export function AdminLayout() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-border bg-bg/80 px-4 backdrop-blur-md sm:px-6">
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-border eb-glass px-4 sm:px-6">
           <button
             type="button"
             className={buttonStyles({ variant: 'ghost', size: 'icon-sm', className: 'md:hidden' })}

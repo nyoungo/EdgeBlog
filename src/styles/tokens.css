@@ -1,35 +1,22 @@
 /**
  * Design tokens.
  *
- * Three layers:
- *   1. semantic colours   -> neutral scale + one accent, RGB channel triples
- *   2. theme presets       -> only override the accent (data-theme="<preset>")
- *   3. mode                -> light values in :root, dark in [data-mode="dark"]
+ * Layers:
+ *   1. base            -> fonts, shape, rhythm, status colours, fallback palette
+ *   2. theme presets   -> full neutral palette + accent, one light and one dark
+ *                         set per preset (`[data-theme='x']` / `[data-theme='x'][data-mode='dark']`)
+ *   3. mode            -> `color-scheme` and status colours shared by all presets
  *
  * Values are space-separated RGB channels so Tailwind can express alpha with
  * `rgb(var(--c-bg) / <alpha-value>)`.
+ *
+ * Brand shades (`--c-brand-fg`, `--c-brand-hover`, `--c-brand-active`) have
+ * sensible preset defaults here and are recomputed at runtime from the custom
+ * primary colour by `applyTheme` (see src/lib/theme.ts).
  */
 
 :root {
   color-scheme: light;
-
-  /* surfaces & text */
-  --c-bg: 255 255 255;
-  --c-surface: 250 250 250;
-  --c-surface-2: 244 244 245;
-  --c-border: 228 228 231;
-  --c-fg: 24 24 27;
-  --c-muted: 82 82 91;
-  --c-faint: 161 161 170;
-
-  /* status */
-  --c-danger: 220 38 38;
-  --c-success: 22 163 74;
-  --c-warning: 217 119 6;
-
-  /* accent (overridden per preset) */
-  --c-brand: 99 102 241;
-  --c-brand-fg: 255 255 255;
 
   /* shape & rhythm (runtime-adjustable) */
   --radius: 12px;
@@ -38,44 +25,199 @@
   --line-height: 1.75;
   --gutter: 1.5rem;
 
+  /* status (light) */
+  --c-danger: 220 38 38;
+  --c-success: 22 163 74;
+  --c-warning: 217 119 6;
+
+  /* 系统字体栈：这里列出的字体全部随操作系统提供，不依赖网络加载。 */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
+  --font-serif: 'Songti SC', 'Noto Serif SC', 'Source Han Serif SC', Georgia, 'Times New Roman',
+    serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+  --font-heading: var(--font-sans);
+  --font-body: var(--font-sans);
+
   /* 压在图片/视频上的文字阴影：英雄区标题与顶栏文字共用，避免两处观感不一致。 */
   --eb-hero-text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 6px 22px rgba(0, 0, 0, 0.3);
   /* 图标不能用 text-shadow，用等价参数的两层投影。 */
   --eb-hero-icon-shadow: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35)) drop-shadow(0 6px 22px rgba(0, 0, 0, 0.3));
 
-  /* type stacks */
-  --font-sans: 'Inter', 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
-  --font-serif: 'Source Serif 4', 'Noto Serif SC', 'Songti SC', Georgia, Cambria, serif;
-  --font-heading: var(--font-sans);
-  --font-body: var(--font-sans);
-  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  /* 首个 paint 之前的兜底调色板（等同 ink 亮色）。 */
+  --c-bg: 255 255 255;
+  --c-surface: 250 250 252;
+  --c-surface-2: 244 244 247;
+  --c-border: 228 228 233;
+  --c-fg: 24 24 27;
+  --c-muted: 82 82 91;
+  --c-faint: 161 161 170;
+  --c-brand: 79 70 229;
+  --c-brand-fg: 255 255 255;
+  --c-brand-hover: 71 63 206;
+  --c-brand-active: 63 56 183;
 }
+
+/* ---- presets · light ---------------------------------------------------- */
+/* 每个预设独立一套中性色，页签缩略图也直接复用这些变量（见后台「配色与版式」）。 */
+
+[data-theme='ink'] {
+  --c-bg: 255 255 255;
+  --c-surface: 250 250 252;
+  --c-surface-2: 244 244 247;
+  --c-border: 228 228 233;
+  --c-fg: 24 24 27;
+  --c-muted: 82 82 91;
+  --c-faint: 161 161 170;
+  --c-brand: 79 70 229;
+  --c-brand-fg: 255 255 255;
+}
+
+[data-theme='midnight'] {
+  --c-bg: 252 253 255;
+  --c-surface: 246 249 255;
+  --c-surface-2: 238 243 252;
+  --c-border: 219 228 242;
+  --c-fg: 17 24 39;
+  --c-muted: 71 85 105;
+  --c-faint: 148 163 184;
+  --c-brand: 37 99 235;
+  --c-brand-fg: 255 255 255;
+}
+
+[data-theme='solar'] {
+  --c-bg: 255 253 250;
+  --c-surface: 255 249 242;
+  --c-surface-2: 254 243 231;
+  --c-border: 244 228 210;
+  --c-fg: 41 24 12;
+  --c-muted: 120 80 50;
+  --c-faint: 180 140 105;
+  --c-brand: 194 65 12;
+  --c-brand-fg: 255 255 255;
+}
+
+[data-theme='seasaltt'] {
+  --c-bg: 252 255 254;
+  --c-surface: 245 252 250;
+  --c-surface-2: 236 248 244;
+  --c-border: 214 236 230;
+  --c-fg: 10 32 30;
+  --c-muted: 60 95 90;
+  --c-faint: 135 170 165;
+  --c-brand: 15 118 110;
+  --c-brand-fg: 255 255 255;
+}
+
+[data-theme='forest'] {
+  --c-bg: 253 255 252;
+  --c-surface: 247 252 245;
+  --c-surface-2: 238 248 235;
+  --c-border: 218 236 212;
+  --c-fg: 18 34 18;
+  --c-muted: 70 100 68;
+  --c-faint: 140 175 137;
+  --c-brand: 21 128 61;
+  --c-brand-fg: 255 255 255;
+}
+
+[data-theme='cyber'] {
+  --c-bg: 255 252 255;
+  --c-surface: 253 246 254;
+  --c-surface-2: 250 238 252;
+  --c-border: 238 218 242;
+  --c-fg: 32 16 36;
+  --c-muted: 100 70 110;
+  --c-faint: 170 135 180;
+  --c-brand: 168 30 190;
+  --c-brand-fg: 255 255 255;
+}
+
+/* ---- mode · dark status shared by every preset -------------------------- */
 
 [data-mode='dark'] {
   color-scheme: dark;
-
-  /* deep greys, never pure black */
-  --c-bg: 10 10 10;
-  --c-surface: 18 18 20;
-  --c-surface-2: 25 25 28;
-  --c-border: 39 39 42;
-  --c-fg: 237 237 240;
-  --c-muted: 161 161 170;
-  --c-faint: 113 113 122;
 
   --c-danger: 248 113 113;
   --c-success: 74 222 128;
   --c-warning: 251 191 36;
 }
 
-/* ---- theme presets: accent only ---------------------------------------- */
-[data-theme='ink']      { --c-brand: 99 102 241; }   /* 墨白 · indigo   */
-[data-theme='midnight'] { --c-brand: 59 130 246; }   /* 暗夜 · blue     */
-[data-theme='solar']    { --c-brand: 234 88 12;  }   /* 暖阳 · orange   */
-[data-theme='seasaltt'] { --c-brand: 13 148 136; }   /* 海盐 · teal     */
-[data-theme='forest']   { --c-brand: 22 163 74;  }   /* 森绿 · green    */
-[data-theme='cyber']    { --c-brand: 217 70 239; }   /* 赛博 · fuchsia  */
+/* ---- presets · dark ----------------------------------------------------- */
+/* 深色模式下主色略微提亮，保证在深底上仍然醒目；`--c-brand-fg` 用深色文字。 */
+
+[data-theme='ink'][data-mode='dark'] {
+  --c-bg: 10 10 12;
+  --c-surface: 18 18 21;
+  --c-surface-2: 25 25 29;
+  --c-border: 39 39 45;
+  --c-fg: 237 237 241;
+  --c-muted: 161 161 173;
+  --c-faint: 113 113 126;
+  --c-brand: 129 131 245;
+  --c-brand-fg: 10 10 12;
+}
+
+[data-theme='midnight'][data-mode='dark'] {
+  --c-bg: 7 11 21;
+  --c-surface: 13 19 33;
+  --c-surface-2: 18 26 43;
+  --c-border: 32 43 65;
+  --c-fg: 226 235 248;
+  --c-muted: 148 163 184;
+  --c-faint: 100 116 139;
+  --c-brand: 96 165 250;
+  --c-brand-fg: 7 11 21;
+}
+
+[data-theme='solar'][data-mode='dark'] {
+  --c-bg: 18 12 8;
+  --c-surface: 26 18 12;
+  --c-surface-2: 35 24 16;
+  --c-border: 52 36 24;
+  --c-fg: 247 235 224;
+  --c-muted: 190 160 135;
+  --c-faint: 140 110 88;
+  --c-brand: 251 146 60;
+  --c-brand-fg: 18 12 8;
+}
+
+[data-theme='seasaltt'][data-mode='dark'] {
+  --c-bg: 6 16 15;
+  --c-surface: 11 24 22;
+  --c-surface-2: 15 32 29;
+  --c-border: 28 50 46;
+  --c-fg: 222 242 238;
+  --c-muted: 150 190 183;
+  --c-faint: 100 140 133;
+  --c-brand: 45 212 191;
+  --c-brand-fg: 6 16 15;
+}
+
+[data-theme='forest'][data-mode='dark'] {
+  --c-bg: 8 15 8;
+  --c-surface: 14 24 14;
+  --c-surface-2: 19 32 19;
+  --c-border: 36 54 34;
+  --c-fg: 232 244 229;
+  --c-muted: 160 195 155;
+  --c-faint: 110 145 105;
+  --c-brand: 74 222 128;
+  --c-brand-fg: 8 15 8;
+}
+
+[data-theme='cyber'][data-mode='dark'] {
+  --c-bg: 14 6 16;
+  --c-surface: 22 11 25;
+  --c-surface-2: 30 15 34;
+  --c-border: 52 30 58;
+  --c-fg: 244 230 247;
+  --c-muted: 190 155 200;
+  --c-faint: 140 105 150;
+  --c-brand: 232 121 249;
+  --c-brand-fg: 14 6 16;
+}
 
 /* Smooth cross-fade when switching themes via the View Transitions API. */
 ::view-transition-old(root),

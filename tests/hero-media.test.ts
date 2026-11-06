@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isVideoUrl, resolveHeroMedia } from '../src/lib/hero-media';
+import { isVideoUrl, normalizeHeroMedia, resolveHeroMedia } from '../src/lib/hero-media';
 
 describe('isVideoUrl', () => {
   it('recognises video extensions case-insensitively', () => {
@@ -71,5 +71,53 @@ describe('resolveHeroMedia', () => {
     expect(
       resolveHeroMedia({ backgroundMedia: '', backgroundImage: '/media/cover.png', backgroundVideo: '' }),
     ).toMatchObject({ kind: 'image', value: '/media/cover.png', image: '/media/cover.png', video: '' });
+  });
+});
+
+describe('normalizeHeroMedia', () => {
+  const empty = { backgroundMedia: '', backgroundImage: '', backgroundVideo: '' };
+
+  it('splits a legacy image out of the unified field', () => {
+    expect(normalizeHeroMedia({ ...empty, backgroundMedia: '/media/bg.jpg' })).toEqual({
+      backgroundMedia: '',
+      backgroundImage: '/media/bg.jpg',
+      backgroundVideo: '',
+    });
+  });
+
+  it('splits a legacy video and keeps the saved poster', () => {
+    expect(
+      normalizeHeroMedia({
+        backgroundMedia: '/media/hero.mp4',
+        backgroundImage: '/media/poster.jpg',
+        backgroundVideo: '',
+      }),
+    ).toEqual({
+      backgroundMedia: '',
+      backgroundImage: '/media/poster.jpg',
+      backgroundVideo: '/media/hero.mp4',
+    });
+  });
+
+  it('keeps independent fields and clears the legacy value', () => {
+    expect(
+      normalizeHeroMedia({
+        backgroundMedia: '/media/stale.mp4',
+        backgroundImage: '/media/cover.jpg',
+        backgroundVideo: '/media/hero.mp4',
+      }),
+    ).toEqual({
+      backgroundMedia: '',
+      backgroundImage: '/media/cover.jpg',
+      backgroundVideo: '/media/hero.mp4',
+    });
+  });
+
+  it('moves a video URL stored in the image slot back to video', () => {
+    expect(normalizeHeroMedia({ ...empty, backgroundImage: '/media/hero.mp4' })).toEqual({
+      backgroundMedia: '',
+      backgroundImage: '',
+      backgroundVideo: '/media/hero.mp4',
+    });
   });
 });

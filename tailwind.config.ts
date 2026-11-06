@@ -22,6 +22,8 @@ export default {
         faint: withVar('--c-faint'),
         brand: withVar('--c-brand'),
         'brand-fg': withVar('--c-brand-fg'),
+        'brand-hover': withVar('--c-brand-hover'),
+        'brand-active': withVar('--c-brand-active'),
         danger: withVar('--c-danger'),
         success: withVar('--c-success'),
         warning: withVar('--c-warning'),

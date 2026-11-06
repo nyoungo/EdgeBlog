@@ -219,7 +219,7 @@ export function MediaAdminPage() {
                         className="h-full w-full object-cover"
                       />
                     )}
-                    <span className="pointer-events-none absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                    <span className="pointer-events-none absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-medium text-white">
                       <Icon name="play" size={10} /> 视频
                     </span>
                   </>
@@ -231,12 +231,12 @@ export function MediaAdminPage() {
                     className="h-full w-full object-cover"
                   />
                 )}
-                <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-black/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-black/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                   {isVideo(item) && (
                     <button
                       type="button"
                       onClick={() => setPreview(item)}
-                      className="flex h-7 w-7 items-center justify-center rounded bg-white/90 text-fg hover:bg-white"
+                      className="flex h-7 w-7 items-center justify-center rounded bg-white/95 text-neutral-900 hover:bg-white"
                       title="预览视频"
                     >
                       <Icon name="play" size={14} />
@@ -245,7 +245,7 @@ export function MediaAdminPage() {
                   <button
                     type="button"
                     onClick={() => void copyUrl(item)}
-                    className="flex h-7 w-7 items-center justify-center rounded bg-white/90 text-fg hover:bg-white"
+                    className="flex h-7 w-7 items-center justify-center rounded bg-white/95 text-neutral-900 hover:bg-white"
                     title="复制链接"
                   >
                     <Icon name="copy" size={14} />
@@ -254,7 +254,7 @@ export function MediaAdminPage() {
                     href={item.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex h-7 w-7 items-center justify-center rounded bg-white/90 text-fg hover:bg-white"
+                    className="flex h-7 w-7 items-center justify-center rounded bg-white/95 text-neutral-900 hover:bg-white"
                     title={isVideo(item) ? '在新标签页打开视频' : '查看原图'}
                   >
                     <Icon name="externalLink" size={14} />

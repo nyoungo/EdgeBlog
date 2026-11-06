@@ -46,7 +46,7 @@ const BLUR: Record<CardBlur, string> = {
 
 /** Card surface: solid, or frosted-glass when a blur level is set. */
 function surfaceClass(blur: CardBlur): string {
-  return cn('border border-border shadow-card', blur === 'none' ? 'bg-surface' : 'bg-surface/70', BLUR[blur]);
+  return cn('border border-border shadow-card', blur === 'none' ? 'bg-surface' : 'bg-surface/90', BLUR[blur]);
 }
 
 /** Responsive grid class for a list of cards; honours the card style + size. */
@@ -229,7 +229,7 @@ export function PostCard({
         />
         <div
           className={cn(
-            'absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/45 to-transparent',
+            'absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent eb-on-media',
             s.pad,
           )}
         >
@@ -238,7 +238,7 @@ export function PostCard({
               {tags.map((tag) => (
                 <span
                   key={tag.id}
-                  className="rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-white"
+                  className="rounded-full bg-black/40 px-2 py-0.5 text-[11px] font-medium text-white ring-1 ring-white/25 backdrop-blur-sm"
                 >
                   {tag.name}
                 </span>
@@ -247,7 +247,7 @@ export function PostCard({
           )}
           <h3 className={cn('font-semibold leading-snug text-white', s.title)}>{mark(post.title, highlight)}</h3>
           <div className="mt-2">
-            <Meta post={post} className="text-white/80" />
+            <Meta post={post} className="text-white/85" />
           </div>
         </div>
       </Link>

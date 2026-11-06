@@ -152,7 +152,7 @@ export interface AuditLogEntry {
 /* --------------------------------------------------------- settings model */
 
 export type ThemeMode = 'light' | 'dark' | 'system';
-export type FontChoice = 'sans' | 'serif';
+export type FontChoice = 'sans' | 'serif' | 'mono';
 export type FontScale = 'sm' | 'md' | 'lg';
 export type RadiusSize = 'none' | 'sm' | 'md' | 'lg';
 export type LineHeightChoice = 'compact' | 'normal' | 'relaxed';
@@ -194,8 +194,15 @@ export interface ThemeSettings {
   mode: ThemeMode;
   /** Empty string => use the preset's primary color. */
   primaryColor: string;
-  /** Global page background (light mode). Empty string => use the preset's background. */
+  /**
+   * @deprecated Legacy light-mode background. Kept so rows saved before the
+   * split keep rendering; the editor writes the two fields below instead.
+   */
   backgroundColor: string;
+  /** Global page background for light mode. Empty => preset background. */
+  backgroundColorLight: string;
+  /** Global page background for dark mode. Empty => preset background. */
+  backgroundColorDark: string;
   /** Global background image URL. Empty string => none. */
   backgroundImage: string;
   /** How the background image is laid out (size + repeat preset). */
@@ -239,15 +246,20 @@ export interface HeroSettings {
   /** CSS background (colour or gradient); empty = default gradient. */
   background: string;
   /**
-   * Unified background media URL (takes precedence over `background`).
-   * Images and videos share one field; the type is inferred from the URL
-   * extension (MP4 / WebM / M4V / MOV / OGV are treated as video).
+   * Background video URL. Highest priority in the hero fallback chain
+   * (video → image → colour).
+   */
+  backgroundVideo: string;
+  /**
+   * Background image URL. Shown when there is no video, and used as the video
+   * poster on mobile / before the first frame loads.
+   */
+  backgroundImage: string;
+  /**
+   * Legacy unified media URL (image or video in one field), kept so rows saved
+   * before the split keep rendering. New values go to the two fields above.
    */
   backgroundMedia: string;
-  /** @deprecated Legacy image URL. Used as a fallback and as the poster for `backgroundVideo`. */
-  backgroundImage: string;
-  /** @deprecated Legacy video URL. New values are written to `backgroundMedia`. */
-  backgroundVideo: string;
   /** Loop the background video; when false it plays once and holds the last frame. */
   backgroundVideoLoop: boolean;
   /** Play the first pass from 0 instead of starting directly at `backgroundVideoStart`. */
@@ -340,7 +352,6 @@ export interface FeatureFlags {
   viewTransitions: boolean;
   toc: boolean;
   backToTop: boolean;
-  newsletter: boolean;
   relatedPosts: boolean;
   prevNext: boolean;
 }

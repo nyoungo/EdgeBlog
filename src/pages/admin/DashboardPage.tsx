@@ -67,7 +67,7 @@ export function DashboardPage() {
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <Link
             to="/admin/posts/new"
-            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-medium text-brand-fg transition-colors hover:bg-brand/90 sm:flex-none"
+            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-medium text-brand-fg transition-colors hover:bg-brand-hover sm:flex-none"
           >
             <Icon name="plus" size={17} />
             写文章

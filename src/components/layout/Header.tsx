@@ -160,12 +160,16 @@ export function Header() {
         : 'relative';
 
   const transparentNow = header.transparentOnTop && !scrolled;
-  const surfaceClass =
-    transparentNow || header.background === 'transparent'
-      ? 'border-transparent bg-transparent'
-      : header.background === 'glass'
-        ? 'border-border bg-bg/70 backdrop-blur-md'
-        : 'border-border bg-bg';
+  // 透明顶栏直接压在英雄区/正文上,只靠文字阴影在纯黑或纯白背景上并不够稳;
+  // 额外叠一层主题色渐变(见 .eb-header-scrim),明暗模式都能拉回对比度。
+  const transparentBar = transparentNow || header.background === 'transparent';
+  const surfaceClass = transparentBar
+    ? 'border-transparent bg-transparent'
+    : header.background === 'glass'
+      ? 'border-border eb-glass'
+      : 'border-border bg-bg';
+  // 左侧竖排导航旁边始终是正文,不能真的透明,否则文字会和内容叠在一起。
+  const asideSurfaceClass = transparentBar ? 'border-transparent eb-glass' : surfaceClass;
 
   const renderLogo = (className?: string) => (
     <Link
@@ -229,7 +233,7 @@ export function Header() {
       id={menuId}
       className={cn(
         'border-t border-border md:hidden',
-        header.background === 'glass' || header.background === 'transparent' ? 'bg-bg/95 backdrop-blur-md' : 'bg-bg',
+        header.background === 'glass' || header.background === 'transparent' ? 'eb-glass' : 'bg-bg',
       )}
     >
       <nav className="eb-header-nav container-page flex flex-col py-2">
@@ -277,7 +281,7 @@ export function Header() {
     return (
       <>
         <aside
-          className={cn('fixed inset-y-0 left-0 z-40 hidden flex-col border-r lg:flex', surfaceClass)}
+          className={cn('fixed inset-y-0 left-0 z-40 hidden flex-col border-r lg:flex', asideSurfaceClass)}
           style={{ width: LEFT_NAV_WIDTH }}
         >
           <div className={cn('flex shrink-0 items-center px-5', justify)} style={barStyle}>
@@ -298,13 +302,13 @@ export function Header() {
           </div>
         </aside>
 
-        <header className={cn('sticky top-0 z-40 w-full border-b transition-colors lg:hidden', surfaceClass)}>
+        <header className={cn('sticky top-0 z-40 w-full border-b transition-colors lg:hidden', surfaceClass, transparentBar && 'eb-header-scrim')}>
           <div className="container-page flex items-center gap-4" style={barStyle}>
             {renderLogo()}
             <nav
               className={cn(
                 'eb-header-nav hidden items-center gap-1 md:flex',
-                header.style === 'pill' && 'rounded-full border border-border bg-surface-2/50 p-1',
+                header.style === 'pill' && 'rounded-full border border-border bg-surface-2/90 p-1 backdrop-blur-sm',
               )}
             >
               <NavItems vertical={false} vt={vt} />
@@ -327,7 +331,7 @@ export function Header() {
 
   const navClass = cn(
     'eb-header-nav hidden items-center md:flex',
-    header.style === 'pill' ? 'gap-1 rounded-full border border-border bg-surface-2/50 p-1' : 'gap-1',
+    header.style === 'pill' ? 'gap-1 rounded-full border border-border bg-surface-2/90 p-1 backdrop-blur-sm' : 'gap-1',
     !centered && header.align === 'left' && 'mr-auto',
     !centered && header.align === 'right' && 'ml-auto',
     centered && 'md:justify-self-center',
@@ -337,7 +341,7 @@ export function Header() {
 
   return (
     <>
-      <header className={cn(positionClass, 'z-40 w-full border-b transition-colors', surfaceClass)}>
+      <header className={cn(positionClass, 'z-40 w-full border-b transition-colors', surfaceClass, transparentBar && 'eb-header-scrim')}>
         <div className={barInnerClass} style={barStyle}>
           {renderLogo(centered ? 'md:justify-self-start' : undefined)}
 
