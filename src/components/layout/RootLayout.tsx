@@ -24,15 +24,13 @@ function BackToTop() {
   const visible = useScrolled(500);
   const { settings } = useSettings();
   if (!settings.features.backToTop) return null;
-  const leftNav = settings.layout.header.position === 'left';
   return (
     <button
       type="button"
       onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
       aria-label="回到顶部"
       className={cn(
-        'fixed bottom-5 left-5 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-muted shadow-pop transition-all hover:text-fg',
-        leftNav && 'lg:left-[17rem]',
+        'fixed bottom-5 right-5 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-muted shadow-pop transition-all hover:text-fg',
         visible ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0',
       )}
     >
