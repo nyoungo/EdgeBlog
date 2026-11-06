@@ -32,13 +32,11 @@ export type Namespace =
  */
 export type TabId =
   | 'identity'
-  | 'header'
-  | 'hero'
+  | 'navfooter'
   | 'home'
-  | 'appearance'
-  | 'footer'
   | 'content'
   | 'comments'
+  | 'appearance'
   | 'music'
   | 'advanced';
 

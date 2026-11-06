@@ -268,7 +268,7 @@ export function AppearancePage() {
         <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-xl font-bold tracking-tight text-fg">站点设置</h1>
-            <p className="mt-1 text-sm text-muted">按页面区域分组，修改实时预览、保存后永久生效</p>
+            <p className="mt-1 text-sm text-muted">按站点、内容、外观与系统分组，修改实时预览、保存后永久生效</p>
           </div>
           <div className="flex items-center gap-2">
             {dirty.size > 0 && (

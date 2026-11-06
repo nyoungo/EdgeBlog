@@ -1,20 +1,18 @@
 import type { ComponentType } from 'react';
 import type { TabDef, TabId } from './types';
 import { IdentityTab } from './IdentityTab';
-import { HeaderTab } from './HeaderTab';
-import { HeroTab } from './HeroTab';
+import { NavFooterTab } from './NavFooterTab';
 import { HomeTab } from './HomeTab';
-import { AppearanceTab } from './AppearanceTab';
-import { FooterTab } from './FooterTab';
 import { ContentTab } from './ContentTab';
 import { CommentsTab } from './CommentsTab';
+import { AppearanceTab } from './AppearanceTab';
 import { MusicTab } from './MusicTab';
 import { AdvancedTab } from './AdvancedTab';
 
 export const TAB_DEFS: TabDef[] = [
   {
     id: 'identity',
-    label: '站点标识',
+    label: '基本信息',
     icon: 'home',
     hint: '站点名称、标语、描述、语言、Logo 与浏览器图标',
     namespaces: ['site'],
@@ -28,32 +26,29 @@ export const TAB_DEFS: TabDef[] = [
     ],
   },
   {
-    id: 'header',
-    label: '顶栏与导航',
+    id: 'navfooter',
+    label: '导航与页脚',
     icon: 'globe',
-    hint: '顶栏布局、三处颜色、搜索入口与导航菜单',
-    namespaces: ['layout', 'navigation', 'features'],
+    hint: '顶栏与侧边导航、导航菜单、页脚内容、社交链接与 RSS',
+    namespaces: ['layout', 'navigation', 'features', 'site', 'social'],
     defaults: [
       { ns: 'layout', path: ['header'] },
       { ns: 'navigation', path: [] },
       { ns: 'features', path: ['search'] },
+      { ns: 'site', path: ['footerText'] },
+      { ns: 'site', path: ['footerLinks'] },
+      { ns: 'social', path: [] },
+      { ns: 'features', path: ['rss'] },
     ],
   },
   {
-    id: 'hero',
-    label: '英雄区',
-    icon: 'image',
-    hint: '首页欢迎区的背景（视频 → 图片 → 颜色）、尺寸、遮罩与文字',
-    namespaces: ['layout'],
-    defaults: [{ ns: 'layout', path: ['hero'] }],
-  },
-  {
     id: 'home',
-    label: '首页与列表',
-    icon: 'list',
-    hint: '首页模块顺序与开关、文章卡片形态、侧边栏与分页',
+    label: '首页',
+    icon: 'image',
+    hint: '欢迎区域、首页模块顺序、文章卡片与列表分页',
     namespaces: ['layout'],
     defaults: [
+      { ns: 'layout', path: ['hero'] },
       { ns: 'layout', path: ['homeModules'] },
       { ns: 'layout', path: ['cardStyle'] },
       { ns: 'layout', path: ['cardSize'] },
@@ -63,8 +58,33 @@ export const TAB_DEFS: TabDef[] = [
     ],
   },
   {
+    id: 'content',
+    label: '文章与页面',
+    icon: 'fileText',
+    hint: '文章目录、浏览量、相关文章、上下篇与关于页内容',
+    namespaces: ['features', 'pages'],
+    defaults: [
+      { ns: 'features', path: ['views'] },
+      { ns: 'features', path: ['toc'] },
+      { ns: 'features', path: ['relatedPosts'] },
+      { ns: 'features', path: ['prevNext'] },
+      { ns: 'pages', path: ['about'] },
+    ],
+  },
+  {
+    id: 'comments',
+    label: '评论',
+    icon: 'message',
+    hint: '评论开关、审核策略、发布间隔与长度限制',
+    namespaces: ['comments', 'features'],
+    defaults: [
+      { ns: 'comments', path: [] },
+      { ns: 'features', path: ['comments'] },
+    ],
+  },
+  {
     id: 'appearance',
-    label: '配色与版式',
+    label: '主题外观',
     icon: 'palette',
     hint: '预设色板、主色、全局背景、字体、圆角与代码主题',
     namespaces: ['theme'],
@@ -86,44 +106,6 @@ export const TAB_DEFS: TabDef[] = [
       { ns: 'theme', path: ['maxWidth'] },
       { ns: 'theme', path: ['lineHeight'] },
       { ns: 'theme', path: ['codeTheme'] },
-    ],
-  },
-  {
-    id: 'footer',
-    label: '页脚与社交',
-    icon: 'link',
-    hint: '页脚版权、页脚链接、RSS 开关与社交图标',
-    namespaces: ['site', 'social', 'features'],
-    defaults: [
-      { ns: 'site', path: ['footerText'] },
-      { ns: 'site', path: ['footerLinks'] },
-      { ns: 'social', path: [] },
-      { ns: 'features', path: ['rss'] },
-    ],
-  },
-  {
-    id: 'content',
-    label: '文章页与页面',
-    icon: 'fileText',
-    hint: '文章目录、浏览量、相关文章、上下篇与关于页内容',
-    namespaces: ['features', 'pages'],
-    defaults: [
-      { ns: 'features', path: ['views'] },
-      { ns: 'features', path: ['toc'] },
-      { ns: 'features', path: ['relatedPosts'] },
-      { ns: 'features', path: ['prevNext'] },
-      { ns: 'pages', path: ['about'] },
-    ],
-  },
-  {
-    id: 'comments',
-    label: '评论区',
-    icon: 'message',
-    hint: '评论开关、审核策略、发布间隔与长度限制',
-    namespaces: ['comments', 'features'],
-    defaults: [
-      { ns: 'comments', path: [] },
-      { ns: 'features', path: ['comments'] },
     ],
   },
   {
@@ -150,23 +132,21 @@ export const TAB_DEFS: TabDef[] = [
 
 /** Left navigation groups; grouping is purely visual. */
 export const GROUPS: Array<{ label: string; tabs: TabId[] }> = [
-  { label: '站点框架', tabs: ['identity', 'header', 'footer'] },
-  { label: '页面区域', tabs: ['hero', 'home', 'content', 'comments'] },
-  { label: '全局外观', tabs: ['appearance'] },
-  { label: '扩展', tabs: ['music', 'advanced'] },
+  { label: '站点', tabs: ['identity', 'navfooter'] },
+  { label: '内容', tabs: ['home', 'content', 'comments'] },
+  { label: '外观', tabs: ['appearance', 'music'] },
+  { label: '系统', tabs: ['advanced'] },
 ];
 
 export const TAB_MAP = Object.fromEntries(TAB_DEFS.map((tab) => [tab.id, tab])) as Record<TabId, TabDef>;
 
 export const TAB_COMPONENTS: Record<TabId, ComponentType> = {
   identity: IdentityTab,
-  header: HeaderTab,
-  hero: HeroTab,
+  navfooter: NavFooterTab,
   home: HomeTab,
-  appearance: AppearanceTab,
-  footer: FooterTab,
   content: ContentTab,
   comments: CommentsTab,
+  appearance: AppearanceTab,
   music: MusicTab,
   advanced: AdvancedTab,
 };
