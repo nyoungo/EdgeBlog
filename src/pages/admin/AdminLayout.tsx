@@ -62,7 +62,7 @@ export function AdminLayout() {
   return (
     <div className="flex min-h-dvh bg-bg">
       {/* desktop sidebar */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-border eb-glass-surface md:flex">
+      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 self-start flex-col overflow-y-auto border-r border-border eb-glass-surface md:flex">
         <Link to="/admin" className="flex h-16 items-center gap-2.5 border-b border-border px-5 no-underline">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-sm font-bold text-brand-fg">
             {(settings.site.logo.text || settings.site.name).slice(0, 1).toUpperCase()}

@@ -339,10 +339,6 @@ export function AppearancePage() {
             </div>
           </div>
         </div>
-
-        <p className="mt-6 text-center text-xs text-faint">
-          默认值参考：站点 {DEFAULT_SETTINGS.site.name} · 主题预设 {DEFAULT_SETTINGS.theme.preset}
-        </p>
       </div>
 
       <MediaPicker

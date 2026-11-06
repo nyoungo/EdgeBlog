@@ -160,8 +160,8 @@ export function Header() {
         : 'relative';
 
   const transparentNow = header.transparentOnTop && !scrolled;
-  // 透明顶栏直接压在英雄区/正文上,只靠文字阴影在纯黑或纯白背景上并不够稳;
-  // 额外叠一层主题色渐变(见 .eb-header-scrim),明暗模式都能拉回对比度。
+  // 「顶部透明」= 页面在顶部时顶栏完全透明,让英雄区完整露出;
+  // 可读性交给 Logo / 导航自带的文字阴影。
   const transparentBar = transparentNow || header.background === 'transparent';
   const surfaceClass = transparentBar
     ? 'border-transparent bg-transparent'
@@ -302,7 +302,7 @@ export function Header() {
           </div>
         </aside>
 
-        <header className={cn('sticky top-0 z-40 w-full border-b transition-colors lg:hidden', surfaceClass, transparentBar && 'eb-header-scrim')}>
+        <header className={cn('sticky top-0 z-40 w-full border-b transition-colors lg:hidden', surfaceClass)}>
           <div className="container-page flex items-center gap-4" style={barStyle}>
             {renderLogo()}
             <nav
@@ -341,7 +341,7 @@ export function Header() {
 
   return (
     <>
-      <header className={cn(positionClass, 'z-40 w-full border-b transition-colors', surfaceClass, transparentBar && 'eb-header-scrim')}>
+      <header className={cn(positionClass, 'z-40 w-full border-b transition-colors', surfaceClass)}>
         <div className={barInnerClass} style={barStyle}>
           {renderLogo(centered ? 'md:justify-self-start' : undefined)}
 

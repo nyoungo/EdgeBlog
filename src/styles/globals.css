@@ -193,17 +193,6 @@
     }
   }
 
-  /* 透明顶栏背后的主题色渐变遮罩。使用主题背景色而非固定黑色,同时适配明暗
-     模式;不透明度在整条顶栏内保持在 0.78 以上,保证纯黑/纯白底上正文与
-     次要文字都仍然清晰(纯黑底亮色模式需 ≥0.78 才够 4.5:1)。 */
-  .eb-header-scrim {
-    background-image: linear-gradient(
-      to bottom,
-      rgb(var(--c-bg) / 0.88),
-      rgb(var(--c-bg) / 0.78)
-    );
-  }
-
   /* 压在图片/视频上的文字与图标。 */
   .eb-on-media {
     text-shadow: var(--eb-hero-text-shadow);
