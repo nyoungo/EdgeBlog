@@ -197,6 +197,19 @@ npm run deploy
 > npx wrangler d1 execute edge-blog --remote --command "UPDATE media SET url = '/media/' || key;"
 > ```
 
+### 8. 部署故障排查
+
+`wrangler pages deploy` 报 `Failed to publish your Function. Got error: Unknown internal error occurred.` 时,先排除代码与体积问题,按下面的顺序判断:
+
+1. 用非生产分支做一次预览部署(`--branch <任意分支>`)。若预览成功、只有 production 失败,且同一份 `dist` + `functions` 部署到新项目也成功,基本可判定为**生产环境的 secret 绑定损坏**,而不是代码问题。
+2. 最常见的是 `JWT_SECRET`。重新写入一个新的随机值后再次部署即可恢复:
+   ```bash
+   npx wrangler pages secret put JWT_SECRET --project-name edge-blog
+   ```
+3. 轮换 `JWT_SECRET` 会使已签发的登录会话失效,用户需要重新登录(密码哈希不受影响)。
+
+> 该故障与 `functions/` 是否改动无关;同一份代码此前可以正常发布,是绑定侧的元数据异常。
+
 ---
 
 ## 默认账号
