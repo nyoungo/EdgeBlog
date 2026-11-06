@@ -8,9 +8,9 @@ export function Footer() {
 
   return (
     <footer className="mt-20 border-t border-border eb-glass-surface">
-      <div className="container-page flex flex-col gap-8 py-12 md:flex-row md:items-start md:justify-between">
+      <div className="container-page flex flex-col items-center gap-8 py-12 text-center">
         <div className="max-w-sm">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center justify-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-sm font-bold text-brand-fg">
               {(site.logo.text || site.name).slice(0, 1).toUpperCase()}
             </span>
@@ -18,7 +18,7 @@ export function Footer() {
           </div>
           {site.tagline && <p className="mt-3 text-sm text-muted">{site.tagline}</p>}
           {social.length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-1">
+            <div className="mt-4 flex flex-wrap justify-center gap-1">
               {social.map((link) => (
                 <a
                   key={link.id}
@@ -37,7 +37,7 @@ export function Footer() {
         </div>
 
         {site.footerLinks.length > 0 && (
-          <nav className="flex flex-wrap gap-x-6 gap-y-2">
+          <nav className="flex flex-wrap justify-center gap-x-6 gap-y-2">
             {site.footerLinks.map((link) => {
               const className = 'text-sm text-muted no-underline transition-colors hover:text-fg';
               // Only in-app paths go through the router. An external URL used to
