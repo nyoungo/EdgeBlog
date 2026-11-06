@@ -9,7 +9,7 @@ export function Footer() {
   return (
     <footer className="mt-20 border-t border-border eb-glass-surface">
       <div className="container-page flex flex-col items-center gap-8 py-12 text-center">
-        <div className="max-w-sm">
+        <div className="flex w-full max-w-sm flex-col items-center">
           <div className="flex items-center justify-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-sm font-bold text-brand-fg">
               {(site.logo.text || site.name).slice(0, 1).toUpperCase()}
