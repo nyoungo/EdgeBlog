@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   VIDEO_SWAP_LEAD_SECONDS,
   initialVideoTime,
+  needsSecondDeck,
   normalizeVideoRange,
   videoSwapLead,
 } from '../src/lib/hero-video';
@@ -16,6 +17,29 @@ describe('normalizeVideoRange', () => {
     expect(normalizeVideoRange(20, 12, 10)).toEqual({ start: 0, end: 20 });
     expect(normalizeVideoRange(20, 12, 12)).toEqual({ start: 0, end: 20 });
     expect(normalizeVideoRange(20, 8, -1)).toEqual({ start: 8, end: 20 });
+  });
+});
+
+describe('needsSecondDeck', () => {
+  it('uses a single deck for a full-clip loop', () => {
+    expect(needsSecondDeck(true, 0, 0)).toBe(false);
+  });
+
+  it('uses a single deck when looping is off, even with a range', () => {
+    expect(needsSecondDeck(false, 4, 12)).toBe(false);
+    expect(needsSecondDeck(false, 0, 0)).toBe(false);
+  });
+
+  it('uses a second deck for a looping sub-range', () => {
+    expect(needsSecondDeck(true, 4, 12)).toBe(true);
+    expect(needsSecondDeck(true, 0, 12)).toBe(true);
+    expect(needsSecondDeck(true, 4, 0)).toBe(true);
+  });
+
+  it('uses a single deck for empty or inverted ranges that fall back to the clip', () => {
+    expect(needsSecondDeck(true, 12, 12)).toBe(false);
+    expect(needsSecondDeck(true, 12, 10)).toBe(false);
+    expect(needsSecondDeck(true, 0, -1)).toBe(false);
   });
 });
 

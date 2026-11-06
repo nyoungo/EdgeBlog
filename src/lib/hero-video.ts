@@ -32,6 +32,24 @@ export function normalizeVideoRange(duration: number, start: number, end: number
 }
 
 /**
+ * Whether the hero needs a second hidden deck for a seamless custom loop.
+ *
+ * Only a looping sub-range (or a range that ends before the clip does) needs
+ * the hand-off deck. A full-clip loop (`start = end = 0`), one-shot playback,
+ * and inverted/empty windows (which fall back to the whole clip) can all use a
+ * single native <video>.
+ */
+export function needsSecondDeck(loop: boolean, start: number, end: number): boolean {
+  if (!loop) return false;
+
+  const startAt = Number.isFinite(start) ? Math.max(0, start) : 0;
+  const endAt = Number.isFinite(end) ? Math.max(0, end) : 0;
+  if (startAt === 0 && endAt === 0) return false;
+  if (endAt > 0 && endAt <= startAt) return false;
+  return true;
+}
+
+/**
  * Where the very first pass starts. "From the beginning" means the clip head;
  * otherwise we skip the intro and enter the loop range immediately.
  */

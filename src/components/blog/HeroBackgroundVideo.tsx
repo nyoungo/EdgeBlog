@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   initialVideoTime,
+  needsSecondDeck,
   normalizeVideoRange,
   videoSwapLead,
   type VideoRange,
@@ -15,6 +16,15 @@ interface HeroBackgroundVideoProps {
   /** Loop range end in seconds; 0 means the end of the clip. */
   end: number;
   /** Play the first pass from 0 instead of entering the loop range immediately. */
+  firstFromStart: boolean;
+}
+
+interface DeckProps {
+  src: string;
+  poster?: string;
+  loop: boolean;
+  start: number;
+  end: number;
   firstFromStart: boolean;
 }
 
@@ -61,6 +71,11 @@ function scheduleFrame(
   }
 
   const handle = requestAnimationFrame(() => callback(video.currentTime));
+  return { cancel: () => cancelAnimationFrame(handle) };
+}
+
+function scheduleRaf(callback: () => void): FrameTicket {
+  const handle = requestAnimationFrame(callback);
   return { cancel: () => cancelAnimationFrame(handle) };
 }
 
@@ -123,7 +138,130 @@ function seekVideo(video: HTMLVideoElement, time: number): Promise<boolean> {
 }
 
 /**
- * Hero background video with an optional custom loop range.
+ * One-deck hero video for the common case: loop the whole clip natively or
+ * play it once. Only a single <video> is mounted, so the browser fetches one
+ * copy of the file and no hand-off machinery runs.
+ */
+function HeroBackgroundVideoSingle({
+  src,
+  poster,
+  loop,
+  start,
+  end,
+  firstFromStart,
+}: DeckProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !src) return;
+
+    let disposed = false;
+    let watchTicket: FrameTicket | null = null;
+    let watchEpoch = 0;
+
+    const durationOf = () =>
+      Number.isFinite(video.duration) ? video.duration : 0;
+    const rangeOf = () => normalizeVideoRange(durationOf(), start, end);
+
+    const stopWatching = () => {
+      watchEpoch += 1;
+      watchTicket?.cancel();
+      watchTicket = null;
+    };
+
+    const stopAtEnd = (endAt: number) => {
+      video.pause();
+      if (endAt < durationOf() - STOP_GUARD_SECONDS) {
+        try {
+          video.currentTime = endAt;
+        } catch {
+          /* keep the last decoded frame */
+        }
+      }
+    };
+
+    const startWatching = () => {
+      stopWatching();
+      if (disposed || loop || video.paused || video.ended) return;
+
+      const range = rangeOf();
+      if (!(range.end > 0 && range.end < durationOf() - STOP_GUARD_SECONDS)) return;
+
+      const epoch = watchEpoch;
+      const schedule = () => {
+        if (disposed || epoch !== watchEpoch) return;
+        watchTicket = scheduleFrame(video, (time) => {
+          watchTicket = null;
+          if (disposed || epoch !== watchEpoch) return;
+          if (time >= range.end - STOP_GUARD_SECONDS || video.ended) {
+            stopAtEnd(range.end);
+            return;
+          }
+          if (video.paused || video.ended) return;
+          schedule();
+        });
+      };
+
+      schedule();
+    };
+
+    const onPlay = () => startWatching();
+    video.addEventListener('play', onPlay);
+
+    const boot = async () => {
+      configureBackgroundVideo(video);
+      video.muted = true;
+      video.src = src;
+      video.load();
+
+      if (!(await waitForMetadata(video)) || disposed) return;
+
+      const range = rangeOf();
+      const entry = initialVideoTime(range, firstFromStart);
+      if (entry > 0.001 && !(await seekVideo(video, entry))) return;
+      if (disposed) return;
+
+      try {
+        await video.play();
+      } catch {
+        return;
+      }
+      if (disposed) return;
+
+      startWatching();
+    };
+
+    void boot();
+
+    return () => {
+      disposed = true;
+      stopWatching();
+      video.removeEventListener('play', onPlay);
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    };
+  }, [src, loop, start, end, firstFromStart]);
+
+  return (
+    <video
+      ref={videoRef}
+      className={BASE_CLASS}
+      poster={poster || undefined}
+      muted
+      playsInline
+      preload="auto"
+      loop={loop}
+      aria-hidden="true"
+      tabIndex={-1}
+      data-hero-deck="a"
+    />
+  );
+}
+
+/**
+ * Hero background video with a custom loop range.
  *
  * The visible decoder is never seeked while it is on screen. Two stacked decks
  * alternate instead: while one plays, the other is loaded and parked at the
@@ -132,33 +270,48 @@ function seekVideo(video: HTMLVideoElement, time: number): Promise<boolean> {
  * presented frame the two decks swap. The cut therefore has no cross-fade, no
  * seek stall and no black frame.
  *
- * With `loop` off the video simply stops at the configured end (or the clip
- * end) and holds that frame. `firstFromStart` only controls where pass one
- * begins; every later pass uses the loop range.
+ * The second deck is only mounted after the first one has loaded and started
+ * playing, so both copies of the file are never downloaded at the same time.
  */
-export function HeroBackgroundVideo({
+function HeroBackgroundVideoDeck({
   src,
   poster,
   loop,
   start,
   end,
   firstFromStart,
-}: HeroBackgroundVideoProps) {
+}: DeckProps) {
   const firstRef = useRef<HTMLVideoElement>(null);
-  const secondRef = useRef<HTMLVideoElement>(null);
+  const secondRef = useRef<HTMLVideoElement | null>(null);
+  const secondWaitRef = useRef<((el: HTMLVideoElement | null) => void) | null>(null);
+  const [secondMounted, setSecondMounted] = useState(false);
   const config = useRef({ loop, start, end, firstFromStart });
   config.current = { loop, start, end, firstFromStart };
   const syncRef = useRef<(() => void) | null>(null);
 
+  const attachSecond = useCallback((el: HTMLVideoElement | null) => {
+    secondRef.current = el;
+    const waiter = secondWaitRef.current;
+    if (el && waiter) {
+      secondWaitRef.current = null;
+      waiter(el);
+    }
+  }, []);
+
   useEffect(() => {
     const first = firstRef.current;
-    const second = secondRef.current;
-    if (!first || !second || !src) return;
+    if (!first || !src) return;
+
+    // A new source or first-pass rule restarts the hand-off from scratch: show
+    // only the first deck again until it is ready.
+    setSecondMounted(false);
 
     let disposed = false;
     let booted = false;
+    let second: HTMLVideoElement | null = null;
+    let standby: HTMLVideoElement = first;
+    let secondAttached = false;
     let active = first;
-    let standby = second;
 
     let watchTicket: FrameTicket | null = null;
     let watchEpoch = 0;
@@ -175,6 +328,13 @@ export function HeroBackgroundVideo({
     let swapSeq = 0;
     let swapGuard = 0;
     let swapTimer = 0;
+
+    function waitForSecond(): Promise<HTMLVideoElement | null> {
+      if (secondRef.current) return Promise.resolve(secondRef.current);
+      return new Promise((resolve) => {
+        secondWaitRef.current = resolve;
+      });
+    }
 
     const durationOf = (deck: HTMLVideoElement) =>
       Number.isFinite(deck.duration) ? deck.duration : 0;
@@ -196,11 +356,6 @@ export function HeroBackgroundVideo({
     function configRangeKey(): string {
       const { start: startAt, end: endAt } = config.current;
       return `${startAt.toFixed(3)}:${endAt.toFixed(3)}`;
-    }
-
-    function scheduleRaf(callback: () => void): FrameTicket {
-      const handle = requestAnimationFrame(callback);
-      return { cancel: () => cancelAnimationFrame(handle) };
     }
 
     function stopWatching() {
@@ -272,6 +427,7 @@ export function HeroBackgroundVideo({
     }
 
     function disarmStandby() {
+      if (!secondAttached) return;
       prepToken += 1;
       prepPromise = null;
       prepKey = '';
@@ -283,7 +439,14 @@ export function HeroBackgroundVideo({
     }
 
     function prepareStandby(): Promise<boolean> {
-      if (disposed || !config.current.loop || standbyPlaying) return Promise.resolve(false);
+      if (
+        disposed ||
+        !secondAttached ||
+        !config.current.loop ||
+        standbyPlaying
+      ) {
+        return Promise.resolve(false);
+      }
 
       const effectiveKey = rangeKey(standby);
       if (standbyReady && preparedKey === effectiveKey) return Promise.resolve(true);
@@ -465,8 +628,10 @@ export function HeroBackgroundVideo({
       stopStandbyProbe();
       stopSwapGuard();
 
-      standby.pause();
-      standby.classList.remove('is-standby', 'is-active');
+      if (secondAttached) {
+        standby.pause();
+        standby.classList.remove('is-standby', 'is-active');
+      }
 
       if (!config.current.loop) {
         active.pause();
@@ -480,6 +645,13 @@ export function HeroBackgroundVideo({
 
     async function beginSwap() {
       if (disposed || !booted || swapping || standbyPlaying || !config.current.loop) {
+        return;
+      }
+
+      if (!secondAttached) {
+        // The hand-off deck is still being attached; keep the visible deck
+        // playing until it is ready.
+        startWatching();
         return;
       }
 
@@ -520,8 +692,10 @@ export function HeroBackgroundVideo({
       preparedKey = '';
       stopStandbyProbe();
       stopSwapGuard();
-      standby.pause();
-      standby.classList.remove('is-standby', 'is-active');
+      if (secondAttached) {
+        standby.pause();
+        standby.classList.remove('is-standby', 'is-active');
+      }
       return true;
     }
 
@@ -584,21 +758,14 @@ export function HeroBackgroundVideo({
     };
 
     first.addEventListener('play', onPlay);
-    second.addEventListener('play', onPlay);
     first.addEventListener('ended', onEnded);
-    second.addEventListener('ended', onEnded);
 
     const boot = async () => {
       first.classList.add('is-active');
-      second.classList.remove('is-active', 'is-standby');
       configureBackgroundVideo(first);
-      configureBackgroundVideo(second);
       first.muted = true;
-      second.muted = true;
       first.src = src;
-      second.src = src;
       first.load();
-      second.load();
 
       if (!(await waitForMetadata(first)) || disposed) return;
 
@@ -616,7 +783,27 @@ export function HeroBackgroundVideo({
 
       booted = true;
       startWatching();
-      if (config.current.loop) void prepareStandby();
+
+      // Wait until the visible deck is already playing before mounting and
+      // loading the second one. Both copies must never download together.
+      setSecondMounted(true);
+      const next = await waitForSecond();
+      if (!next || disposed) return;
+
+      second = next;
+      standby = next;
+      secondAttached = true;
+      configureBackgroundVideo(next);
+      next.muted = true;
+      next.src = src;
+      next.load();
+      next.addEventListener('play', onPlay);
+      next.addEventListener('ended', onEnded);
+
+      startWatching();
+      void prepareStandby();
+
+      if (active.ended) void beginSwap();
     };
 
     void boot();
@@ -629,18 +816,29 @@ export function HeroBackgroundVideo({
       stopWatching();
       stopStandbyProbe();
       stopSwapGuard();
+
+      const pending = secondWaitRef.current;
+      if (pending) {
+        secondWaitRef.current = null;
+        pending(null);
+      }
+
       first.removeEventListener('play', onPlay);
-      second.removeEventListener('play', onPlay);
       first.removeEventListener('ended', onEnded);
-      second.removeEventListener('ended', onEnded);
       first.pause();
-      second.pause();
       first.classList.remove('is-active', 'is-standby');
-      second.classList.remove('is-active', 'is-standby');
       first.removeAttribute('src');
-      second.removeAttribute('src');
       first.load();
-      second.load();
+
+      if (second) {
+        second.removeEventListener('play', onPlay);
+        second.removeEventListener('ended', onEnded);
+        second.pause();
+        second.classList.remove('is-active', 'is-standby');
+        second.removeAttribute('src');
+        second.load();
+      }
+
       syncRef.current = null;
     };
   }, [src, firstFromStart]);
@@ -665,17 +863,59 @@ export function HeroBackgroundVideo({
         tabIndex={-1}
         data-hero-deck="a"
       />
-      <video
-        ref={secondRef}
-        className={BASE_CLASS}
-        poster={poster || undefined}
-        muted
-        playsInline
-        preload="auto"
-        aria-hidden="true"
-        tabIndex={-1}
-        data-hero-deck="b"
-      />
+      {secondMounted && (
+        <video
+          ref={attachSecond}
+          className={BASE_CLASS}
+          poster={poster || undefined}
+          muted
+          playsInline
+          preload="auto"
+          aria-hidden="true"
+          tabIndex={-1}
+          data-hero-deck="b"
+        />
+      )}
     </>
+  );
+}
+
+/**
+ * Hero background video.
+ *
+ * A plain loop (start = end = 0) or one-shot playback uses a single <video>.
+ * A custom loop range mounts a second, hidden deck for the seamless wrap, and
+ * that deck is only loaded after the first one is already playing.
+ */
+export function HeroBackgroundVideo({
+  src,
+  poster,
+  loop,
+  start,
+  end,
+  firstFromStart,
+}: HeroBackgroundVideoProps) {
+  if (needsSecondDeck(loop, start, end)) {
+    return (
+      <HeroBackgroundVideoDeck
+        src={src}
+        poster={poster}
+        loop={loop}
+        start={start}
+        end={end}
+        firstFromStart={firstFromStart}
+      />
+    );
+  }
+
+  return (
+    <HeroBackgroundVideoSingle
+      src={src}
+      poster={poster}
+      loop={loop}
+      start={start}
+      end={end}
+      firstFromStart={firstFromStart}
+    />
   );
 }
