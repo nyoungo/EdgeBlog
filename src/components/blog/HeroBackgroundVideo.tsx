@@ -247,7 +247,7 @@ function HeroBackgroundVideoSingle({
   return (
     <video
       ref={videoRef}
-      className={BASE_CLASS}
+      className={`${BASE_CLASS} is-active`}
       poster={poster || undefined}
       muted
       playsInline
