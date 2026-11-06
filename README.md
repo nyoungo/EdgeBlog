@@ -1,16 +1,21 @@
 # Edge Blog
 
-一个部署在 **Cloudflare Pages** 上的**动态博客系统**：内容与配置全部存于服务端，后台实时编辑；站点外观、布局、导航、模块开关全部可视化配置，无需改代码。
+一个运行在 **Cloudflare Pages** 上的动态博客系统。内容与配置全部保存在边缘服务端，后台实时编辑；站点外观、布局、导航、首页模块都可以可视化配置，无需改代码。
 
-非静态生成 —— 页面是 SPA，数据通过 Pages Functions 提供的 API 实时读取。
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Cloudflare Pages](https://img.shields.io/badge/Cloudflare-Pages-F38020?logo=cloudflare&logoColor=white)](https://pages.cloudflare.com/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+
+- 在线演示：<https://www.068800.xyz>
+- 非静态生成：页面是 SPA，数据通过 Pages Functions 提供的 API 实时读取
+- 无需服务器：D1 存数据，R2 存媒体，KV 做缓存与限流
 
 ```
 React + TypeScript + Vite  ·  React Router  ·  TailwindCSS + CSS 变量
 Hono on Pages Functions    ·  D1 (SQLite + FTS5)  ·  R2  ·  KV
 JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 ```
-
----
 
 ## 界面预览
 
@@ -20,7 +25,7 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 | :---: | :---: | :---: |
 | [![首页](docs/screenshots/home.jpg)](docs/screenshots/home.jpg) | [![通栏 Hero](docs/screenshots/home-hero-fullwidth.jpg)](docs/screenshots/home-hero-fullwidth.jpg) | [![全屏 Hero](docs/screenshots/home-hero-fullscreen.jpg)](docs/screenshots/home-hero-fullscreen.jpg) |
 
-> 同一套代码的三种排版：首页模块、Hero 宽度与背景、卡片样式均在后台「外观设置」中可视化调整，无需改动代码。
+> 同一套代码的三种排版：首页模块、Hero 宽度与背景、卡片样式均在后台「外观设置」中调整。
 
 ### 后台
 
@@ -28,531 +33,248 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 | :---: | :---: | :---: |
 | [![后台概览](docs/screenshots/admin-dashboard.png)](docs/screenshots/admin-dashboard.png) | [![站点设置](docs/screenshots/admin-appearance.png)](docs/screenshots/admin-appearance.png) | [![AI 设置](docs/screenshots/admin-ai.png)](docs/screenshots/admin-ai.png) |
 
-> 文章 / 评论 / 媒体 / 标签管理（含回收站与批量操作）、可视化站点定制、审计日志与 AI 辅助写作（API Key 仅保存在服务端）。
+## 功能特性
 
----
+### 内容
 
-## 目录结构
+- Markdown 文章，支持草稿、定时发布、回收站（软删除）与彻底删除
+- 标签管理、归档页、相关文章、上一篇 / 下一篇
+- 全文搜索：D1 FTS5 + trigram 分词，中文子串与英文大小写不敏感
+- 嵌套评论、审核队列、访客评论开关、频率与长度限制
+- 媒体库：图片 / MP4 / WebM 上传至 R2，图片按档位压缩，视频自动抽取封面
+- 审计日志与文章 / 标签 / 媒体 / 配置的 JSON 导出
+- RSS、sitemap、robots 动态生成
 
-```
-.
-├─ functions/                 # 后端：Cloudflare Pages Functions（Hono）
-│  ├─ [[path]].ts             #   全站入口：/api/* → Hono；/media/* → R2；HTML 导航 → 注入 meta 的外壳
-│  ├─ api/                    #   业务路由（auth / posts / tags / comments / settings / media / search / stats + settings-schemas）
-│  ├─ lib/                    #   db / auth / jwt / crypto / sanitize / response / rate-limit / settings / posts-repo / seo
-│  ├─ rss.xml.ts              #   /rss.xml 动态生成
-│  ├─ sitemap.xml.ts          #   /sitemap.xml 动态生成
-│  └─ robots.txt.ts           #   /robots.txt
-├─ src/                       # 前端：React SPA
-│  ├─ main.tsx  App.tsx       #   入口 + 路由表（/admin 懒加载）
-│  ├─ pages/                  #   前台页面 + pages/admin 后台页面
-│  ├─ components/
-│  │  ├─ layout/              #   Header / Footer / RootLayout（返回顶部、页脚注入）
-│  │  ├─ ui/                  #   Button · Field · Modal · Switch · Badge · Pagination · icons …
-│  │  ├─ blog/                #   PostCard · Prose · 目录 · 评论 · 分享
-│  │  └─ admin/               #   MediaPicker 等后台专用组件
-│  ├─ providers/              #   Settings（主题 + 配置）/ Auth / Toast
-│  ├─ hooks/                  #   useAsync · useDebounced · useDocumentTitle …
-│  ├─ lib/                    #   api client · markdown 渲染+净化 · theme 引擎 · format
-│  └─ styles/                 #   tokens.css（设计令牌）+ globals.css
-├─ shared/                    # 前后端共享的领域类型（唯一契约）
-│  ├─ types.ts
-│  └─ settings-defaults.ts    #   配置默认值（合并回退 + 「恢复默认」共用）
-├─ migrations/                # D1 迁移
-│  ├─ 0001_init.sql           #   基础表
-│  ├─ 0002_fts.sql            #   FTS5 全文索引 + 同步触发器
-│  ├─ 0003_auth_hardening.sql #   会话版本（token_version）+ 评论索引
-│  ├─ 0004_write_amplification.sql # 浏览量不再触发 updated_at / FTS 重写
-│  ├─ 0005_audit_and_soft_delete.sql # 审计日志 + 文章软删除(deleted_at)
-│  └─ 0006_media_thumbnail.sql # 视频封面（缩略图）地址
-├─ seed/seed.sql              # 种子数据（默认设置 / 示例文章 / 管理员）
-├─ scripts/hash-password.mjs  # 生成 PBKDF2 密码哈希
-├─ public/                    # 静态资源（_headers / favicon 等）
-├─ docs/screenshots/          # README 界面截图
-├─ index.html                 # SPA 外壳（含首屏防闪烁脚本 + SEO / 配置注入占位）
-├─ wrangler.toml              # Pages + D1/R2/KV 绑定配置
-├─ tailwind.config.ts         # 颜色 / 圆角 / 字体全部映射到 CSS 变量
-├─ vite.config.ts
-└─ package.json
-```
+### 写作体验
 
----
+- 带工具栏、快捷键、拖拽 / 粘贴上传、分栏预览与全屏的 Markdown 编辑器
+- 本地草稿自动恢复，避免误关页面丢内容
+- 可接入 OpenAI / DeepSeek / 任意 OpenAI 兼容服务，一键生成摘要或正文
 
-## 技术选型说明
+### 站点定制
 
-| 关注点 | 选择 | 理由 |
+- 6 套预设配色，每套包含亮色与暗色两套中性色；自定义主色自动派生文字色与悬停 / 按下色
+- 全局背景图、字体、字号、圆角、内容宽度、行距、代码高亮主题
+- 顶栏位置（跟随 / 吸顶 / 固定 / 左侧）、样式、背景、对齐与顶部透明
+- Hero 支持视频 / 图片 / 颜色背景、宽高、铺满、遮罩、文字颜色与对齐
+- 首页模块显隐与排序、卡片样式 / 尺寸 / 毛玻璃、侧边栏位置、每页条数
+- 页脚、社交图标、评论区、可选音乐播放器
+- 自定义 CSS、页头 / 页尾 HTML 注入、访问统计
+- 所有修改实时生效，无需重新构建
+
+## 技术栈
+
+| 关注点 | 选择 | 说明 |
 | --- | --- | --- |
-| 前端框架 | React 18 + Vite | 生态成熟、HMR 极快、SSR 不需要（Pages 已负责 HTML 外壳） |
-| 路由 | React Router 6 | 声明式路由，支持嵌套布局与懒加载 |
-| 样式 | TailwindCSS + CSS 变量 | 原子类保证视觉一致；所有颜色/圆角/字体引用 CSS 变量，实现运行时换肤 |
-| 后端 | Hono on Pages Functions | 体积小、Web 标准 API、TypeScript 类型友好、中间件模型清晰 |
-| 数据库 | D1 (SQLite) | 边缘只读副本、参数化查询、SQL 直观 |
-| 全文搜索 | **D1 FTS5 虚表 + trigram 分词器** | 见下方「为什么是 trigram」 |
-| 对象存储 | R2 | 零出口流量费，天然适合图片 |
-| 缓存 | KV | 缓存全站配置与热点文章；同时做登录/评论的频率计数 |
-| 认证 | 自建 JWT（HS256）+ HttpOnly Secure Cookie | 无第三方依赖，可在 Workers 内用 Web Crypto 完成 |
-| 密码 | PBKDF2-SHA256 (210k 迭代) | Web Crypto 原生支持，Workers 零依赖;旧哈希在下次登录时自动升级 |
-| Markdown | marked | 快、体积小、GFM 开箱即用 |
-| 净化 | DOMPurify（浏览器端） | 见下方「XSS 净化策略」 |
-| 代码高亮 | highlight.js | 体积可控、按需注册语言、主题可配 |
+| 前端 | React 18 + Vite + React Router 6 | SPA，后台路由懒加载 |
+| 样式 | TailwindCSS + CSS 变量 | 颜色 / 圆角 / 字体全部引用 CSS 变量，运行时换肤 |
+| 后端 | Hono on Cloudflare Pages Functions | 基于 Web 标准 API，边缘运行 |
+| 数据库 | Cloudflare D1 (SQLite) | 参数化查询，边缘只读副本 |
+| 全文搜索 | D1 FTS5 + trigram | 解决 SQLite 默认分词器无法切分中文的问题 |
+| 对象存储 | Cloudflare R2 | 图片与视频，零出口流量费 |
+| 缓存 | Cloudflare KV | 公开配置缓存、限流计数 |
+| 认证 | JWT (HS256) + HttpOnly Cookie | 会话版本号支持全端登出 |
+| 密码 | PBKDF2-SHA256（210k 迭代） | Web Crypto 原生支持，旧哈希登录时自动升级 |
+| Markdown | marked + DOMPurify + highlight.js | 浏览器端渲染、净化与高亮 |
 
-### 为什么是 trigram 分词器
+## 部署到 Cloudflare Pages
 
-D1 是 SQLite，但没有交互式事务，且默认 `unicode61` 分词器**无法切分中文** —— 一整段中文会被当作一个 token，子串搜索永远返回空。FTS5 的 `trigram` 分词器按 3 字符窗口建索引，使中文**子串**搜索与 ASCII 大小写不敏感搜索都能工作。代价是查询需 ≥ 3 个字符，因此搜索接口对短查询回退到 `LIKE` 扫描（见 `functions/api/search`）。
+以下流程全部在浏览器中完成，不需要在本地安装 Node.js，也不需要执行构建命令。
 
-### XSS 净化策略（重要）
+### 1. Fork 仓库
 
-Markdown → HTML 的渲染与净化**都在浏览器端**完成：
-
-```ts
-marked.parse(md)  →  DOMPurify.sanitize(html)  →  dangerouslySetInnerHTML
-```
-
-原因：DOMPurify 需要真实 DOM，而 Workers 没有 `window`。把「渲染 + 净化」一起放在浏览器，既不必在边缘维护 DOM shim，也让净化更难被绕过。若在 Worker 侧渲染却不净化，后台编辑器就等同于开了个 XSS 后门 —— 因此这条链路是**强制**的，`src/lib/markdown.ts` 是唯一的渲染入口，禁止在别处直接使用 `marked`。
-
-SEO 所需的 `title / description / og:image` 由 `functions/[[path]].ts` 在返回的 `index.html` 外壳里注入，爬虫与社交卡片拿得到正确的 meta。
-
-### SPA 回退
-
-不使用 `public/_redirects` 的 `/* /index.html 200`（它会把 `/api/*` 也吞掉）。改为在 `functions/[[path]].ts` 里显式处理：`/api/*` → Hono；其余若是 HTML 请求且静态资源 404 → 返回注入了 meta 的 `index.html`。控制权在代码里，路径优先级清晰。
-
----
-
-## 快速开始
-
-> 前置：Node.js ≥ 18.18，以及一个 Cloudflare 账号（`npx wrangler login`）。
-
-### 1. 安装依赖
-
-```bash
-npm install
-```
+打开本仓库，点击右上角 **Fork**，得到自己的副本。后续所有修改都提交到你的 fork。
 
 ### 2. 创建 Cloudflare 资源
 
-```bash
-# D1 数据库
-npx wrangler d1 create edge-blog
-#   → 把输出的 database_id 填进 wrangler.toml 的 [[d1_databases]]
+登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)，在 **Storage & Databases** 中创建以下资源：
 
-# R2 存储桶
-npx wrangler r2 bucket create edge-blog-media
-#   → 默认无需配置：上传的图片以相对路径 /media/<key> 保存，自动跟随访问域名
-#   （仅当给桶绑定了独立的自定义域名时，才把该域名填进 wrangler.toml 的 MEDIA_PUBLIC_BASE）
+| 资源 | 名称示例 | 用途 | 需要记录 |
+| --- | --- | --- | --- |
+| D1 | `edge-blog` | 文章、评论、配置 | Database ID |
+| R2 | `edge-blog-media` | 图片与视频 | 存储桶名称 |
+| KV | `CACHE` | 配置缓存与限流 | Namespace ID |
 
-# KV 命名空间
-npx wrangler kv namespace create CACHE
-#   → 把输出的 id 填进 wrangler.toml 的 [[kv_namespaces]]
+### 3. 修改 `wrangler.toml`
+
+在 GitHub 网页中打开 fork 里的 `wrangler.toml`，点击铅笔图标编辑：
+
+- `name` 改成你的 Pages 项目名
+- `database_name` / `database_id` 换成第 2 步的 D1
+- KV 的 `id` 换成第 2 步的 Namespace ID
+- R2 的 `bucket_name` 换成你的存储桶名称
+- `SITE_URL` 改成 `https://<项目名>.pages.dev`（或你的自定义域名）
+- `ALLOWED_ORIGINS` 改成自己的域名；没有额外来源时留空即可
+
+绑定名 `DB`、`MEDIA`、`CACHE` 不要修改，`compatibility_date` 与 `nodejs_compat` 保持原样。`name` 同时决定默认的 `<name>.pages.dev` 子域，需要全局唯一。
+
+> `wrangler.toml` 存在时是 Pages 配置的唯一来源，Dashboard 中对应字段会变为只读，因此以文件为准。
+
+### 4. 初始化远程数据库
+
+进入 D1 数据库的 **Console**，依次复制并执行以下文件的内容（顺序不能变）：
+
+```
+migrations/0001_init.sql
+migrations/0002_fts.sql
+migrations/0003_auth_hardening.sql
+migrations/0004_write_amplification.sql
+migrations/0005_audit_and_soft_delete.sql
+migrations/0006_media_thumbnail.sql
+seed/seed.sql
 ```
 
-### 3. 初始化数据库（本地）
+`seed.sql` 会写入默认管理员、示例文章与默认配置。
 
-```bash
-npm run db:migrate:local   # 建表 + FTS5
-npm run db:seed:local      # 示例数据 + 默认设置 + 管理员
-```
+### 5. 创建 Pages 项目
 
-### 4. 配置密钥
+**Workers & Pages → Create → Pages → Connect to Git**，选择你 fork 的仓库与 `main` 分支，然后填写：
 
-```bash
-cp .dev.vars.example .dev.vars
-# 编辑 .dev.vars，把 JWT_SECRET 换成随机长字符串：
-#   openssl rand -base64 48
-```
+| 配置项 | 值 |
+| --- | --- |
+| 项目名称 | 与 `wrangler.toml` 的 `name` 一致 |
+| Framework preset | `Vite`（或 `None`） |
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Root directory | 留空 |
+| 环境变量 | `NODE_VERSION=20`（可选） |
 
-### 5. 运行
+保存后 Cloudflare 会自动开始第一次构建和部署。
 
-本项目的**完整功能**由 Pages Functions 提供，因此本地开发使用 `wrangler pages dev`：
+### 6. 设置密钥
 
-```bash
-npm run build          # 产出 dist/
-npm run dev:pages      # http://127.0.0.1:8788
-```
+进入 Pages 项目 → **Settings → Variables and Secrets → Add**：
 
-若只想调前端（用 Vite 的 HMR），另开一个终端跑 `npm run dev`（Vite 会把 `/api` 代理到 `8788`）。
+| 变量 | 类型 | 值 |
+| --- | --- | --- |
+| `JWT_SECRET` | Secret | 至少 32 字符的随机字符串，可用密码管理器生成 |
 
-### 6. 部署到生产
+填写后点击 **Encrypt** 保存，Production 与 Preview 环境都添加一次。
 
-```bash
-# 应用迁移到远程 D1
-npm run db:migrate
-npm run db:seed        # 仅首次
+其余变量（`ENVIRONMENT`、`SITE_URL`、`SESSION_COOKIE`、`ALLOWED_ORIGINS` 等）已经写在 `wrangler.toml` 的 `[vars]` 中，修改文件即可；`JWT_SECRET` 必须通过 Secret 设置，不能写进仓库。
 
-# 设置生产密钥
-npx wrangler pages secret put JWT_SECRET --project-name edge-blog
+### 7. 部署
 
-# 构建并部署
-npm run deploy
-```
+- **首次部署**：连接仓库后自动触发。
+- **后续部署**：每次 push 到 `main` 自动构建并部署，无需额外命令。
+- **构建命令**：`npm run build`
+- **构建输出目录**：`dist`
+- **部署命令**：Pages 的 Git 集成没有单独的部署命令，构建成功后会直接发布 `dist`；如需在本地手动部署，等价命令为 `npx wrangler pages deploy dist --project-name <项目名>`。
 
-### 7. 绑定自定义域名
+构建完成后访问 `https://<项目名>.pages.dev`。若构建成功但页面报 500，优先检查 `JWT_SECRET` 是否已配置、D1 迁移是否执行、绑定名是否正确。
 
-1. Cloudflare 控制台 → Pages → `edge-blog` → **自定义域** → 添加你的域名（如 `www.example.com`）。
-2. 把 `wrangler.toml` 的 `SITE_URL` 改成该域名（canonical / RSS / sitemap / OG 用它）后重新部署。
-3. 图片**无需任何处理**：上传时存的就是相对路径 `/media/<key>`，绑定域名后自动跟随，
-   库里也不会残留旧域名（`MEDIA_PUBLIC_BASE` 默认留空即可）。
+### 8. 绑定域名与首次登录
 
-> 若已存在旧数据（早期版本写入了绝对地址），改写一次即可：
-> ```bash
-> npx wrangler d1 execute edge-blog --remote --command "UPDATE media SET url = '/media/' || key;"
-> ```
+在 Pages 项目 → **Custom domains** 绑定域名，然后修改 `wrangler.toml` 中的 `SITE_URL` 并提交，触发一次重新部署。媒体使用相对路径 `/media/<key>` 保存，换域名无需迁移数据。
 
-### 8. 部署故障排查
+打开 `/admin`，使用下方默认账号登录并立即修改密码。
 
-`wrangler pages deploy` 报 `Failed to publish your Function. Got error: Unknown internal error occurred.` 时,先排除代码与体积问题,按下面的顺序判断:
-
-1. 用非生产分支做一次预览部署(`--branch <任意分支>`)。若预览成功、只有 production 失败,且同一份 `dist` + `functions` 部署到新项目也成功,基本可判定为**生产环境的 secret 绑定损坏**,而不是代码问题。
-2. 最常见的是 `JWT_SECRET`。重新写入一个新的随机值后再次部署即可恢复:
-   ```bash
-   npx wrangler pages secret put JWT_SECRET --project-name edge-blog
-   ```
-3. 轮换 `JWT_SECRET` 会使已签发的登录会话失效,用户需要重新登录(密码哈希不受影响)。
-
-> 该故障与 `functions/` 是否改动无关;同一份代码此前可以正常发布,是绑定侧的元数据异常。
-
----
-
-## 默认账号
+### 默认账号
 
 | 用户名 | 密码 | 权限 |
 | --- | --- | --- |
 | `admin` | `admin12345` | admin |
 
-> **部署后请立即修改密码。** 生成新哈希：
-> ```bash
-> npm run hash-password -- "你的新密码"
-> npx wrangler d1 execute edge-blog --remote \
->   --command "UPDATE users SET password_hash='<输出的哈希>' WHERE username='admin';"
-> ```
-> 开发期最快的方式：登录后进入 `/admin` 修改。
-
----
+> **部署后请立即修改密码**，可在登录后进入 `/admin` 修改，或使用 `npm run hash-password -- "新密码"` 生成哈希后更新 `users` 表。
 
 ## 环境变量
 
-| 变量 | 位置 | 说明 |
+| 变量 | 配置位置 | 说明 |
 | --- | --- | --- |
-| `JWT_SECRET` | Secret | 签署 JWT 的密钥，≥ 32 字符；缺失或过短时 API 启动即返回 500（fail fast） |
-| `ENVIRONMENT` | vars | `production` / `development`（`development` 时 Cookie 不加 `Secure`，并允许 http 内网 AI 地址） |
-| `SITE_URL` | vars | 站点对外地址（**绑自定义域名后改成自己的域名**），用于 canonical / RSS / sitemap / OG |
-| `MEDIA_PUBLIC_BASE` | vars | 上传图片的公开前缀，**默认留空**：图片存相对路径 `/media/<key>`，自动跟随访问域名；仅当 R2 绑定了独立自定义域名时才设置 |
-| `SESSION_COOKIE` | vars | 会话 Cookie 名称，默认 `eb_session` |
-| `ALLOWED_ORIGINS` | vars | 额外允许的跨域来源（完整 origin，逗号分隔）。同源始终允许；`*` 会被忽略（带凭据的 CORS 不能通配） |
+| `JWT_SECRET` | Dashboard Secret | 签署 JWT 的密钥，≥ 32 字符；缺失或过短时 API 直接返回 500 |
+| `ENVIRONMENT` | `wrangler.toml` | `production` / `development`；开发环境 Cookie 不加 `Secure`，并允许 http 内网 AI 地址 |
+| `SITE_URL` | `wrangler.toml` | 站点对外地址，用于 canonical / RSS / sitemap / OG |
+| `MEDIA_PUBLIC_BASE` | `wrangler.toml` | 媒体公开前缀，默认留空（相对路径自动跟随访问域名）；仅当 R2 绑定了独立域名时设置 |
+| `SESSION_COOKIE` | `wrangler.toml` | 会话 Cookie 名称，默认 `eb_session` |
+| `ALLOWED_ORIGINS` | `wrangler.toml` | 额外允许的跨域来源，逗号分隔；同源始终允许，`*` 会被忽略 |
 
-绑定：`DB`(D1) · `MEDIA`(R2) · `CACHE`(KV) · `ASSETS`(Pages 静态资源)。
+绑定：`DB`（D1）、`MEDIA`（R2）、`CACHE`（KV）、`ASSETS`（Pages 静态资源）。
 
----
+## 本地开发
 
-## 数据模型
+需要 Node.js ≥ 18.18 与 Cloudflare 账号（`npx wrangler login`）。
 
-| 表 | 用途 |
+```bash
+npm install
+cp .dev.vars.example .dev.vars   # 填入 JWT_SECRET
+npm run db:migrate:local
+npm run db:seed:local
+
+npm run build
+npm run dev:pages   # http://127.0.0.1:8788
+```
+
+只调试前端时，另开一个终端运行 `npm run dev`，Vite 会把 `/api` 代理到 `8788`。
+
+## 可用脚本
+
+| 命令 | 说明 |
 | --- | --- |
-| `users` | 管理员/编辑，PBKDF2 密码哈希 |
-| `posts` | 文章正文(Markdown)、状态、定时发布、SEO 覆盖、字数、浏览量;`deleted_at` 非空 = 回收站 |
-| `tags` / `post_tags` | 标签与多对多关联 |
-| `comments` | 嵌套评论，审核状态，`ip_hash` 仅用于防刷 |
-| `settings` | 全站配置，按命名空间存 JSON —— 定制系统的单一事实来源 |
-| `media` | R2 对象索引 |
-| `login_attempts` | 登录限流的持久化账本 |
-| `audit_log` | 后台重要操作审计(操作者、动作、对象、时间) |
-| `posts_fts` | FTS5 全文索引（trigram），由触发器与 `posts` 同步 |
+| `npm run dev` | 启动 Vite 开发服务器（HMR，`/api` 代理到 8788） |
+| `npm run dev:pages` | 使用 wrangler 在本地运行完整 Pages Functions |
+| `npm run build` | 类型检查 + 构建到 `dist/` |
+| `npm run typecheck` | 前后端两套 tsconfig 类型检查 |
+| `npm run lint` | ESLint（零警告） |
+| `npm test` | Vitest 单元测试 |
+| `npm run deploy` | 构建并部署到 Cloudflare Pages |
+| `npm run db:migrate[:local]` | 应用 D1 迁移（远程 / 本地） |
+| `npm run db:seed[:local]` | 写入种子数据（远程 / 本地） |
+| `npm run hash-password -- "密码"` | 生成 PBKDF2 密码哈希 |
 
----
+## 项目结构
 
-## 定制化系统
+```
+functions/              Pages Functions（Hono）：API、R2 代理、SEO 注入、RSS / sitemap / robots
+src/
+  pages/                前台页面 + admin 后台页面
+  components/           layout / ui / blog / admin 组件
+  providers/            Settings（主题与配置）/ Auth / Toast
+  lib/                  API 客户端、Markdown 渲染、主题引擎、格式化
+  styles/               tokens.css（设计令牌）+ globals.css
+shared/                 前后端共享类型与默认配置
+migrations/             D1 迁移（建表、FTS5、审计、软删除等）
+seed/                   示例文章、默认设置与管理员
+scripts/                密码哈希生成
+public/                 静态资源与安全响应头
+docs/screenshots/       README 界面截图
+index.html              SPA 外壳（首屏防闪烁脚本、SEO / 配置注入占位）
+wrangler.toml           Pages + D1 / R2 / KV 绑定
+```
 
-所有可定制项抽象为配置命名空间，存于 `settings` 表，后台「站点设置」按**设置项作用的页面区域**分组（站点框架 / 页面区域 / 全局外观 / 扩展）。一页可以同时写入多个命名空间，跨区域的开关（搜索、RSS、评论、目录等）直接放在所属区域里，不用到处找；修改**实时生效**（CSS 变量 + `data-theme` 驱动，不刷新页面）：
+## 定制与主题
 
-1. **站点标识** — 站名、标语、描述、语言、Logo（文字/图片）、favicon（留空则自动生成「品牌主色 + 站名首字母」图标）
-2. **顶栏与导航** — 顶栏位置（跟随页面 / 吸顶 / 固定 / 左侧）、样式、背景、对齐、高度、顶部透明、三处自定义颜色（Logo 字色、导航字色、右上角图标色，留空跟随主题）、搜索入口、导航菜单增删改与排序（支持外链、新窗口）
-3. **英雄区** — 背景按 **视频 → 图片 → 颜色** 依次回退（图片同时充当视频封面，移动端与视频加载前显示）、宽高 / 铺满、视频循环与播放区间、遮罩、标题与描述颜色、对齐
-4. **首页与列表** — 首页模块显隐与排序、订阅模块、文章卡片样式 / 尺寸 / 模糊、侧边栏位置、每页条数
-5. **配色与版式** — 6 套预设配色（墨白/深海/暖阳/海盐/森绿/霓虹），每套都带**亮色与暗色两套中性色**，切换明暗不会串色；自定义主色会自动派生文字色与悬停/按下色（按 WCAG 对比度在黑白中择优），浅色主色也不会出现白字白底；亮色与暗色背景色可分别设置；全局背景图；正文与标题字体（系统无衬线 / 衬线 / 等宽三档）；字号档位、圆角、内容宽度、行距、代码高亮主题；页内附实时预览与预设缩略图
-6. **页脚与社交** — 页脚版权与链接、RSS 订阅开关、社交图标
-7. **文章页与页面** — 文章目录、浏览量、相关文章、上一篇/下一篇、关于页 Markdown
-8. **评论区** — 评论总开关、审核策略、访客评论、发布间隔与长度限制
-9. **音乐播放器** — 云端 / 本地歌单、主题、尺寸与播放行为
-10. **高级** — 自定义 CSS、页头/页尾注入 HTML、访问统计、视图过渡与返回顶部
+所有可定制项按命名空间存于 `settings` 表（`site`、`theme`、`layout`、`navigation`、`social`、`features`、`advanced`、`comments`、`pages`），后台按页面区域分组展示，保存后通过 CSS 变量与 `data-theme` 实时生效。
 
----
+- **主题**：设计令牌集中在 `src/styles/tokens.css`，采用 RGB 通道三元组，Tailwind 通过 `rgb(var(--c-x) / <alpha-value>)` 引用。`applyTheme()` 将配置写入内联 CSS 变量，并按主色的 WCAG 对比度自动选择前景色。
+- **防闪烁**：`index.html` 内嵌阻塞式脚本，在首屏绘制前恢复 `data-mode` / `data-theme`；服务端同时注入合并后的公开配置（`#eb-boot-settings`），首帧即为真实站点信息。
+- **Hero**：背景按视频 → 图片 → 颜色依次回退，视频静音播放，可设置循环或播放一次，以及自定义循环区间。整段循环或单次播放只挂载一个 `<video>`；只有自定义区间循环才启用双解码面，第二个视频在第一段开始播放后才加载，切点原子换层，无黑帧或 seek 卡顿。移动端不加载视频，直接使用封面图。
+- **卡片**：`cardStyle` 控制五种卡片形态，`cardSize` 控制密度，`cardBlur` 为卡片启用毛玻璃。
 
 ## AI 辅助写作
 
-后台侧边栏的「AI 设置」页（`/admin/ai`，配置存于 `settings` 表的 `ai` 命名空间，**不进入公开配置**）：
+后台「AI 设置」页（`/admin/ai`）支持 OpenAI、DeepSeek 与任意 OpenAI 兼容接口：
 
-- **服务商** — OpenAI / DeepSeek / 自定义（任意 OpenAI 兼容的 `/chat/completions`）
-- **模型** — 保存 API Key 后自动拉取服务商模型列表（`GET /models`）并以下拉选择，可随时点「获取模型」刷新
-- **参数** — Base URL、温度、最大 Tokens，以及「生成摘要」「生成正文」两套系统提示词
-- **密钥安全** — API Key 仅保存在服务端，接口只返回 `hasApiKey` 布尔值；`/api/ai/generate` 由 Functions 代理请求，浏览器拿不到密钥
-- **连通性测试** — 一键用当前配置发起一次真实请求
+- 保存 API Key 后自动拉取可用模型列表
+- 可配置 Base URL、温度、最大 Tokens 以及「生成摘要」「生成正文」两套提示词
+- API Key 仅保存在服务端，接口只返回 `hasApiKey`；`/api/ai/generate` 由 Functions 代理请求
+- 支持一键连通性测试
 
-文章编辑器（`/admin/posts/new` 或编辑页）在配置就绪后会出现两个入口：正文工具栏的 **AI 生成正文**（按标题/要点追加成文）与摘要栏的 **AI 生成**。
+文章编辑器在配置就绪后会出现「AI 生成正文」与「AI 生成摘要」入口。
 
----
+## 安全
 
-## API 一览
+- 所有 SQL 使用参数化查询
+- Markdown 渲染后经 DOMPurify 净化，唯一入口为 `src/lib/markdown.ts`
+- 登录与评论频率限制（KV 计数 + `login_attempts` 账本），AI 调用与上传另有配额
+- 密码强度校验与 PBKDF2 加盐哈希，登录时自动升级旧哈希
+- JWT 存于 `HttpOnly; Secure; SameSite=Lax` Cookie，写操作校验同源，`token_version` 支持会话吊销
+- 上传校验 magic bytes、MIME 白名单与体积上限，入库失败回滚 R2 对象
+- 统一安全响应头（CSP、nosniff、HSTS 等），预览域名自动 noindex
+- CI 执行 lint / typecheck / test / build
 
-所有接口统一返回信封：成功 `{ ok: true, data, meta? }`，失败 `{ ok: false, error: { code, message, details? } }`。
-写操作（POST/PUT/PATCH/DELETE）需通过同源 CSRF 校验；带 🔒 的接口需要登录会话，带 🔑 的额外要求 `admin` 角色。
+## 贡献
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/health` | 健康检查 |
-| POST | `/api/auth/login` | 登录，签发 HttpOnly Cookie |
-| POST | `/api/auth/logout` | 登出 |
-| POST | `/api/auth/logout-all` 🔒 | 退出所有设备(递增 `token_version` 吊销全部会话) |
-| GET | `/api/auth/me` | 当前会话用户 |
-| POST | `/api/auth/password` 🔒 | 修改密码（校验旧密码 + 强度） |
-| GET | `/api/posts` | 公开文章列表（`page`/`perPage`/`tag`/`q`/`sort`/`featured`） |
-| GET | `/api/posts/:slug` | 文章详情 + 标签 + 上一篇/下一篇 + 相关 |
-| POST | `/api/posts/:slug/view` | 浏览量 +1（KV 去重 / 尊重功能开关） |
-| GET | `/api/posts/archive` | 归档页全量轻量列表 |
-| GET | `/api/posts/trash` 🔒 | 回收站(软删除的文章) |
-| GET | `/api/posts/admin` 🔒 | 后台文章列表（含草稿/定时/筛选） |
-| POST | `/api/posts` 🔒 | 新建文章（自动 slug、摘要、标签） |
-| PUT | `/api/posts/:id` 🔒 | 更新文章 |
-| DELETE | `/api/posts/:id` 🔒 | 移入回收站(软删除) |
-| POST | `/api/posts/:id/restore` 🔒 | 从回收站恢复 |
-| DELETE | `/api/posts/:id/purge` 🔒 | 彻底删除(仅限回收站内文章) |
-| GET | `/api/tags` | 标签及文章数(`?all=1` 登录后含空标签) |
-| POST/PUT/DELETE | `/api/tags[/:id]` 🔒 | 标签增删改 |
-| GET | `/api/comments/post/:slug` | 已审核评论（嵌套树） |
-| POST | `/api/comments` | 提交评论（蜜罐 + 频率限制 + 审核） |
-| GET | `/api/comments` 🔒 | 后台评论列表（按状态/文章/关键词筛选） |
-| POST | `/api/comments/batch` 🔒 | 批量审核/删除(approved/rejected/spam/delete) |
-| PATCH | `/api/comments/:id` 🔒 | 审核（approved/rejected/spam/pending） |
-| DELETE | `/api/comments/:id` 🔒 | 删除评论（级联子评论） |
-| GET | `/api/settings/public` | 公开配置（KV 缓存 60s，驱动主题） |
-| GET | `/api/settings` 🔑 | 原始配置 + 默认值（外观面板用） |
-| PATCH | `/api/settings/:namespace` 🔑 | 增量更新某命名空间（对象深合并 / 数组整体替换） |
-| POST | `/api/settings/reset` 🔑 | 恢复默认（可指定命名空间） |
-| GET | `/api/media` 🔒 | 媒体库分页（支持 `q` 文件名搜索、`kind=image\|video` 过滤） |
-| POST | `/api/media/upload` 🔒 | 上传图片 / MP4 / WebM 到 R2（multipart；图片 ≤8MB、视频 ≤25MB；视频可附带 `thumbnail` 封面，≤2MB） |
-| GET | `/api/media/:id/usage` 🔒 | 图片被哪些文章引用(删除前检查) |
-| DELETE | `/api/media/:id` 🔒 | 删除媒体（同时删 R2 对象） |
-| GET | `/api/search?q=` | 全文搜索（FTS5，短词自动回退 LIKE） |
-| GET | `/api/stats` 🔒 | 仪表盘统计（文章/浏览量/评论） |
-| GET | `/api/audit` 🔑 | 审计日志(分页,可按动作前缀筛选) |
-| GET | `/api/export` 🔑 | 导出文章/标签/媒体清单/设置为 JSON |
-| GET | `/api/ai/settings` 🔑 | AI 配置（密钥以 `hasApiKey` 代替，绝不回传明文） |
-| PATCH | `/api/ai/settings` 🔑 | 更新 AI 配置（空 `apiKey` = 保持不变，`clearApiKey` 可清除） |
-| POST | `/api/ai/models` 🔑 | 拉取服务商可用模型列表（使用已保存的密钥） |
-| POST | `/api/ai/generate` 🔑 | 代理调用大模型，生成摘要 / 正文（服务端持有密钥） |
-
-`namespace` ∈ `site · theme · layout · navigation · social · features · advanced · comments · pages`（`ai` 为后台专用命名空间，不进入公开配置）。
-
-> 时间戳统一以 SQLite 的 `YYYY-MM-DD HH:MM:SS`（UTC）格式存储 —— 公开可见性用字符串比较 `published_at <= datetime('now')`，混用 ISO 会静默破坏排序。API 出入的 `publishedAt` 接受 ISO 字符串，由 `toSqlDateTime` 归一。
-
----
-
-## 分阶段交付
-
-- [x] **阶段 1** — 项目结构 · 数据库 schema · FTS5 · 种子 · wrangler 配置 · 技术选型
-- [x] **阶段 2** — 后端 API（认证、文章、标签、评论、设置、上传）
-- [x] **阶段 3** — 前端框架（路由、主题系统、布局组件、设计令牌）
-- [x] **阶段 4** — 前台页面（首页、列表、详情、归档、标签、搜索、关于）
-- [x] **阶段 5** — 后台页面（登录、仪表盘、编辑器、评论、媒体、外观设置、AI 设置）
-- [x] **阶段 6** — SEO / RSS / sitemap / 性能优化 / 部署文档
-
----
-
-## 阶段 1 验收清单
-
-```bash
-# 1) 依赖解析（不装也行，仅校验 package.json 合法）
-node -e "JSON.parse(require('fs').readFileSync('package.json','utf8')); console.log('package.json OK')"
-
-# 2) 迁移可执行（需要已创建 D1 并填好 wrangler.toml 的 database_id）
-npm run db:migrate:local
-
-# 3) 表已建好
-npx wrangler d1 execute edge-blog --local \
-  --command "SELECT name FROM sqlite_master WHERE type IN ('table','trigger') ORDER BY name;"
-# 期望看到：comments, login_attempts, media, post_tags, posts, posts_fts,
-#           settings, tags, users 及相关 trigger。
-
-# 4) 种子写入成功
-npm run db:seed:local
-npx wrangler d1 execute edge-blog --local --command "SELECT count(*) AS posts FROM posts;"
-# 期望：4
-
-# 5) 中文全文搜索可用（trigram 分词）
-#    注意：trigram 要求查询词 >= 3 个字符，2 字词请走 LIKE 回退（由搜索 API 处理）
-npx wrangler d1 execute edge-blog --local \
-  --command "SELECT rowid, title FROM posts_fts WHERE posts_fts MATCH '边缘博' LIMIT 5;"
-# 期望：返回 rowid=1「从零搭建边缘博客…」
-# 英文/大小写不敏感同样可用：
-npx wrangler d1 execute edge-blog --local \
-  --command "SELECT rowid, title FROM posts_fts WHERE posts_fts MATCH 'cloudflare' LIMIT 5;"
-
-# 6) 管理员账号存在
-npx wrangler d1 execute edge-blog --local \
-  --command "SELECT id, username, role FROM users;"
-# 期望：1 | admin | admin
-```
-
----
-
-## 阶段 2 验收清单
-
-完整功能依赖 Pages Functions，本地用 `wrangler pages dev` 运行：
-
-```bash
-npm run build            # typecheck + vite build → dist/
-npm run dev:pages        # http://127.0.0.1:8788
-```
-
-另开一个终端验证（Windows 可用 `Invoke-RestMethod` 替代 curl）：
-
-```bash
-# 公开读
-curl -s localhost:8788/api/health
-curl -s localhost:8788/api/settings/public
-curl -s "localhost:8788/api/posts?perPage=2"
-curl -s localhost:8788/api/posts/hello-edge-blog
-curl -s "localhost:8788/api/search?q=%E8%BE%B9%E7%BC%98%E5%8D%9A"   # 中文 FTS
-curl -s localhost:8788/api/comments/post/hello-edge-blog
-
-# 登录（保存会话 Cookie）
-curl -s -c jar.txt -X POST localhost:8788/api/auth/login \
-  -H 'content-type: application/json' \
-  -d '{"username":"admin","password":"admin12345"}'
-
-# 受保护接口
-curl -s -b jar.txt localhost:8788/api/stats
-curl -s -b jar.txt "localhost:8788/api/comments?status=pending"
-curl -s -b jar.txt "localhost:8788/api/posts/admin?status=draft"
-
-# 配置热更新 + 恢复默认（改完立即生效，无需重启）
-curl -s -b jar.txt -X PATCH localhost:8788/api/settings/theme \
-  -H 'content-type: application/json' -d '{"preset":"cyber","mode":"dark"}'
-curl -s -b jar.txt -X POST localhost:8788/api/settings/reset \
-  -H 'content-type: application/json' -d '{"namespace":"theme"}'
-
-# 上传图片 / 视频到 R2
-curl -s -b jar.txt -X POST localhost:8788/api/media/upload -F "file=@cover.png"
-curl -s -b jar.txt -X POST localhost:8788/api/media/upload -F "file=@hero.mp4"
-```
-
-上传图片时可切换压缩档位（不压缩 / 轻度 / 中等 / 高度，默认**中等**，记住上次选择）。
-前端用 canvas 等比缩放并按质量重编码为 WebP（不支持 WebP 时回退 JPEG / PNG），
-动图与 SVG 原样上传；重编码后反而更大时保留原图。视频（MP4 / WebM）不做转码，按原文件上传，
-上传时会用 canvas 抽取首帧生成 JPEG 封面（`media.thumbnail_url`，随视频同一次 multipart 请求写入 R2），
-媒体库列表直接用封面展示，并提供可播放的预览弹窗；`/media/*` 支持 HTTP Range（206），
-循环区间播放时可正常拖动与定位。
-
-**本阶段已实机验证通过（32 项）**：公开读 / FTS 中英检索 / 登录限流与错误密码 401 /
-会话解析 / 文章 CRUD / 草稿对公开不可见 / 评论提交（待审）· 蜜罐静默接受 · 审核 /
-媒体 上传→访问→删除（R2）/ 设置 深合并·数组替换·恢复默认 /
-安全（CSRF 403、未授权 401、校验 422）。
-自动化测试:`npm test` 共 45 个用例,覆盖 JWT 吊销、CORS 预检、URL 协议校验、设置深合并、评论树与 SEO 注入。
-
----
-
-## 前端架构
-
-### 主题系统（运行时换肤）
-
-设计令牌集中在 `src/styles/tokens.css`：中性色阶 + 单一强调色以「RGB 通道三元组」定义，`tailwind.config.ts` 通过 `rgb(var(--c-x) / <alpha-value>)` 引用，**改一个变量即可整站换色，无需重编译**。
-
-- `data-mode="light|dark"` 控制明暗(`:root` 只放兜底值,状态色与 `color-scheme` 随模式切换)
-- `data-theme="<preset>"` 提供**整套中性色 + 强调色**,每套预设各有亮色与暗色两份(墨白/深海/暖阳/海盐/森绿/霓虹),切换明暗不会串色
-- `src/lib/theme.ts` 的 `applyTheme()` 把配置写成内联 CSS 变量(圆角、内容宽度、字号、行高、字体栈、亮/暗背景色),并按主色派生 `--c-brand-fg` / `--c-brand-hover` / `--c-brand-active`——前景色按 WCAG 对比度在黑白中择优,浅色主色上不会出现白字白底
-- `index.html` 内嵌**阻塞式**脚本，在首屏绘制前从 `localStorage` 与内联配置恢复 `data-mode` / `data-theme`，杜绝主题闪烁（FOUC）
-- `prefers-reduced-motion` 时全局禁用动画与过渡
-
-### 数据与状态
-
-- `SettingsProvider`：优先同步读取外壳内联的配置（`<script id="eb-boot-settings" type="application/json">`，由 `injectBootSettings` 写入），首帧即为站点真实名称/主题，**不闪默认值**、且省去一次 `/api/settings/public` 请求；无内联配置时（如 `vite dev`）才回退到拉取 `/api/settings/public` 并与默认值合并。改配置时**实时**重写 CSS 变量并注入自定义 CSS / 页头页脚 / 统计脚本
-- `AuthProvider`：`/auth/me` 探测会话，提供 `login / logout`
-- `ToastProvider`：全局通知
-- `useAsync(loader, deps)`：统一的 loading / error / reload 数据钩子
-
-### Markdown 渲染链
-
-唯一入口 `src/lib/markdown.ts`：`marked` 渲染 → `DOMPurify` 净化（白名单标签/属性）→ `highlight.js` 高亮 → 交给 `Prose` 组件 `dangerouslySetInnerHTML`；详情页据此抽取目录（TOC）。
-
-### 路由
-
-`src/App.tsx`：前台（首页 / 列表 / 详情 / 标签 / 归档 / 搜索 / 关于 / 404）挂在 `RootLayout` 下；`/admin/*` 整体 `lazy()` 懒加载，访客不会下载后台代码；`AdminLayout` 内做登录守卫并二次 `Suspense`。
-
-### 设置如何生效
-
-- **主题 / 高级**:配置变化时 `SettingsProvider` 调用 `applyTheme` + `applyAdvanced`,实时写入 CSS 变量(`--c-brand` 主色并按对比度派生前景/悬停/按下色、`--c-bg` 全局背景色等)、切换代码高亮主题、注入自定义 CSS 与页头/页脚 HTML(`<script>` 会被重建以真正执行)、统计脚本 → 后台改动即时预览。
-- **布局**：`layout.sidebar` 由 `PageWithSidebar` 在首页/列表/标签/归档/搜索页渲染侧边栏（居左 / 居右 / 不显示，`lg` 以下自动堆叠）；`layout.cardStyle` 驱动 `PostCard` 的五种形态（杂志 / 极简 / 网格 / 浮层 / 紧凑），`layout.cardSize`（大 / 中 / 小）控制内边距、字号与列表密度（经 `cardGridClass` 统一栅格），`layout.cardBlur`（无 / 弱 / 中 / 强）为卡片加毛玻璃 `backdrop-blur`；`layout.homeModules` 控制首页模块及顺序。
-- **欢迎区（Hero）**：`layout.hero` 定制宽度（标准 / 窄 / 全宽）、高度、铺满屏幕、背景色 / 渐变、统一背景媒体 URL（同一个输入框填写图片或视频地址，按扩展名自动识别；视频支持 MP4 / WebM，自动静音，可切换循环播放或播放一次停于最后一帧；支持设置循环区间——首轮可选择从 0 播放或直接进入区间起点，之后在开始→结束之间循环，到达结束时直接切回开始时间，0 表示视频末尾）、视频封面图（上传到媒体库时自动抽首帧生成，也可手动更换；手机端不加载视频、直接用封面作背景，桌面端在视频加载前用它占位）、亮/暗主题遮罩、标题 / 描述文字颜色与对齐；开启「铺满屏幕」后宽度与高度自动锁定（互斥），欢迎区渲染在侧边栏容器之外直接占满视口宽度、向上覆盖导航栏区域（内容略微上移）。区间循环使用双解码面：可见视频从不 seek，隐藏的备用面预先定位到开始时间并提前起播，在它呈现首帧时原子换层，所以切点没有交叉淡入、黑帧或 seek 卡顿。
-- **导航栏**：`layout.header` 定制位置（跟随页面 / 吸顶 / 固定 / 左侧竖向侧边栏）、样式（默认 / 极简 / 胶囊）、背景（纯色 / 玻璃 / 透明）、顶部透明、高度与对齐；`logoColor` / `navColor` / `actionColor` 分别覆盖 Logo 字色、导航字色与右上角操作图标颜色（留空跟随主题，`--eb-header-action-color` 由顶栏内联注入）；固定定位时自动补占位高度，`左侧` 时桌面端（`lg` 起）渲染固定竖向侧边栏并把内容右移 `16rem`，移动端仍用顶部栏，且侧边栏同样应用样式（默认 / 极简 / 胶囊）、背景（纯色 / 玻璃 / 透明）、对齐（左 / 中 / 右）与高度设置。
-- **交互**：`features.viewTransitions` 开启时，站内导航使用 View Transitions API。
-- **音乐**：`music.enabled` 为真时 `MusicPlayerHost` 才动态加载 `xf-music-player` 并挂到页面右下角；后台改配置会销毁并按新参数重建。
-
-### 音乐播放器（XF Music Player）
-
-可选的访客端悬浮播放器，**默认关闭**，在后台「站点设置 → 扩展 → 音乐」开启：
-
-- 通过 `import('xf-music-player')` **动态懒加载**，关闭时零体积进入主包；开启后单独产出一个约 110 KB(gzip) 的异步 chunk
-- 数据源二选一：**云端接口**（`apiUrl`，需返回 `{ code, msg, data: [...] }`）或**本地歌单**（后台逐条编辑，以 JSON 存于设置表）
-- `MusicPlayerHost` 单例持有 `MusicPlayer` 实例并串行化创建/销毁，规避严格模式下的重复挂载与音频泄漏
-- 语言 / 播放模式 / 主题 / 尺寸（宽度、底部距离、歌单高度、可视数量）/ 音量 / 自动展开 / 彩色歌词 / 可视化 / 记忆播放均可在后台配置
-- **强调色始终跟随博客主题色**：通过 `customThemeStyle` 注入 `--theme-color` 等变量（取自设计令牌 `--c-brand`，随主题预设与自定义主色变化）；主题选 `auto-theme` 时按博客当前亮暗模式回落到 `xf-dark-theme` / `xf-original-theme`，而非跟随系统
-- CSP 由 `public/_headers` 与 Functions 的 shell 响应统一声明:`'unsafe-inline'` 仅用于内联主题引导脚本、用户 `headHtml` 与 CSS 变量;`img-src` / `media-src` / `connect-src` 允许 `https:` 以便外部图片、音频与播放器工作
-
----
-
-## SEO / 订阅 / 站点地图
-
-| 路径 | 实现 | 说明 |
-| --- | --- | --- |
-| `/*`（HTML 导航） | `functions/lib/seo.ts` | 取静态外壳，注入 `<title>` / description / canonical / Open Graph / Twitter Card / JSON-LD（首页 WebSite、文章 BlogPosting），并把合并后的公开配置内联为 `#eb-boot-settings`（客户端首帧直接水合，避免闪现默认站点名）后返回 |
-| `/rss.xml` | `functions/rss.xml.ts` | 最新 20 篇公开文章；`features.rss` 关闭时 404 |
-| `/sitemap.xml` | `functions/sitemap.xml.ts` | 静态页 + 全部公开文章(不分页截断),含 `lastmod`、`changefreq`、`priority` |
-| `/robots.txt` | `functions/robots.txt.ts` | 放行全站、屏蔽 `/admin` 与 `/api/`，声明 Sitemap |
-
-SEO 注入失败时**不影响页面下发**（try/catch 回退原始外壳）；canonical 与绝对链接使用 `SITE_URL`。
-
----
-
-## 阶段 3–6 验收清单
-
-```bash
-npm run typecheck        # 前后端两套 tsconfig 均通过
-npm run build            # 产出 dist/（代码分割：react-vendor / markdown / 各后台页）
-npm run dev:pages        # http://127.0.0.1:8788
-```
-
-浏览器：首页各模块（hero/最新/精选/标签/订阅）、文章详情的封面 / 目录 / 上一篇下一篇 / 相关文章 / 评论、
-标签页、归档页（按年分组）、搜索页（防抖 + 中英）、关于页 Markdown；
-右上角主题切换（明亮/暗黑/跟随系统）即时生效且刷新后保持；
-后台 `/admin` 全流程：登录 → 概览 → 新建/编辑文章 → 评论审核 → 媒体上传 → 外观设置（实时预览 + 保存 + 恢复默认）。
-
-HTTP 层（注意带上 `Accept: text/html`）：
-
-```bash
-curl -s -H 'Accept: text/html' localhost:8788/ | grep '<title>'
-curl -s -H 'Accept: text/html' localhost:8788/posts/hello-edge-blog | grep 'BlogPosting'
-curl -s localhost:8788/rss.xml | head -c 200
-curl -s localhost:8788/sitemap.xml | grep urlset
-curl -s localhost:8788/robots.txt
-```
-
-**已实机验证**：SEO / RSS / sitemap / robots 20 项断言全通过；API 冒烟 29 项全通过；
-`typecheck`（前端 + Functions）0 error；`vite build` 成功。
-
----
-
-## 安全清单（贯穿各阶段实现）
-
-- 所有 SQL 参数化（`prepare().bind()`），禁止字符串拼接
-- Markdown 渲染后经 DOMPurify 净化，唯一入口 `src/lib/markdown.ts`
-- 登录/评论频率限制(KV 计数 + `login_attempts` 账本);AI 调用与图片上传另有独立配额
-- 密码强度校验、PBKDF2-SHA256 加盐哈希(210k 迭代,登录时自动 rehash)
-- JWT 存于 `HttpOnly; Secure; SameSite=Lax` Cookie;写操作校验同源(CSRF);`token_version` 支持会话吊销
-- 后台 API 全部经过会话中间件；敏感操作二次校验登录态
-- 评论内容纯文本转义后存储/展示，`email` 永不对外暴露
-- 上传接口校验 magic bytes、MIME 白名单（图片 + MP4/WebM）与分类型体积上限;入库失败回滚 R2 对象;`/media/*` 校验 Range 并返回 206/416
-- 统一安全响应头(CSP / nosniff / HSTS 等,见 `public/_headers` 与 API 中间件),预览域名自动 noindex
-- CI(`.github/workflows/ci.yml`)执行 lint / typecheck / test / build
-
----
+欢迎提交 Issue 与 Pull Request。提交前请确保 `npm run lint`、`npm run typecheck` 与 `npm test` 全部通过。
 
 ## 许可证
 
