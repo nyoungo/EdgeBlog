@@ -308,7 +308,7 @@ export function Header() {
             <nav
               className={cn(
                 'eb-header-nav hidden items-center gap-1 md:flex',
-                header.style === 'pill' && 'rounded-full border border-border bg-surface-2/90 p-1 backdrop-blur-sm',
+                header.style === 'pill' && 'rounded-full border border-border bg-surface-2/70 p-1 backdrop-blur-md backdrop-saturate-150',
               )}
             >
               <NavItems vertical={false} vt={vt} />
@@ -331,7 +331,9 @@ export function Header() {
 
   const navClass = cn(
     'eb-header-nav hidden items-center md:flex',
-    header.style === 'pill' ? 'gap-1 rounded-full border border-border bg-surface-2/90 p-1 backdrop-blur-sm' : 'gap-1',
+    header.style === 'pill'
+      ? 'gap-1 rounded-full border border-border bg-surface-2/70 p-1 backdrop-blur-md backdrop-saturate-150'
+      : 'gap-1',
     !centered && header.align === 'left' && 'mr-auto',
     !centered && header.align === 'right' && 'ml-auto',
     centered && 'md:justify-self-center',

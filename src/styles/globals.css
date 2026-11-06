@@ -161,37 +161,62 @@
   }
 
   /* ---- translucent / glass surfaces ----------------------------------- */
-  /* 玻璃面板统一用主题背景色 + 固定不透明度 0.86。这个取值经过对比度校验:
-     面板背后无论是纯黑还是纯白,正文与次要文字仍能保持至少 4.5:1。
-     模糊只是“玻璃”质感的加成,可读性由不透明度保证。 */
+  /* 更透明的玻璃:降低底色不透明度,把可读性交给更强的模糊 + 饱和度,
+     而不是靠几乎不透明的底色。背后仍能看出页面颜色和轮廓。
+     深色模式抵消浅色文字在亮背景上的对比度损失,所以底色略重一些。
+     顶部再加一层很淡的高光,让面板有玻璃边缘而不是一块半透明色块。 */
   .eb-glass {
-    background-color: rgb(var(--c-bg) / 0.86);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-    backdrop-filter: blur(14px) saturate(140%);
+    background-color: rgb(var(--c-bg) / 0.66);
+    background-image: linear-gradient(
+      180deg,
+      rgb(255 255 255 / 0.08),
+      rgb(255 255 255 / 0)
+    );
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
   }
   .eb-glass-surface {
-    background-color: rgb(var(--c-surface) / 0.9);
-    -webkit-backdrop-filter: blur(12px) saturate(140%);
-    backdrop-filter: blur(12px) saturate(140%);
+    background-color: rgb(var(--c-surface) / 0.7);
+    background-image: linear-gradient(
+      180deg,
+      rgb(255 255 255 / 0.06),
+      rgb(255 255 255 / 0)
+    );
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    backdrop-filter: blur(20px) saturate(160%);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
+  }
+  [data-mode='dark'] .eb-glass {
+    background-color: rgb(var(--c-bg) / 0.76);
+    background-image: linear-gradient(
+      180deg,
+      rgb(255 255 255 / 0.05),
+      rgb(255 255 255 / 0)
+    );
+  }
+  [data-mode='dark'] .eb-glass-surface {
+    background-color: rgb(var(--c-surface) / 0.82);
+  }
+  /* 玻璃底色变薄后,把次要文字提亮/加深一档,保证透过背景色时仍然清楚。 */
+  .eb-glass .text-muted,
+  .eb-glass-surface .text-muted {
+    color: rgb(var(--c-fg) / 0.78);
   }
   /* 不支持背景模糊时,背后内容会直接透出,提高不透明度补偿。 */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .eb-glass {
-      background-color: rgb(var(--c-bg) / 0.96);
+      background-color: rgb(var(--c-bg) / 0.94);
+      background-image: none;
     }
     .eb-glass-surface {
-      background-color: rgb(var(--c-surface) / 0.97);
+      background-color: rgb(var(--c-surface) / 0.95);
+      background-image: none;
     }
   }
-  /* 系统要求降低透明度时,直接退回实色。 */
-  @media (prefers-reduced-transparency: reduce) {
-    .eb-glass {
-      background-color: rgb(var(--c-bg));
-    }
-    .eb-glass-surface {
-      background-color: rgb(var(--c-surface));
-    }
-  }
+  /* 注意:不再根据 `prefers-reduced-transparency` 退回实色。
+     Windows 关闭“透明效果”时该媒体查询会命中,导致玻璃面板完全变实、
+     看起来“没有透明效果”;这里保留半透明,可读性交给模糊与文字对比度。 */
 
   /* 压在图片/视频上的文字与图标。 */
   .eb-on-media {

@@ -39,14 +39,17 @@ const SIZE: Record<
 
 const BLUR: Record<CardBlur, string> = {
   none: '',
-  sm: 'backdrop-blur-sm',
-  md: 'backdrop-blur-md',
-  lg: 'backdrop-blur-lg',
+  sm: 'bg-surface/80 backdrop-blur-md backdrop-saturate-150',
+  md: 'bg-surface/75 backdrop-blur-lg backdrop-saturate-150',
+  lg: 'bg-surface/70 backdrop-blur-xl backdrop-saturate-150',
 };
 
 /** Card surface: solid, or frosted-glass when a blur level is set. */
 function surfaceClass(blur: CardBlur): string {
-  return cn('border border-border shadow-card', blur === 'none' ? 'bg-surface' : 'bg-surface/90', BLUR[blur]);
+  return cn(
+    'border border-border shadow-card',
+    blur === 'none' ? 'bg-surface' : cn(BLUR[blur], 'dark:bg-surface/[0.85]'),
+  );
 }
 
 /** Responsive grid class for a list of cards; honours the card style + size. */
