@@ -26,7 +26,7 @@ export function Section({
   return (
     <section
       className={cn(
-        'flex min-w-0 flex-col overflow-hidden rounded-3xl bg-surface shadow-card',
+        'flex min-w-0 flex-col overflow-hidden rounded-3xl bg-surface shadow-lift',
         className,
       )}
     >

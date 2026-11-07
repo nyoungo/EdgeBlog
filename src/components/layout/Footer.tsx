@@ -68,14 +68,13 @@ export function Footer() {
                 </a>
               </li>
             )}
+            {(site.footerText || site.locale) && (
+              <li className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-2 text-[11px] text-faint">
+                {site.footerText && <span>{site.footerText}</span>}
+                {site.locale && <span>{site.locale}</span>}
+              </li>
+            )}
           </ul>
-        </div>
-      </div>
-
-      <div className="bg-surface-2/60">
-        <div className="container-page flex flex-col gap-2 py-5 text-[11px] text-faint sm:flex-row sm:items-center sm:justify-between">
-          <span>{site.footerText}</span>
-          <span>{site.locale}</span>
         </div>
       </div>
     </footer>

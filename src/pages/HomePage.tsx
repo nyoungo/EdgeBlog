@@ -206,13 +206,7 @@ function HomeHero({
         />
       )}
 
-      {/* 压在媒体上的文字需要一个固定的明暗过渡，和用户遮罩叠加而不是互相替代。 */}
-      {onMedia && (
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 z-[2] bg-[linear-gradient(180deg,rgba(0,0,0,0.34),rgba(0,0,0,0.14)_42%,rgba(0,0,0,0.52))]"
-        />
-      )}
+      {/* 遮罩完全由后台设置决定：设为 0 时不再叠加任何固定压暗层。 */}
       {(hero.overlayLight > 0 || hero.overlayDark > 0) && (
         <div className="eb-hero-scrim pointer-events-none absolute inset-0" aria-hidden="true" />
       )}
@@ -274,23 +268,21 @@ function HomeHero({
       {(mode === 'full' || (media.video && !compact)) && (
         <div
           className={cn(
-            'relative z-20 mt-auto flex items-center justify-between gap-4',
+            'relative z-20 mt-auto grid grid-cols-[1fr_auto_1fr] items-end gap-4',
             full ? 'container-page pb-6 pt-8' : 'px-6 pb-5 sm:px-10',
           )}
         >
-          {mode === 'full' ? (
+          {mode === 'full' && (
             <a
               href="#latest"
+              aria-label="向下浏览"
               className={cn(
-                'eb-scroll-cue inline-flex items-center gap-2 text-xs font-medium no-underline',
+                'eb-scroll-cue col-start-2 inline-flex items-center justify-center justify-self-center p-1.5 no-underline',
                 onMedia ? 'text-white/80 hover:text-white' : 'text-muted hover:text-fg',
               )}
             >
-              <Icon name="arrowDown" size={14} />
-              向下
+              <Icon name="arrowDown" size={18} />
             </a>
-          ) : (
-            <span />
           )}
 
           {media.video && !compact && (
@@ -299,7 +291,7 @@ function HomeHero({
               onClick={toggleVideo}
               aria-label={videoPaused ? '播放背景视频' : '暂停背景视频'}
               className={cn(
-                'inline-flex size-9 items-center justify-center rounded-full backdrop-blur-md transition-colors',
+                'col-start-3 inline-flex size-9 items-center justify-center justify-self-end rounded-full backdrop-blur-md transition-colors',
                 onMedia
                   ? 'bg-black/45 text-white hover:bg-black/60'
                   : 'bg-surface/80 text-fg shadow-card hover:bg-surface',
