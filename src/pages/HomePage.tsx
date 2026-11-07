@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import type { HeaderSettings, HeroSettings, PostSummary } from '@shared/types';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/Feedback';
@@ -61,7 +61,6 @@ function HomeHero({
   tagline,
   description,
   full,
-  showRss,
 }: {
   hero: HeroSettings;
   header: HeaderSettings;
@@ -69,13 +68,10 @@ function HomeHero({
   tagline: string;
   description: string;
   full: boolean;
-  showRss: boolean;
 }) {
   const media = resolveHeroMedia(hero);
-  const sectionRef = useRef<HTMLElement>(null);
   // 手机 / 平板不加载视频：直接显示封面图，省流量也避开自动播放限制。
   const compact = useMediaQuery('(max-width: 767px), (hover: none) and (pointer: coarse)');
-  const [videoPaused, setVideoPaused] = useState(false);
 
   const mode: 'full' | 'fixed' | 'auto' = hero.fullScreen
     ? 'full'
@@ -112,53 +108,6 @@ function HomeHero({
         : 'eb-hero-pull'
       : '';
 
-  // 英雄区里视频的播放/暂停。只操作现有 deck，不碰内部循环状态机。
-  useEffect(() => {
-    if (!media.video || compact) return;
-    const root = sectionRef.current;
-    if (!root) return;
-    const decks = Array.from(root.querySelectorAll<HTMLVideoElement>('video[data-hero-deck]'));
-    if (decks.length === 0) return;
-
-    const sync = () => setVideoPaused(decks.every((video) => video.paused));
-    decks.forEach((video) => {
-      video.addEventListener('play', sync);
-      video.addEventListener('pause', sync);
-      video.addEventListener('ended', sync);
-    });
-    const frame = window.requestAnimationFrame(sync);
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-      decks.forEach((video) => {
-        video.removeEventListener('play', sync);
-        video.removeEventListener('pause', sync);
-        video.removeEventListener('ended', sync);
-      });
-    };
-  }, [media.video, compact]);
-
-  const toggleVideo = () => {
-    const root = sectionRef.current;
-    if (!root) return;
-    const decks = Array.from(root.querySelectorAll<HTMLVideoElement>('video[data-hero-deck]'));
-    if (decks.length === 0) return;
-    const active =
-      root.querySelector<HTMLVideoElement>('video.eb-hero-video.is-active') ?? decks[0];
-    if (!active) return;
-
-    if (active.paused) {
-      decks.forEach((video) => {
-        if (video !== active) video.pause();
-      });
-      void active.play().catch(() => undefined);
-      setVideoPaused(false);
-    } else {
-      decks.forEach((video) => video.pause());
-      setVideoPaused(true);
-    }
-  };
-
   const centered = hero.align === 'center';
   const titleStyle = {
     color: hero.textColor || undefined,
@@ -168,20 +117,9 @@ function HomeHero({
     color: hero.textMutedColor || undefined,
     textShadow: onMedia ? 'var(--eb-hero-text-shadow)' : undefined,
   };
-  const linkClass = cn(
-    'inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium no-underline transition-colors',
-    onMedia
-      ? 'bg-white/15 text-white backdrop-blur-md hover:bg-white/25'
-      : 'bg-brand text-brand-fg shadow-sm hover:bg-brand-hover',
-  );
-  const quietLinkClass = cn(
-    'inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-sm font-medium no-underline transition-colors',
-    onMedia ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-muted hover:bg-surface-2 hover:text-fg',
-  );
 
   return (
     <section
-      ref={sectionRef}
       data-hero=""
       className={cn(
         'relative isolate flex flex-col overflow-hidden',
@@ -222,7 +160,7 @@ function HomeHero({
       >
         <div className={cn('max-w-3xl', centered && 'mx-auto text-center')}>
           <div className={cn('mb-6 flex items-center gap-3', centered && 'justify-center')}>
-            <span className={cn('eb-kicker', onMedia && 'text-white/80')}>
+            <span className={cn('eb-kicker text-base', onMedia && 'text-white/80')}>
               {tagline || '索引'}
             </span>
           </div>
@@ -249,57 +187,26 @@ function HomeHero({
               {description}
             </p>
           )}
-
-          <div className={cn('mt-8 flex flex-wrap items-center gap-x-6 gap-y-3', centered && 'justify-center')}>
-            <Link to="/posts" className={linkClass}>
-              浏览全部文章
-              <Icon name="arrowRight" size={14} />
-            </Link>
-            {showRss && (
-              <a href="/rss.xml" className={quietLinkClass}>
-                <Icon name="rss" size={14} />
-                RSS
-              </a>
-            )}
-          </div>
         </div>
       </div>
 
-      {(mode === 'full' || (media.video && !compact)) && (
+      {mode === 'full' && (
         <div
           className={cn(
-            'relative z-20 mt-auto grid grid-cols-[1fr_auto_1fr] items-end gap-4',
+            'relative z-20 mt-auto flex justify-center',
             full ? 'container-page pb-6 pt-8' : 'px-6 pb-5 sm:px-10',
           )}
         >
-          {mode === 'full' && (
-            <a
-              href="#latest"
-              aria-label="向下浏览"
-              className={cn(
-                'eb-scroll-cue col-start-2 inline-flex items-center justify-center justify-self-center p-1.5 no-underline',
-                onMedia ? 'text-white/80 hover:text-white' : 'text-muted hover:text-fg',
-              )}
-            >
-              <Icon name="arrowDown" size={18} />
-            </a>
-          )}
-
-          {media.video && !compact && (
-            <button
-              type="button"
-              onClick={toggleVideo}
-              aria-label={videoPaused ? '播放背景视频' : '暂停背景视频'}
-              className={cn(
-                'col-start-3 inline-flex size-9 items-center justify-center justify-self-end rounded-full backdrop-blur-md transition-colors',
-                onMedia
-                  ? 'bg-black/45 text-white hover:bg-black/60'
-                  : 'bg-surface/80 text-fg shadow-card hover:bg-surface',
-              )}
-            >
-              <Icon name={videoPaused ? 'play' : 'pause'} size={16} />
-            </button>
-          )}
+          <a
+            href="#latest"
+            aria-label="向下浏览"
+            className={cn(
+              'eb-scroll-cue inline-flex items-center justify-center p-1.5 no-underline',
+              onMedia ? 'text-white/80 hover:text-white' : 'text-muted hover:text-fg',
+            )}
+          >
+            <Icon name="arrowDown" size={18} />
+          </a>
         </div>
       )}
     </section>
@@ -326,7 +233,7 @@ function RowSkeleton({ count = 5 }: { count?: number }) {
 
 export function HomePage() {
   const { settings } = useSettings();
-  const { site, layout, features } = settings;
+  const { site, layout } = settings;
   const perPage = layout.postsPerPage;
 
   const modules = layout.homeModules.filter((m) => m.enabled);
@@ -360,7 +267,6 @@ export function HomePage() {
     tagline: site.tagline,
     description: site.description,
     full: heroOutside,
-    showRss: features.rss,
   };
 
   return (
