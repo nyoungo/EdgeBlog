@@ -59,92 +59,92 @@
   --glass-brightness: 1.02;
 
   /* 首个 paint 之前的兜底调色板（等同 ink 亮色）。 */
-  --c-bg: 247 249 254;
+  --c-bg: 246 247 255;
   --c-surface: 255 255 255;
-  --c-surface-2: 239 243 251;
-  --c-border: 226 232 243;
-  --c-fg: 15 23 42;
-  --c-muted: 71 85 105;
-  --c-faint: 133 148 172;
-  --c-brand: 37 99 235;
+  --c-surface-2: 238 240 253;
+  --c-border: 224 227 250;
+  --c-fg: 18 20 45;
+  --c-muted: 74 78 112;
+  --c-faint: 134 138 176;
+  --c-brand: 79 70 229;
   --c-brand-fg: 255 255 255;
-  --c-brand-hover: 29 78 216;
-  --c-brand-active: 21 64 186;
-  --c-focus: 37 99 235;
+  --c-brand-hover: 67 56 202;
+  --c-brand-active: 55 48 163;
+  --c-focus: 79 70 229;
 }
 
 /* ---- presets · light ---------------------------------------------------- */
 /* 每个预设一套完整中性色；后台的色板缩略图直接复用这些变量。 */
 
 [data-theme='ink'] {
-  --c-bg: 247 249 254;
+  --c-bg: 246 247 255;
   --c-surface: 255 255 255;
-  --c-surface-2: 239 243 251;
-  --c-border: 226 232 243;
-  --c-fg: 15 23 42;
-  --c-muted: 71 85 105;
-  --c-faint: 133 148 172;
-  --c-brand: 37 99 235;
+  --c-surface-2: 238 240 253;
+  --c-border: 224 227 250;
+  --c-fg: 18 20 45;
+  --c-muted: 74 78 112;
+  --c-faint: 134 138 176;
+  --c-brand: 79 70 229;
   --c-brand-fg: 255 255 255;
 }
 
 [data-theme='midnight'] {
-  --c-bg: 244 247 252;
+  --c-bg: 244 249 253;
   --c-surface: 255 255 255;
-  --c-surface-2: 236 242 250;
-  --c-border: 223 232 244;
-  --c-fg: 15 23 38;
-  --c-muted: 72 86 106;
-  --c-faint: 130 146 166;
-  --c-brand: 37 99 235;
+  --c-surface-2: 232 243 252;
+  --c-border: 216 234 248;
+  --c-fg: 10 28 44;
+  --c-muted: 60 86 108;
+  --c-faint: 124 148 172;
+  --c-brand: 2 132 199;
   --c-brand-fg: 255 255 255;
 }
 
 [data-theme='solar'] {
-  --c-bg: 252 249 244;
+  --c-bg: 253 249 243;
   --c-surface: 255 255 255;
-  --c-surface-2: 247 241 232;
-  --c-border: 238 229 216;
-  --c-fg: 38 26 18;
-  --c-muted: 110 82 60;
-  --c-faint: 160 132 108;
-  --c-brand: 178 58 20;
+  --c-surface-2: 251 241 229;
+  --c-border: 243 228 210;
+  --c-fg: 42 26 12;
+  --c-muted: 116 82 52;
+  --c-faint: 168 134 100;
+  --c-brand: 234 88 12;
   --c-brand-fg: 255 255 255;
 }
 
 [data-theme='seasaltt'] {
-  --c-bg: 246 251 249;
+  --c-bg: 244 251 249;
   --c-surface: 255 255 255;
-  --c-surface-2: 234 245 241;
-  --c-border: 220 238 233;
-  --c-fg: 12 30 28;
-  --c-muted: 58 92 87;
-  --c-faint: 128 162 156;
-  --c-brand: 15 118 110;
+  --c-surface-2: 229 246 241;
+  --c-border: 210 238 231;
+  --c-fg: 8 34 30;
+  --c-muted: 44 96 88;
+  --c-faint: 112 160 150;
+  --c-brand: 13 148 136;
   --c-brand-fg: 255 255 255;
 }
 
 [data-theme='forest'] {
-  --c-bg: 247 251 245;
+  --c-bg: 245 251 245;
   --c-surface: 255 255 255;
-  --c-surface-2: 237 246 232;
-  --c-border: 223 238 218;
-  --c-fg: 20 34 20;
-  --c-muted: 72 100 70;
-  --c-faint: 140 172 136;
-  --c-brand: 22 120 60;
+  --c-surface-2: 233 247 232;
+  --c-border: 214 238 213;
+  --c-fg: 14 36 16;
+  --c-muted: 56 100 58;
+  --c-faint: 122 164 124;
+  --c-brand: 22 163 74;
   --c-brand-fg: 255 255 255;
 }
 
 [data-theme='cyber'] {
-  --c-bg: 252 248 253;
+  --c-bg: 253 247 254;
   --c-surface: 255 255 255;
-  --c-surface-2: 247 238 249;
-  --c-border: 240 226 243;
-  --c-fg: 30 18 34;
-  --c-muted: 98 72 106;
-  --c-faint: 164 136 172;
-  --c-brand: 142 36 170;
+  --c-surface-2: 250 236 252;
+  --c-border: 244 220 246;
+  --c-fg: 40 12 44;
+  --c-muted: 110 62 118;
+  --c-faint: 170 124 178;
+  --c-brand: 192 38 211;
   --c-brand-fg: 255 255 255;
 }
 
@@ -173,75 +173,75 @@
 /* ---- presets · dark ------------------------------------------------------ */
 
 [data-theme='ink'][data-mode='dark'] {
-  --c-bg: 16 18 20;
-  --c-surface: 22 24 27;
-  --c-surface-2: 29 32 35;
-  --c-border: 44 48 52;
-  --c-fg: 236 238 236;
-  --c-muted: 163 170 165;
-  --c-faint: 120 127 122;
-  --c-brand: 143 162 255;
-  --c-brand-fg: 16 18 20;
+  --c-bg: 13 14 28;
+  --c-surface: 18 20 36;
+  --c-surface-2: 24 27 46;
+  --c-border: 38 42 66;
+  --c-fg: 232 233 248;
+  --c-muted: 158 162 194;
+  --c-faint: 112 116 152;
+  --c-brand: 129 140 248;
+  --c-brand-fg: 13 14 28;
 }
 
 [data-theme='midnight'][data-mode='dark'] {
-  --c-bg: 9 13 22;
-  --c-surface: 14 20 32;
-  --c-surface-2: 19 27 42;
-  --c-border: 32 44 64;
-  --c-fg: 226 235 248;
-  --c-muted: 148 163 184;
-  --c-faint: 100 116 139;
-  --c-brand: 96 165 250;
-  --c-brand-fg: 9 13 22;
+  --c-bg: 6 15 24;
+  --c-surface: 10 22 34;
+  --c-surface-2: 15 30 45;
+  --c-border: 28 48 68;
+  --c-fg: 224 240 252;
+  --c-muted: 144 172 194;
+  --c-faint: 98 126 150;
+  --c-brand: 56 189 248;
+  --c-brand-fg: 6 15 24;
 }
 
 [data-theme='solar'][data-mode='dark'] {
-  --c-bg: 20 15 11;
-  --c-surface: 28 21 15;
-  --c-surface-2: 37 28 20;
-  --c-border: 56 42 30;
-  --c-fg: 245 236 226;
-  --c-muted: 190 165 140;
-  --c-faint: 140 115 92;
-  --c-brand: 245 146 80;
-  --c-brand-fg: 20 15 11;
+  --c-bg: 24 14 8;
+  --c-surface: 32 20 11;
+  --c-surface-2: 42 27 15;
+  --c-border: 64 42 24;
+  --c-fg: 250 236 222;
+  --c-muted: 200 162 132;
+  --c-faint: 148 114 86;
+  --c-brand: 251 146 60;
+  --c-brand-fg: 24 14 8;
 }
 
 [data-theme='seasaltt'][data-mode='dark'] {
-  --c-bg: 7 17 16;
-  --c-surface: 12 25 23;
-  --c-surface-2: 17 33 30;
-  --c-border: 30 52 48;
-  --c-fg: 222 242 238;
-  --c-muted: 150 190 183;
-  --c-faint: 100 140 133;
+  --c-bg: 5 18 17;
+  --c-surface: 9 28 26;
+  --c-surface-2: 14 37 34;
+  --c-border: 24 58 53;
+  --c-fg: 218 244 238;
+  --c-muted: 138 194 184;
+  --c-faint: 92 142 133;
   --c-brand: 45 212 191;
-  --c-brand-fg: 7 17 16;
+  --c-brand-fg: 5 18 17;
 }
 
 [data-theme='forest'][data-mode='dark'] {
-  --c-bg: 9 16 9;
-  --c-surface: 15 25 15;
-  --c-surface-2: 20 33 20;
-  --c-border: 38 56 36;
-  --c-fg: 232 244 229;
-  --c-muted: 160 195 155;
-  --c-faint: 110 145 105;
+  --c-bg: 6 17 7;
+  --c-surface: 10 26 12;
+  --c-surface-2: 15 35 17;
+  --c-border: 28 56 30;
+  --c-fg: 224 246 224;
+  --c-muted: 150 198 150;
+  --c-faint: 104 150 105;
   --c-brand: 74 222 128;
-  --c-brand-fg: 9 16 9;
+  --c-brand-fg: 6 17 7;
 }
 
 [data-theme='cyber'][data-mode='dark'] {
-  --c-bg: 15 8 17;
-  --c-surface: 23 13 26;
-  --c-surface-2: 31 18 35;
-  --c-border: 52 32 58;
-  --c-fg: 244 232 247;
-  --c-muted: 190 158 200;
-  --c-faint: 140 108 150;
+  --c-bg: 20 6 24;
+  --c-surface: 28 10 33;
+  --c-surface-2: 37 15 43;
+  --c-border: 60 30 66;
+  --c-fg: 250 232 252;
+  --c-muted: 204 160 212;
+  --c-faint: 152 112 160;
   --c-brand: 232 121 249;
-  --c-brand-fg: 15 8 17;
+  --c-brand-fg: 20 6 24;
 }
 
 /* Smooth cross-fade when switching themes via the View Transitions API. */

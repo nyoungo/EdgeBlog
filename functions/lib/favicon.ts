@@ -11,15 +11,15 @@ import type { PublicSettings } from '@shared/types';
 
 /** Accent channel triples per preset — mirrors `src/styles/tokens.css`. */
 const PRESET_BRAND: Record<string, string> = {
-  ink: '99 102 241',
-  midnight: '59 130 246',
+  ink: '79 70 229',
+  midnight: '2 132 199',
   solar: '234 88 12',
   seasaltt: '13 148 136',
   forest: '22 163 74',
-  cyber: '217 70 239',
+  cyber: '192 38 211',
 };
 
-const FALLBACK_BRAND = '99 102 241';
+const FALLBACK_BRAND = '79 70 229';
 
 const HEX6 = /^#?([0-9a-f]{6})$/i;
 const HEX3 = /^#?([0-9a-f]{3})$/i;

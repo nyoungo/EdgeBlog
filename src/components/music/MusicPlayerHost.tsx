@@ -7,16 +7,16 @@ import { hexToRgbChannels } from '../../lib/theme';
 const TAG_NAME = 'xf-blog-player';
 const MEMORY_KEY = 'eb-music-player';
 
-const DEFAULT_BRAND = '99 102 241';
+const DEFAULT_BRAND = '79 70 229';
 
 /** Accent channel triples per preset (mirrors src/styles/tokens.css). */
 const PRESET_BRAND: Record<string, string> = {
   ink: DEFAULT_BRAND,
-  midnight: '59 130 246',
+  midnight: '2 132 199',
   solar: '234 88 12',
   seasaltt: '13 148 136',
   forest: '22 163 74',
-  cyber: '217 70 239',
+  cyber: '192 38 211',
 };
 
 /**
