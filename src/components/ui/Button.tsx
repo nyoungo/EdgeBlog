@@ -2,23 +2,35 @@ import { forwardRef, type ButtonHTMLAttributes } from 'react';
 import { cn } from '../../lib/utils';
 import { Icon } from './icons';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
+export type ButtonVariant =
+  | 'primary'
+  | 'secondary'
+  | 'outline'
+  | 'ghost'
+  | 'danger'
+  /** 玻璃面板上的按钮：半透明底，不能用实心变体。 */
+  | 'glass'
+  /** 透明顶栏压在图片/视频上时的按钮：深色半透明 + 白字。 */
+  | 'glassOnMedia';
 export type ButtonSize = 'sm' | 'md' | 'lg' | 'icon' | 'icon-sm';
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary: 'bg-brand text-brand-fg shadow-sm hover:bg-brand-hover active:bg-brand-active',
-  secondary: 'bg-surface-2 text-fg border border-border hover:bg-surface-2/70',
-  outline: 'border border-border text-fg hover:bg-surface-2 hover:border-border/80',
+  secondary: 'bg-surface-2 text-fg hover:bg-surface-2/70',
+  outline: 'border border-border bg-surface text-fg hover:bg-surface-2',
   ghost: 'text-muted hover:bg-surface-2 hover:text-fg',
   danger: 'bg-danger text-white hover:bg-danger/90',
+  glass: 'border border-fg/10 bg-fg/[0.04] text-fg backdrop-blur-md hover:bg-fg/[0.08]',
+  glassOnMedia:
+    'border border-white/25 bg-black/25 text-white backdrop-blur-md hover:bg-black/35',
 };
 
 const SIZES: Record<ButtonSize, string> = {
   sm: 'h-8 gap-1.5 px-3 text-[13px]',
   md: 'h-10 gap-2 px-4 text-sm',
   lg: 'h-12 gap-2 px-6 text-base',
-  icon: 'h-10 w-10',
-  'icon-sm': 'h-9 w-9',
+  icon: 'size-10',
+  'icon-sm': 'size-8',
 };
 
 export interface ButtonStyleOptions {
@@ -36,8 +48,8 @@ export function buttonStyles({
   className,
 }: ButtonStyleOptions = {}): string {
   return cn(
-    'inline-flex select-none items-center justify-center whitespace-nowrap rounded-md font-medium',
-    'transition-colors disabled:pointer-events-none disabled:opacity-50',
+    'inline-flex select-none items-center justify-center whitespace-nowrap rounded-lg font-medium',
+    'transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50',
     VARIANTS[variant],
     SIZES[size],
     block && 'w-full',

@@ -61,19 +61,19 @@ export function ArchivePage() {
 
   return (
     <PageWithSidebar>
-      <header className="mb-8 flex flex-wrap items-end justify-between gap-3">
+      <header className="mb-10 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-fg">
-            <Icon name="calendar" size={22} className="text-brand" />
-            归档
-          </h1>
-          <p className="mt-1.5 text-sm text-muted">{total > 0 ? `共 ${total} 篇文章` : '按时间浏览全部文章'}</p>
+          <span className="eb-kicker">时间线</span>
+          <h1 className="mt-3 font-heading text-3xl tracking-tight text-fg sm:text-4xl">归档</h1>
+          <p className="mt-2 text-xs text-faint">
+            {total > 0 ? `${total} 篇` : '按时间浏览全部文章'}
+          </p>
         </div>
         {groups.length > 1 && (
           <button
             type="button"
             onClick={toggleAll}
-            className="text-xs font-medium text-faint transition-colors hover:text-brand"
+            className="eb-kicker transition-colors hover:text-brand"
           >
             {allOpen ? '全部收起' : '全部展开'}
           </button>
@@ -93,7 +93,7 @@ export function ArchivePage() {
           {groups.map(([year, posts]) => {
             const open = openYears.has(year);
             return (
-              <section key={year}>
+              <section key={year} className="rounded-2xl bg-surface p-5 shadow-card">
                 <button
                   type="button"
                   onClick={() => toggleYear(year)}
@@ -102,25 +102,28 @@ export function ArchivePage() {
                 >
                   <Icon
                     name="chevronRight"
-                    size={18}
+                    size={16}
                     className={cn('shrink-0 text-faint transition-transform', open && 'rotate-90')}
                   />
-                  <span className="text-lg font-semibold text-fg">{year}</span>
-                  <span className="text-sm font-normal text-faint">{posts.length} 篇</span>
-                  <span className="h-px flex-1 bg-border" />
+                  <span className="font-heading text-xl text-fg">{year}</span>
+                  <span className="eb-index-num flex h-6 min-w-6 items-center justify-center rounded-full bg-surface-2 px-1.5">
+                    {posts.length}
+                  </span>
                 </button>
                 {open && (
-                  <ul className="mt-2 space-y-1">
+                  <ul className="mt-3 space-y-0.5">
                     {posts.map((post) => (
                       <li key={post.slug}>
                         <Link
                           to={`/posts/${encodeURIComponent(post.slug)}`}
-                          className="flex items-baseline gap-3 rounded-md px-2 py-2 no-underline transition-colors hover:bg-surface-2"
+                          className="eb-index-row group flex items-baseline gap-3 rounded-xl px-2 py-2 no-underline transition-colors hover:bg-surface-2"
                         >
-                          <time className="shrink-0 font-mono text-xs text-faint">
+                          <time className="shrink-0 text-xs tabular-nums text-faint">
                             {formatDateShort(post.published_at ?? post.created_at).slice(5)}
                           </time>
-                          <span className="text-sm font-medium text-fg hover:text-brand">{post.title}</span>
+                          <span className="text-sm font-medium text-fg transition-colors group-hover:text-brand">
+                            {post.title}
+                          </span>
                         </Link>
                       </li>
                     ))}

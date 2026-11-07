@@ -91,7 +91,7 @@ export function Modal({
         aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
         className={cn(
-          'relative z-10 w-full max-w-md animate-fade-up rounded-xl border border-border bg-surface p-5 shadow-pop',
+          'relative z-10 w-full max-w-md animate-fade-up rounded-3xl bg-surface p-5 shadow-pop ring-1 ring-fg/5',
           className,
         )}
       >

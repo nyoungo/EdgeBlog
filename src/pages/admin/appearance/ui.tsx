@@ -1,11 +1,13 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { Card } from '../../../components/ui/Feedback';
 import { Field, Input, controlClass } from '../../../components/ui/Field';
 import { Switch } from '../../../components/ui/Switch';
 import { Icon, type IconName } from '../../../components/ui/icons';
 import { cn } from '../../../lib/utils';
 
-/** Card with a title, description and optional header actions. */
+/**
+ * 分区面板:圆角卡片 + 浅底标题栏 + 分隔线。
+ * 标题栏用浅色底和正文拉开层次,一眼能看出每一块设置的边界。
+ */
 export function Section({
   title,
   description,
@@ -22,11 +24,16 @@ export function Section({
   className?: string;
 }) {
   return (
-    <Card className={cn('flex min-w-0 flex-col p-5', className)}>
-      <div className="mb-4 flex items-start gap-3">
+    <section
+      className={cn(
+        'flex min-w-0 flex-col overflow-hidden rounded-3xl bg-surface shadow-card',
+        className,
+      )}
+    >
+      <header className="flex items-start gap-3 bg-surface-2/50 px-5 py-4">
         {icon && (
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
-            <Icon name={icon} size={17} />
+          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+            <Icon name={icon} size={16} />
           </span>
         )}
         <div className="min-w-0 flex-1">
@@ -34,13 +41,13 @@ export function Section({
           {description && <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p>}
         </div>
         {actions && <div className="shrink-0">{actions}</div>}
-      </div>
-      <div className="space-y-4">{children}</div>
-    </Card>
+      </header>
+      <div className="flex-1 space-y-4 px-5 py-5">{children}</div>
+    </section>
   );
 }
 
-/** Label + hint on the left, an inline control on the right (stacked on mobile). */
+/** 标签在左、控件在右的一行设置(窄屏堆叠)。 */
 export function Row({
   label,
   description,
@@ -55,19 +62,20 @@ export function Row({
   return (
     <div
       className={cn(
-        'flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4',
+        'flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-6',
         className,
       )}
     >
-      <div className="min-w-[7rem]">
+      <div className="min-w-[7rem] sm:max-w-[30rem]">
         <div className="text-sm font-medium text-fg">{label}</div>
-        {description && <p className="mt-0.5 text-xs text-muted">{description}</p>}
+        {description && <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-2 sm:justify-end">{children}</div>
     </div>
   );
 }
 
+/** 胶囊式分段选择:同一组里单选,选中项用主色实心块。 */
 export function Segmented<T extends string>({
   value,
   onChange,
@@ -78,7 +86,7 @@ export function Segmented<T extends string>({
   options: Array<{ value: T; label: string }>;
 }) {
   return (
-    <div className="inline-flex max-w-full flex-wrap gap-1 rounded-lg border border-border bg-surface p-1">
+    <div className="inline-flex max-w-full flex-wrap gap-1 rounded-full bg-surface-2 p-1">
       {options.map((option) => (
         <button
           key={option.value}
@@ -86,8 +94,10 @@ export function Segmented<T extends string>({
           aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
           className={cn(
-            'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-            value === option.value ? 'bg-brand text-brand-fg' : 'text-muted hover:bg-surface-2 hover:text-fg',
+            'rounded-full px-3 py-1.5 text-sm font-medium transition-colors',
+            value === option.value
+              ? 'bg-brand text-brand-fg shadow-sm'
+              : 'text-muted hover:bg-surface hover:text-fg',
           )}
         >
           {option.label}
@@ -97,21 +107,21 @@ export function Segmented<T extends string>({
   );
 }
 
-/** Clear button rendered inside the right edge of an input. */
+/** 输入框右侧的清除按钮。 */
 export function InlineClear({ onClick, label = '清除' }: { onClick: () => void; label?: string }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-faint transition-colors hover:bg-surface-2 hover:text-fg"
+      className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-faint transition-colors hover:bg-surface-2 hover:text-fg"
     >
       <Icon name="close" size={14} />
     </button>
   );
 }
 
-/** Text input with a clear (×) button inside, used for URL / colour values. */
+/** 带清除按钮的文本输入,用于 URL / 颜色等可留空的值。 */
 export function ClearableInput({
   label,
   hint,
@@ -139,7 +149,7 @@ export function ClearableInput({
           value={value}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
-          className={cn(controlClass, 'h-10 pr-9')}
+          className={cn(controlClass, 'h-10 pr-10')}
         />
         {value !== '' && <InlineClear onClick={() => onChange('')} />}
       </div>
@@ -149,7 +159,7 @@ export function ClearableInput({
 
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
-/** Colour swatch + free-text value, with the clear button inside the input. */
+/** 颜色选择器:左侧色块,右侧可自由输入,输入框内带清除按钮。 */
 export function ColorField({
   label,
   hint,
@@ -171,7 +181,7 @@ export function ColorField({
           type="color"
           value={HEX.test(value) ? value : '#6366f1'}
           onChange={(e) => onChange(e.target.value)}
-          className="h-10 w-11 shrink-0 cursor-pointer rounded-md border border-border bg-transparent p-0.5"
+          className="h-10 w-11 shrink-0 cursor-pointer rounded-lg bg-transparent p-0.5 ring-1 ring-fg/10"
           aria-label={`选择${label}颜色`}
         />
         <div className="relative min-w-0 flex-1">
@@ -180,17 +190,17 @@ export function ColorField({
             onChange={(e) => onChange(e.target.value)}
             placeholder={placeholder}
             aria-label={label}
-            className={cn(controlClass, 'h-10 pr-9')}
+            className={cn(controlClass, 'h-10 pr-10')}
           />
           {value && <InlineClear onClick={() => onChange('')} />}
         </div>
       </div>
-      {hint && <p className="text-xs text-muted">{hint}</p>}
+      {hint && <p className="text-xs leading-relaxed text-muted">{hint}</p>}
     </div>
   );
 }
 
-/** Switch rendered as a bordered tile, matching the form cards. */
+/** 开关做成一块小面板,和表单卡片呼应;可传 className 覆盖为无边框行内样式。 */
 export function SwitchTile({
   checked,
   onChange,
@@ -210,12 +220,15 @@ export function SwitchTile({
       onChange={onChange}
       label={label}
       description={description}
-      className={cn('rounded-lg border border-border p-3', className)}
+      className={cn(
+        'rounded-xl bg-surface-2/50 p-3.5 transition-colors hover:bg-surface-2',
+        className,
+      )}
     />
   );
 }
 
-/** Number input that keeps intermediate text (e.g. a trailing dot) while typing. */
+/** 数字输入,允许输入过程中的中间态(例如末尾的小数点)。 */
 export function SecondsInput({
   label,
   value,
@@ -262,7 +275,7 @@ export function SecondsInput({
   );
 }
 
-/** Small square icon button used for row actions (move / delete). */
+/** 列表项里的方形图标按钮(上移 / 下移 / 删除)。 */
 export function IconButton({
   icon,
   label,
@@ -286,7 +299,7 @@ export function IconButton({
       aria-label={label}
       title={label}
       className={cn(
-        'flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted transition-colors disabled:opacity-30',
+        'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted transition-colors disabled:opacity-30',
         tone === 'danger' ? 'hover:bg-danger/10 hover:text-danger' : 'hover:bg-surface-2 hover:text-fg',
         className,
       )}

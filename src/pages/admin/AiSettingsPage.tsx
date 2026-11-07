@@ -227,7 +227,7 @@ export function AiSettingsPage() {
             </span>
           </div>
           {testResult && (
-            <div className="rounded-lg border border-border bg-surface-2/60 p-3 text-xs leading-relaxed text-muted">
+            <div className="rounded-xl bg-surface-2/60 p-3 text-xs leading-relaxed text-muted">
               {testResult}
             </div>
           )}

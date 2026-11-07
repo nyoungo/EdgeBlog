@@ -199,7 +199,7 @@ export function MediaAdminPage() {
       ) : (
         <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
           {items.map((item) => (
-            <div key={item.id} className="group overflow-hidden rounded-lg border border-border bg-surface">
+            <div key={item.id} className="group overflow-hidden rounded-2xl bg-surface shadow-card">
               <div className="relative aspect-square">
                 {isVideo(item) ? (
                   <>
@@ -327,7 +327,7 @@ export function MediaAdminPage() {
       </Modal>
 
       {uploading && (
-        <div className={cn('fixed bottom-5 right-5 flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-3 shadow-pop')}>
+        <div className={cn('fixed bottom-5 right-5 flex items-center gap-2 rounded-xl bg-surface px-4 py-3 shadow-pop ring-1 ring-fg/5')}>
           <Spinner />
           <span className="text-sm">正在上传...</span>
         </div>

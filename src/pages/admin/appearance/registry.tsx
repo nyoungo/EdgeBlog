@@ -22,6 +22,8 @@ export const TAB_DEFS: TabDef[] = [
       { ns: 'site', path: ['description'] },
       { ns: 'site', path: ['locale'] },
       { ns: 'site', path: ['logo'] },
+      { ns: 'site', path: ['aboutLogo'] },
+      { ns: 'site', path: ['aboutText'] },
       { ns: 'site', path: ['favicon'] },
     ],
   },
@@ -50,6 +52,7 @@ export const TAB_DEFS: TabDef[] = [
     defaults: [
       { ns: 'layout', path: ['hero'] },
       { ns: 'layout', path: ['homeModules'] },
+      { ns: 'layout', path: ['sidebarModules'] },
       { ns: 'layout', path: ['cardStyle'] },
       { ns: 'layout', path: ['cardSize'] },
       { ns: 'layout', path: ['cardBlur'] },

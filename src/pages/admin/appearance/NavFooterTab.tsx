@@ -163,7 +163,7 @@ export function NavFooterTab() {
       >
         <div className="space-y-2">
           {navigation.map((item, i) => (
-            <div key={item.id} className="space-y-2 rounded-lg border border-border p-3">
+            <div key={item.id} className="space-y-2 rounded-xl bg-surface-2/50 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Input
                   value={item.label}
@@ -299,7 +299,7 @@ export function NavFooterTab() {
       >
         <div className="space-y-2">
           {social.map((item, i) => (
-            <div key={item.id} className="space-y-2 rounded-lg border border-border p-3">
+            <div key={item.id} className="space-y-2 rounded-xl bg-surface-2/50 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Select
                   value={item.type}

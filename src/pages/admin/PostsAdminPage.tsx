@@ -214,7 +214,7 @@ export function PostsAdminPage() {
       )}
 
       {selected.size > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm">
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-surface-2 px-3 py-2 text-sm">
           <span className="text-muted">已选择 {selected.size} 篇</span>
           <div className="ml-auto flex gap-2">
             {trash ? (

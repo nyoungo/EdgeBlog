@@ -2,23 +2,28 @@ import { Link } from 'react-router-dom';
 import { Icon, socialIcon } from '../ui/icons';
 import { useSettings } from '../../providers/SettingsProvider';
 
+/** 页脚 colophon：没有卡片和玻璃，只有分栏、细线与链接。 */
 export function Footer() {
   const { settings } = useSettings();
   const { site, social, features } = settings;
+  const vt = features.viewTransitions;
+
+  const external = (href: string) => /^(?:https?:|mailto:|tel:)/i.test(href);
+  const footerLinkClass = 'text-sm text-muted no-underline transition-colors hover:text-fg';
 
   return (
-    <footer className="mt-20 border-t border-border eb-glass-surface">
-      <div className="container-page flex flex-col items-center gap-8 py-12 text-center">
-        <div className="flex w-full max-w-sm flex-col items-center">
-          <div className="flex items-center justify-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-sm font-bold text-brand-fg">
+    <footer className="mt-24 bg-surface">
+      <div className="container-page grid gap-10 py-14 md:grid-cols-[1.6fr_1fr]">
+        <div>
+          <Link to="/" viewTransition={vt} className="inline-flex items-center gap-2.5 no-underline">
+            <span className="flex size-9 items-center justify-center rounded-lg bg-brand text-xs font-bold text-brand-fg">
               {(site.logo.text || site.name).slice(0, 1).toUpperCase()}
             </span>
-            <span className="text-base font-semibold text-fg">{site.name}</span>
-          </div>
-          {site.tagline && <p className="mt-3 text-sm text-muted">{site.tagline}</p>}
+            <span className="font-heading text-lg text-fg">{site.name}</span>
+          </Link>
+          {site.tagline && <p className="mt-3 max-w-[40ch] text-sm leading-relaxed text-muted">{site.tagline}</p>}
           {social.length > 0 && (
-            <div className="mt-4 flex flex-wrap justify-center gap-1">
+            <div className="mt-5 flex flex-wrap gap-1">
               {social.map((link) => (
                 <a
                   key={link.id}
@@ -27,50 +32,51 @@ export function Footer() {
                   rel="noopener noreferrer"
                   aria-label={link.label}
                   title={link.label}
-                  className="flex h-9 w-9 items-center justify-center rounded-md text-faint transition-colors hover:bg-surface-2 hover:text-fg"
+                  className="eb-icon-btn"
                 >
-                  <Icon name={socialIcon(link.type)} size={18} />
+                  <Icon name={socialIcon(link.type)} size={17} />
                 </a>
               ))}
             </div>
           )}
         </div>
 
-        {site.footerLinks.length > 0 && (
-          <nav className="flex flex-wrap justify-center gap-x-6 gap-y-2">
-            {site.footerLinks.map((link) => {
-              const className = 'text-sm text-muted no-underline transition-colors hover:text-fg';
-              // Only in-app paths go through the router. An external URL used to
-              // be handed to <Link>, which navigated the SPA to a 404 instead of
-              // leaving the site.
-              const external = /^(?:https?:|mailto:|tel:)/i.test(link.href);
-              return external ? (
-                <a
-                  key={link.href + link.label}
-                  href={link.href}
-                  target={/^https?:/i.test(link.href) ? '_blank' : undefined}
-                  rel={/^https?:/i.test(link.href) ? 'noopener noreferrer' : undefined}
-                  className={className}
-                >
-                  {link.label}
+        <div>
+          <ul className="space-y-2.5">
+            {site.footerLinks.map((link) => (
+              <li key={link.href + link.label}>
+                {external(link.href) ? (
+                  <a
+                    href={link.href}
+                    target={/^https?:/i.test(link.href) ? '_blank' : undefined}
+                    rel={/^https?:/i.test(link.href) ? 'noopener noreferrer' : undefined}
+                    className={footerLinkClass}
+                  >
+                    {link.label}
+                  </a>
+                ) : (
+                  <Link to={link.href} viewTransition={vt} className={footerLinkClass}>
+                    {link.label}
+                  </Link>
+                )}
+              </li>
+            ))}
+            {features.rss && !site.footerLinks.some((link) => /\/rss\.xml(?:$|[?#])/i.test(link.href)) && (
+              <li>
+                <a href="/rss.xml" className={footerLinkClass}>
+                  RSS
                 </a>
-              ) : (
-                <Link
-                  key={link.href + link.label}
-                  to={link.href}
-                  viewTransition={features.viewTransitions}
-                  className={className}
-                >
-                  {link.label}
-                </Link>
-              );
-            })}
-          </nav>
-        )}
+              </li>
+            )}
+          </ul>
+        </div>
       </div>
 
-      <div className="border-t border-border">
-        <div className="container-page py-5 text-center text-xs text-faint">{site.footerText}</div>
+      <div className="bg-surface-2/60">
+        <div className="container-page flex flex-col gap-2 py-5 text-[11px] text-faint sm:flex-row sm:items-center sm:justify-between">
+          <span>{site.footerText}</span>
+          <span>{site.locale}</span>
+        </div>
       </div>
     </footer>
   );

@@ -1,5 +1,4 @@
 import { Prose } from '../components/blog/Prose';
-import { Icon } from '../components/ui/icons';
 import { formatDate } from '../lib/format';
 import { useDocumentTitle, useMetaDescription } from '../hooks';
 import { useSettings } from '../providers/SettingsProvider';
@@ -13,12 +12,12 @@ export function AboutPage() {
   return (
     <div className="container-page py-12">
       <header className="mx-auto max-w-content">
-        <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight text-fg">
-          <Icon name="info" size={26} className="text-brand" />
-          {about.title}
-        </h1>
+        <span className="eb-kicker">关于</span>
+        <h1 className="mt-3 font-heading text-3xl tracking-tight text-fg sm:text-4xl">{about.title}</h1>
         {about.updatedAt && (
-          <p className="mt-2 text-sm text-faint">最后更新于 {formatDate(about.updatedAt, settings.site.locale)}</p>
+          <p className="mt-2 text-xs text-faint">
+            最后更新 {formatDate(about.updatedAt, settings.site.locale)}
+          </p>
         )}
       </header>
       <div className="mx-auto mt-10 max-w-content">
@@ -33,8 +32,8 @@ export function NotFoundPage() {
   useDocumentTitle('页面不存在', settings.site.name);
   return (
     <div className="container-page flex flex-col items-center py-32 text-center">
-      <p className="text-6xl font-bold tracking-tight text-brand">404</p>
-      <h1 className="mt-4 text-2xl font-bold text-fg">页面不存在</h1>
+      <span className="eb-index-num text-6xl">404</span>
+      <h1 className="mt-4 font-heading text-2xl text-fg">页面不存在</h1>
       <p className="mt-2 text-sm text-muted">你访问的页面可能已被移动或删除。</p>
       <a href="/" className="mt-6 text-sm font-medium text-brand hover:underline">
         返回首页

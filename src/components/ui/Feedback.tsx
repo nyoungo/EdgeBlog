@@ -29,8 +29,8 @@ export function EmptyState({
   className?: string;
 }) {
   return (
-    <div className={cn('flex flex-col items-center justify-center rounded-xl border border-dashed border-border px-6 py-16 text-center', className)}>
-      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-faint">
+    <div className={cn('flex flex-col items-center justify-center rounded-3xl bg-surface px-6 py-16 text-center shadow-card', className)}>
+      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-2 text-faint">
         <Icon name={icon} size={22} />
       </div>
       <h3 className="text-base font-semibold text-fg">{title}</h3>
@@ -61,7 +61,7 @@ export function ErrorState({
   return (
     <div
       className={cn(
-        'flex flex-col items-center justify-center rounded-xl border border-warning/40 bg-warning/5 px-6 py-16 text-center',
+        'flex flex-col items-center justify-center rounded-3xl bg-warning/[0.08] px-6 py-16 text-center shadow-card',
         className,
       )}
       role="alert"
@@ -91,7 +91,7 @@ export function Card({
   as?: 'div' | 'article' | 'section' | 'li';
 }) {
   return (
-    <Tag className={cn('rounded-xl border border-border bg-surface shadow-card', className)}>
+    <Tag className={cn('rounded-2xl bg-surface shadow-card', className)}>
       {children}
     </Tag>
   );

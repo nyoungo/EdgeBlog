@@ -1,14 +1,13 @@
 import { useSearchParams } from 'react-router-dom';
 import type { ApiMeta, PostSummary } from '@shared/types';
-import { Badge } from '../components/ui/Badge';
 import { Select } from '../components/ui/Field';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/Feedback';
-import { Icon } from '../components/ui/icons';
 import { Pagination } from '../components/ui/Pagination';
-import { PostCard, cardGridClass } from '../components/blog/PostCard';
+import { PostCollection } from '../components/blog/PostListItem';
 import { PageWithSidebar } from '../components/layout/PageWithSidebar';
 import { api, qs } from '../lib/api';
 import { fetchTags } from '../lib/resource';
+import { cn } from '../lib/utils';
 import { useAsync, useDocumentTitle } from '../hooks';
 import { useSettings } from '../providers/SettingsProvider';
 
@@ -19,20 +18,36 @@ const SORTS = [
   { value: 'title', label: '按标题' },
 ] as const;
 
+function ListSkeleton({ count = 6 }: { count?: number }) {
+  return (
+    <div className="space-y-4">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="flex gap-4 rounded-2xl bg-surface p-4 shadow-card">
+          <Skeleton className="mt-1 h-3 w-5 shrink-0" />
+          <div className="w-full space-y-2.5">
+            <Skeleton className="h-5 w-2/3" />
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3 w-24" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function PostListPage() {
   const { settings } = useSettings();
   const [params, setParams] = useSearchParams();
   const page = Number(params.get('page') ?? 1) || 1;
   const tag = params.get('tag') ?? '';
   const sort = (params.get('sort') ?? 'newest') as (typeof SORTS)[number]['value'];
+  const perPage = settings.layout.postsPerPage;
 
   const tags = useAsync(() => fetchTags(), []);
 
   const result = useAsync(async () => {
-    return api.get<PostSummary[]>(
-      `/posts${qs({ page, perPage: settings.layout.postsPerPage, tag: tag || undefined, sort })}`,
-    );
-  }, [page, tag, sort, settings.layout.postsPerPage]);
+    return api.get<PostSummary[]>(`/posts${qs({ page, perPage, tag: tag || undefined, sort })}`);
+  }, [page, tag, sort, perPage]);
 
   const posts = result.data?.data ?? [];
   const meta: ApiMeta = result.data?.meta ?? {};
@@ -50,20 +65,22 @@ export function PostListPage() {
     setParams(next, { replace: true });
   };
 
+  const offset = ((meta.page ?? page) - 1) * perPage;
+
   return (
     <PageWithSidebar>
-      <header className="mb-8">
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-fg">
-          <Icon name="fileText" size={22} className="text-brand" />
+      <header className="mb-10">
+        <span className="eb-kicker">{activeTag ? '标签' : '索引'}</span>
+        <h1 className="mt-3 font-heading text-3xl tracking-tight text-fg sm:text-4xl">
           {activeTag ? activeTag.name : '全部文章'}
         </h1>
-        <p className="mt-1.5 text-sm text-muted">
-          {meta.total != null ? `共 ${meta.total} 篇文章` : '探索全部内容'}
+        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-faint">
+          <span>{meta.total != null ? `${meta.total} 篇` : '探索全部内容'}</span>
           {activeTag && (
             <button
               type="button"
               onClick={() => update({ tag: undefined })}
-              className="ml-2 text-brand hover:underline"
+              className="text-brand hover:underline"
             >
               清除筛选
             </button>
@@ -72,31 +89,43 @@ export function PostListPage() {
       </header>
 
       {tags.data && tags.data.length > 0 && (
-        <div className="mb-8 flex flex-wrap gap-2">
+        <div className="mb-8 flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => update({ tag: undefined })}
-            className="no-underline"
             aria-pressed={!tag}
+            className={cn(
+              'rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors',
+              !tag
+                ? 'bg-brand text-brand-fg shadow-sm'
+                : 'bg-surface text-muted shadow-card hover:text-fg',
+            )}
           >
-            <Badge tone={!tag ? 'brand' : 'outline'} className="px-3 py-1 text-sm">
-              全部
-            </Badge>
+            全部
           </button>
           {tags.data.map((t) => (
-            <button key={t.id} type="button" onClick={() => update({ tag: t.slug })} aria-pressed={tag === t.slug} className="no-underline">
-              <Badge tone={tag === t.slug ? 'brand' : 'outline'} className="px-3 py-1 text-sm">
-                {t.name}
-                <span className="text-faint">{t.post_count}</span>
-              </Badge>
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => update({ tag: t.slug })}
+              aria-pressed={tag === t.slug}
+              className={cn(
+                'inline-flex items-baseline gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors',
+                tag === t.slug
+                  ? 'bg-brand text-brand-fg shadow-sm'
+                  : 'bg-surface text-muted shadow-card hover:text-fg',
+              )}
+            >
+              {t.name}
+              <span className="eb-index-num">{t.post_count}</span>
             </button>
           ))}
         </div>
       )}
 
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <p className="text-sm text-faint">
-          {meta.page && meta.totalPages ? `第 ${meta.page} / ${meta.totalPages} 页` : ''}
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <p className="text-xs text-faint">
+          {meta.page && meta.totalPages ? `第 ${meta.page} / ${meta.totalPages} 页` : '\u00a0'}
         </p>
         <Select
           aria-label="排序"
@@ -116,17 +145,7 @@ export function PostListPage() {
       {result.error ? (
         <ErrorState description={result.error} onRetry={result.reload} />
       ) : result.loading && !result.data ? (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="overflow-hidden rounded-xl border border-border bg-surface">
-              <Skeleton className="aspect-[16/9] w-full" />
-              <div className="space-y-3 p-5">
-                <Skeleton className="h-5 w-3/4" />
-                <Skeleton className="h-4 w-full" />
-              </div>
-            </div>
-          ))}
-        </div>
+        <ListSkeleton count={Math.min(perPage, 6)} />
       ) : posts.length === 0 ? (
         <EmptyState
           icon="search"
@@ -135,11 +154,7 @@ export function PostListPage() {
         />
       ) : (
         <>
-          <div className={cardGridClass(settings.layout.cardStyle, settings.layout.cardSize)}>
-            {posts.map((post) => (
-              <PostCard key={post.id} post={post} style={settings.layout.cardStyle} />
-            ))}
-          </div>
+          <PostCollection posts={posts} offset={offset} />
           <Pagination
             className="mt-12"
             page={meta.page ?? 1}

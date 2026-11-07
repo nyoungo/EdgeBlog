@@ -14,6 +14,8 @@ export const siteSchema = z
       text: z.string().max(40),
       imageUrl: urlOrPath,
     }),
+    aboutLogo: urlOrPath,
+    aboutText: z.string().trim().max(400),
     favicon: urlOrPath,
     footerText: z.string().max(300),
     footerLinks: z
@@ -42,11 +44,18 @@ export const themeSchema = z
     maxWidth: z.string().trim().max(12),
     lineHeight: z.enum(['compact', 'normal', 'relaxed']),
     codeTheme: z.string().trim().max(60),
+    codeThemeLight: z.string().trim().max(60),
+    glassOpacity: z.number().min(0.05).max(0.95),
   })
   .deepPartial();
 
 const homeModule = z.object({
   id: z.enum(['hero', 'latest', 'featured', 'tags', 'newsletter']),
+  enabled: z.boolean(),
+});
+
+const sidebarModule = z.object({
+  id: z.enum(['about', 'latest', 'tags', 'subscribe']),
   enabled: z.boolean(),
 });
 
@@ -84,6 +93,7 @@ const headerSchema = z.object({
 export const layoutSchema = z
   .object({
     homeModules: z.array(homeModule).max(10),
+    sidebarModules: z.array(sidebarModule).max(10),
     sidebar: z.enum(['left', 'right', 'none']),
     cardStyle: z.enum(['magazine', 'minimal', 'grid', 'overlay', 'compact']),
     cardSize: z.enum(['sm', 'md', 'lg']),

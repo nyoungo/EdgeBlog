@@ -1,5 +1,12 @@
 import type { PublicSettings, ThemeMode, ThemeSettings } from '@shared/types';
-import { brandShades, hexToRgbChannels, parseChannels } from './color';
+import {
+  brandShades,
+  hexToRgbChannels,
+  mix,
+  parseChannels,
+  relativeLuminance,
+  rgbToChannels,
+} from './color';
 import { codeThemeCss } from './code-themes';
 import { injectInto } from './dom-inject';
 
@@ -10,8 +17,8 @@ const THEME_KEY = 'eb:theme';
 
 const FONT_SIZE: Record<ThemeSettings['fontScale'], string> = {
   sm: '15px',
-  md: '17px',
-  lg: '19px',
+  md: '16px',
+  lg: '18px',
 };
 
 export const RADIUS: Record<ThemeSettings['radius'], string> = {
@@ -22,10 +29,13 @@ export const RADIUS: Record<ThemeSettings['radius'], string> = {
 };
 
 const LINE_HEIGHT: Record<ThemeSettings['lineHeight'], string> = {
-  compact: '1.6',
-  normal: '1.75',
-  relaxed: '1.9',
+  compact: '1.55',
+  normal: '1.7',
+  relaxed: '1.85',
 };
+
+/** Neutral ramp entries derived from a custom page background. */
+const DERIVED_NEUTRALS = ['--c-surface', '--c-surface-2', '--c-border', '--c-muted', '--c-faint'];
 
 const SANS_STACK = [
   '-apple-system',
@@ -180,8 +190,9 @@ export function applyTheme(theme: ThemeSettings): void {
     style.setProperty('--c-brand-fg', shades.fg);
     style.setProperty('--c-brand-hover', shades.hover);
     style.setProperty('--c-brand-active', shades.active);
+    style.setProperty('--c-focus', rgbToChannels(brandRgb));
   } else {
-    for (const prop of ['--c-brand-fg', '--c-brand-hover', '--c-brand-active']) {
+    for (const prop of ['--c-brand-fg', '--c-brand-hover', '--c-brand-active', '--c-focus']) {
       style.removeProperty(prop);
     }
   }
@@ -191,19 +202,54 @@ export function applyTheme(theme: ThemeSettings): void {
     ? theme.backgroundColorDark
     : theme.backgroundColorLight || theme.backgroundColor;
   const bg = bgHex ? hexToRgbChannels(bgHex) : null;
+  const bgRgb = bg ? parseChannels(bg) : null;
+
+  // 自定义背景时同步派生整套中性色，避免 surface / border 与底色打架。
+  for (const prop of DERIVED_NEUTRALS) style.removeProperty(prop);
   if (bg) style.setProperty('--c-bg', bg);
   else style.removeProperty('--c-bg');
 
+  if (bgRgb) {
+    const fgRgb = parseChannels(
+      getComputedStyle(root).getPropertyValue('--c-fg').trim(),
+    );
+    if (fgRgb) {
+      const white = { r: 255, g: 255, b: 255 };
+      const bgIsDark = relativeLuminance(bgRgb) < 0.42;
+      const surface = bgIsDark ? mix(bgRgb, white, 0.06) : mix(bgRgb, white, 0.65);
+      const surface2 = bgIsDark ? mix(bgRgb, white, 0.1) : mix(bgRgb, fgRgb, 0.05);
+      const border = bgIsDark ? mix(bgRgb, white, 0.16) : mix(bgRgb, fgRgb, 0.14);
+      const muted = mix(fgRgb, bgRgb, 0.35);
+      const faint = mix(fgRgb, bgRgb, 0.55);
+      style.setProperty('--c-surface', rgbToChannels(surface));
+      style.setProperty('--c-surface-2', rgbToChannels(surface2));
+      style.setProperty('--c-border', rgbToChannels(border));
+      style.setProperty('--c-muted', rgbToChannels(muted));
+      style.setProperty('--c-faint', rgbToChannels(faint));
+    }
+  }
+
   style.setProperty('--radius', RADIUS[theme.radius] ?? RADIUS.md);
-  style.setProperty('--max-width', theme.maxWidth || '72ch');
+  style.setProperty('--max-width', theme.maxWidth || '100%');
   style.setProperty('--font-size-base', FONT_SIZE[theme.fontScale] ?? FONT_SIZE.md);
   style.setProperty('--line-height', LINE_HEIGHT[theme.lineHeight] ?? LINE_HEIGHT.normal);
   style.setProperty('--font-body', FONT_STACKS[theme.fontBody] ?? SANS_STACK);
   style.setProperty('--font-heading', FONT_STACKS[theme.fontHeading] ?? SANS_STACK);
 
+  // 玻璃浓度：一个值派生顶栏 / 面板 / 小控件三档；暗色略加重。
+  const glassBase = Math.min(
+    0.95,
+    Math.max(0.05, (theme.glassOpacity ?? (dark ? 0.42 : 0.34)) + (dark ? 0.08 : 0)),
+  );
+  style.setProperty('--glass-bar-alpha', glassBase.toFixed(2));
+  style.setProperty('--glass-panel-alpha', Math.min(0.94, glassBase + 0.22).toFixed(2));
+  style.setProperty('--glass-chip-alpha', Math.max(0.06, glassBase * 0.5).toFixed(2));
+
   applyBackground(theme, style);
 
-  injectStyle('eb-code-theme', codeThemeCss(theme.codeTheme));
+  // 代码高亮亮/暗分开：旧字段 codeTheme 继续作为暗色主题。
+  const lightCodeTheme = theme.codeThemeLight?.trim() || 'github';
+  injectStyle('eb-code-theme', codeThemeCss(dark ? theme.codeTheme : lightCodeTheme));
 }
 
 /** Apply site-wide advanced settings (custom CSS, injected head/footer HTML). */

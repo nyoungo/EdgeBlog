@@ -173,6 +173,9 @@ export interface SiteSettings {
   tagline: string;
   description: string;
   logo: { type: 'text' | 'image'; text: string; imageUrl: string };
+  /** 首页侧栏「关于」卡片:可单独设置圆形头像与简介,留空回退到站点 Logo / 描述。 */
+  aboutLogo: string;
+  aboutText: string;
   favicon: string;
   footerText: string;
   footerLinks: Array<{ label: string; href: string }>;
@@ -217,7 +220,15 @@ export interface ThemeSettings {
   radius: RadiusSize;
   maxWidth: string;
   lineHeight: LineHeightChoice;
+  /** Dark-mode code highlight theme (legacy single value). */
   codeTheme: string;
+  /** Light-mode code highlight theme; empty = paired default (github). */
+  codeThemeLight?: string;
+  /**
+   * Glass tint opacity for the header (0.05–0.95). Lower = more transparent.
+   * Panels and chips derive from this value.
+   */
+  glassOpacity?: number;
 }
 
 export type HomeModuleId =
@@ -229,6 +240,14 @@ export type HomeModuleId =
 
 export interface HomeModule {
   id: HomeModuleId;
+  enabled: boolean;
+}
+
+export type SidebarModuleId = 'about' | 'latest' | 'tags' | 'subscribe';
+
+/** 侧栏卡片开关；数组顺序即渲染顺序。 */
+export interface SidebarModule {
+  id: SidebarModuleId;
   enabled: boolean;
 }
 
@@ -306,6 +325,8 @@ export interface HeaderSettings {
 export interface LayoutSettings {
   /** Ordered; the Appearance panel drag-sorts this array. */
   homeModules: HomeModule[];
+  /** 侧栏卡片（关于 / 最新 / 标签 / 订阅）的功能开关。 */
+  sidebarModules: SidebarModule[];
   sidebar: SidebarPosition;
   cardStyle: CardStyle;
   /** Card size: affects padding, type scale and grid density. */

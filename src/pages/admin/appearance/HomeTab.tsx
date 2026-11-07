@@ -9,6 +9,7 @@ import { uploadMedia } from '../../../lib/api';
 import { captureVideoThumbnail } from '../../../lib/video-thumbnail';
 import { useToast } from '../../../providers/ToastProvider';
 import { useAppearance } from './context';
+import { resolveSidebarModules } from '../../../components/blog/Sidebar';
 import {
   ClearableInput,
   ColorField,
@@ -37,11 +38,18 @@ const MODULE_INFO: Record<string, { label: string; description?: string }> = {
   newsletter: { label: '订阅', description: 'RSS 订阅入口' },
 };
 
+const SIDEBAR_MODULE_INFO: Record<string, { label: string; description?: string }> = {
+  about: { label: '关于', description: '站点简介与头像' },
+  latest: { label: '最新文章' },
+  tags: { label: '标签云' },
+  subscribe: { label: '订阅', description: 'RSS 订阅入口' },
+};
+
 /** Explains the video → image → colour fallback and marks the active one. */
 function FallbackChain({ active }: { active: Source | 'none' }) {
   const current = SOURCES.find((source) => source.id === active)?.label;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-surface-2/40 px-3 py-2 text-xs">
+    <div className="flex flex-wrap items-center gap-1.5 rounded-xl bg-surface-2/60 px-3 py-2 text-xs">
       {SOURCES.map((source, i) => (
         <span key={source.id} className="flex items-center gap-1.5">
           {i > 0 && <Icon name="chevronRight" size={12} className="text-faint" />}
@@ -73,6 +81,11 @@ export function HomeTab() {
   const image = hero.backgroundImage;
   const color = hero.background;
   const active: Source | 'none' = video ? 'video' : image ? 'image' : color ? 'color' : 'none';
+  const heroMode: 'full' | 'fixed' | 'auto' = hero.fullScreen
+    ? 'full'
+    : hero.height.trim()
+      ? 'fixed'
+      : 'auto';
 
   /** Picking a video also adopts the library's generated first frame as poster. */
   const pickVideo = () =>
@@ -122,6 +135,7 @@ export function HomeTab() {
           label="背景视频"
           value={video}
           poster={image}
+          preview={false}
           placeholder="https://.../hero.mp4 或 /media/..."
           hint="优先级最高;MP4 / WebM,单个 ≤ 25MB,自动静音播放。"
           onChange={(value) => setHero({ backgroundVideo: value, backgroundMedia: '' })}
@@ -132,7 +146,7 @@ export function HomeTab() {
           label={video ? '背景图片 / 视频封面' : '背景图片'}
           value={image}
           placeholder="https://.../hero.jpg 或 /media/..."
-          preview={!video}
+          preview={false}
           hint={
             video
               ? '同时作为视频封面:手机端不播放视频,直接显示这张图;桌面端在视频加载前也用它占位。'
@@ -209,38 +223,52 @@ export function HomeTab() {
       )}
 
       <Section title="尺寸与对齐" description="欢迎区的宽高与内容对齐" icon="dashboard">
-        <SwitchTile
-          checked={hero.fullScreen}
-          onChange={(fullScreen) => setHero({ fullScreen })}
-          label="铺满屏幕"
-          description="全宽并占满整个视口高度;开启后将忽略下方宽度与高度"
-        />
-        {hero.fullScreen ? (
+        <Row label="高度模式" description="全屏占满视口；固定高度默认 480px（移动 320px）；自适应由内容撑开">
+          <Segmented
+            value={heroMode}
+            onChange={(mode) => {
+              if (mode === 'full') setHero({ fullScreen: true });
+              else if (mode === 'fixed') setHero({ fullScreen: false, height: hero.height.trim() || '480px' });
+              else setHero({ fullScreen: false, height: '' });
+            }}
+            options={[
+              { value: 'full', label: '全屏' },
+              { value: 'fixed', label: '固定高度' },
+              { value: 'auto', label: '自适应' },
+            ]}
+          />
+        </Row>
+
+        {heroMode === 'fixed' && (
+          <Input
+            label="固定高度"
+            value={hero.height}
+            onChange={(e) => setHero({ height: e.target.value })}
+            placeholder="480px / 60vh"
+            hint="移动端默认缩到 320px，仅在默认 480px 时自动生效。"
+            wrapperClassName="sm:max-w-[14rem]"
+          />
+        )}
+
+        {heroMode === 'full' ? (
           <div className="flex items-center gap-2 rounded-lg border border-brand/30 bg-brand/5 px-3 py-2 text-xs text-muted">
             <Icon name="info" size={15} className="shrink-0 text-brand" />
-            当前为「铺满屏幕」模式,宽度与高度已锁定。
+            当前为「全屏」模式，宽度已锁定为通栏。
           </div>
         ) : (
-          <>
-            <Row label="宽度">
-              <Segmented
-                value={hero.width}
-                onChange={(width) => setHero({ width })}
-                options={[
-                  { value: 'contained', label: '标准' },
-                  { value: 'narrow', label: '窄' },
-                  { value: 'full', label: '全宽' },
-                ]}
-              />
-            </Row>
-            <Input
-              label="高度"
-              value={hero.height}
-              onChange={(e) => setHero({ height: e.target.value })}
-              placeholder="360px / 60vh,留空自适应"
+          <Row label="宽度">
+            <Segmented
+              value={hero.width}
+              onChange={(width) => setHero({ width })}
+              options={[
+                { value: 'contained', label: '标准' },
+                { value: 'narrow', label: '窄' },
+                { value: 'full', label: '全宽' },
+              ]}
             />
-          </>
+          </Row>
         )}
+
         <Row label="对齐">
           <Segmented
             value={hero.align}
@@ -304,7 +332,7 @@ export function HomeTab() {
           {layout.homeModules.map((module, index) => (
             <li
               key={module.id}
-              className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2.5"
+              className="flex flex-wrap items-center gap-2 rounded-xl bg-surface-2/50 px-3 py-2.5"
             >
               <Icon name="drag" size={15} className="shrink-0 text-faint" />
               <div className="min-w-0 flex-1">
@@ -379,6 +407,37 @@ export function HomeTab() {
             ]}
           />
         </Row>
+      </Section>
+
+      <Section title="侧边栏卡片" description="首页右侧边栏的每张卡片" icon="columns">
+        <ul className="space-y-2">
+          {resolveSidebarModules(layout.sidebarModules)
+            .filter((module) => SIDEBAR_MODULE_INFO[module.id])
+            .map((module) => {
+            const info = SIDEBAR_MODULE_INFO[module.id]!;
+            return (
+              <li
+                key={module.id}
+                className="flex flex-wrap items-center gap-2 rounded-xl bg-surface-2/50 px-3 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-fg">{info.label}</div>
+                  {info.description && <p className="text-xs text-muted">{info.description}</p>}
+                </div>
+                <Switch
+                  checked={module.enabled}
+                  onChange={(enabled) =>
+                    setLayout({
+                      sidebarModules: resolveSidebarModules(layout.sidebarModules).map((m) =>
+                        m.id === module.id ? { ...m, enabled } : m,
+                      ),
+                    })
+                  }
+                />
+              </li>
+            );
+          })}
+        </ul>
       </Section>
 
       <Section title="列表布局" description="侧边栏与分页" icon="columns">

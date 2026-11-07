@@ -4,7 +4,7 @@ import type { PostSummary } from '@shared/types';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/Feedback';
 import { Icon } from '../components/ui/icons';
 import { Pagination } from '../components/ui/Pagination';
-import { PostCard, cardGridClass } from '../components/blog/PostCard';
+import { PostCollection } from '../components/blog/PostListItem';
 import { PageWithSidebar } from '../components/layout/PageWithSidebar';
 import { api, qs } from '../lib/api';
 import { useAsync, useDebounced, useDocumentTitle } from '../hooks';
@@ -22,6 +22,23 @@ function readRecent(): string[] {
   }
 }
 
+function SearchSkeleton({ count = 4 }: { count?: number }) {
+  return (
+    <div className="space-y-4">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="flex gap-4 rounded-2xl bg-surface p-4 shadow-card">
+          <Skeleton className="mt-1 h-3 w-5 shrink-0" />
+          <div className="w-full space-y-2.5">
+            <Skeleton className="h-5 w-2/3" />
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3 w-24" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function SearchPage() {
   const { settings } = useSettings();
   const [params, setParams] = useSearchParams();
@@ -31,7 +48,7 @@ export function SearchPage() {
   const [recent, setRecent] = useState<string[]>(readRecent);
   const page = Number(params.get('page') ?? 1) || 1;
 
-  // ⌘K / Ctrl+K from anywhere, or `/` when not already typing in a field.
+  // ⌘K / Ctrl+K 或 `/` 聚焦搜索框。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target instanceof HTMLElement ? e.target : null;
@@ -47,7 +64,7 @@ export function SearchPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Remember what was searched so the empty state is not a dead end.
+  // 记住最近搜索，空结果时不是死路。
   useEffect(() => {
     if (!query || query.length < 2) return;
     const next = [query, ...readRecent().filter((r) => r !== query)].slice(0, 6);
@@ -61,8 +78,7 @@ export function SearchPage() {
 
   useDocumentTitle('搜索', settings.site.name);
 
-  // Keep ?q in sync; a brand-new query always lands on page 1, but a deep link
-  // that already carries ?q&page must keep its page on first render.
+  // ?q 同步：新查询回到第 1 页，带 page 的深链首屏保留页码。
   const prevQuery = useRef(query);
   useEffect(() => {
     const next = new URLSearchParams(params);
@@ -84,8 +100,7 @@ export function SearchPage() {
   const totalPages = result.data?.meta?.totalPages ?? 1;
   const noResults = Boolean(query) && !result.loading && !result.error && posts.length === 0;
 
-  // Dead-end guard: when nothing matches, offer a few popular articles instead
-  // of leaving the visitor with a single line of grey text.
+  // 空结果时给几篇热门文章，避免只剩一行灰字。
   const recommend = useAsync(async () => {
     if (!noResults) return [] as PostSummary[];
     const { data } = await api.get<PostSummary[]>(`/posts${qs({ perPage: 3, sort: 'popular' })}`);
@@ -102,79 +117,82 @@ export function SearchPage() {
 
   return (
     <PageWithSidebar>
-      <header className="mx-auto mb-10 max-w-2xl text-center">
-        <h1 className="text-2xl font-bold tracking-tight text-fg">搜索</h1>
-        <p className="mt-1.5 text-sm text-muted">在全部文章中查找关键词(支持中英文)</p>
-        <div className="relative mt-6">
-          <Icon name="search" size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-faint" />
+      <header className="mb-8">
+        <span className="eb-kicker">检索</span>
+        <h1 className="mt-3 font-heading text-3xl tracking-tight text-fg sm:text-4xl">搜索</h1>
+        <div className="relative mt-6 max-w-xl">
+          <Icon
+            name="search"
+            size={18}
+            className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-faint"
+          />
           <input
             ref={inputRef}
             type="search"
             autoFocus
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="输入关键词...(⌘K 或 / 聚焦)"
+            placeholder="输入关键词…（⌘K 或 / 聚焦）"
             aria-label="搜索关键词"
-            className="w-full rounded-full border border-border bg-surface py-3 pl-11 pr-4 text-base text-fg placeholder:text-faint focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+            className="w-full rounded-xl bg-surface py-3 pl-11 pr-4 text-base text-fg shadow-card ring-1 ring-fg/5 transition-shadow placeholder:text-faint focus:outline-none focus:ring-2 focus:ring-brand/40"
           />
         </div>
-        {query && <p className="mt-3 text-sm text-faint">找到 {total} 条结果</p>}
+        <p className="mt-3 text-xs text-faint">
+          {query
+            ? result.loading && !result.data
+              ? '搜索中…'
+              : `${total} 条结果`
+            : '支持中英文关键词'}
+        </p>
       </header>
 
       {!query ? (
-        <div className="mx-auto max-w-2xl text-center">
-          <p className="text-sm text-faint">输入关键词开始搜索</p>
-          {recent.length > 0 && (
-            <div className="mt-6">
-              <p className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-faint">最近搜索</p>
-              <div className="flex flex-wrap justify-center gap-2">
+        <div>
+          {recent.length === 0 ? (
+            <p className="text-sm text-muted">输入关键词开始搜索。</p>
+          ) : (
+            <>
+              <h2 className="eb-kicker">最近搜索</h2>
+              <div className="mt-4 flex flex-wrap gap-2">
                 {recent.map((term) => (
                   <button
                     key={term}
                     type="button"
                     onClick={() => setInput(term)}
-                    className="rounded-full border border-border bg-surface px-3 py-1.5 text-sm text-muted transition-colors hover:border-brand hover:text-brand"
+                    className="rounded-full bg-surface px-3.5 py-1.5 text-sm text-muted shadow-card transition-colors hover:text-fg"
                   >
                     {term}
                   </button>
                 ))}
               </div>
-            </div>
+            </>
           )}
         </div>
       ) : result.error ? (
         <ErrorState title="搜索失败" description={result.error} onRetry={result.reload} />
       ) : result.loading && !result.data ? (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-72 w-full" />
-          ))}
-        </div>
+        <SearchSkeleton />
       ) : posts.length === 0 ? (
         <div>
           <EmptyState
             icon="search"
             title="没有匹配的结果"
-            description={`没有找到与「${query}」相关的文章,试试其他关键词。`}
+            description={`没有找到与「${query}」相关的文章，试试其他关键词。`}
           />
           {(recommend.data?.length ?? 0) > 0 && (
             <div className="mt-12">
-              <p className="mb-4 text-center text-sm text-muted">或者看看这些热门文章</p>
-              <div className={cardGridClass(settings.layout.cardStyle, settings.layout.cardSize)}>
-                {recommend.data?.map((post) => (
-                  <PostCard key={post.id} post={post} style={settings.layout.cardStyle} />
-                ))}
-              </div>
+              <h2 className="mb-4 eb-kicker">热门文章</h2>
+              <PostCollection posts={recommend.data ?? []} />
             </div>
           )}
         </div>
       ) : (
         <>
-          <div className={cardGridClass(settings.layout.cardStyle, settings.layout.cardSize)}>
-            {posts.map((post) => (
-              <PostCard key={post.id} post={post} style={settings.layout.cardStyle} highlight={query} />
-            ))}
-          </div>
+          <PostCollection
+            posts={posts}
+            offset={(page - 1) * PER_PAGE}
+            highlight={query}
+          />
           <Pagination className="mt-10" page={page} totalPages={totalPages} onChange={goPage} />
         </>
       )}

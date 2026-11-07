@@ -96,7 +96,7 @@ export function MusicTab() {
             </div>
             {music.playlist.length === 0 && <p className="text-xs text-faint">暂无歌曲，点击「添加歌曲」。</p>}
             {music.playlist.map((track, i) => (
-              <div key={track.id} className="space-y-2 rounded-lg border border-border p-3">
+              <div key={track.id} className="space-y-2 rounded-xl bg-surface-2/50 p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Input
                     value={track.title}

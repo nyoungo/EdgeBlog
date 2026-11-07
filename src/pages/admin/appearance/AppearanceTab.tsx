@@ -126,7 +126,7 @@ export function AppearanceTab() {
           })}
         </div>
 
-        <div className="grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
+        <div className="mt-2 grid gap-4 rounded-2xl bg-surface-2/40 p-4 sm:grid-cols-2">
           <Row label="默认模式" description="访客首次进入时使用；可随时在顶栏切换">
             <Segmented
               value={theme.mode}
@@ -148,7 +148,7 @@ export function AppearanceTab() {
         </div>
 
         {/* 派生色随主色实时变化，用来确认浅色主色上的文字仍然可读。 */}
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-2/40 p-2.5">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-surface-2/60 p-2.5">
           <span className="flex h-8 items-center rounded-md bg-brand px-3 text-xs font-medium text-brand-fg">
             主色
           </span>
@@ -187,7 +187,7 @@ export function AppearanceTab() {
           onPick={() => pickMedia('image', (item) => setTheme({ backgroundImage: item.url }))}
         />
         {theme.backgroundImage && (
-          <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-2/40 p-3">
+          <div className="flex items-center gap-3 rounded-xl bg-surface-2/60 p-3">
             <span
               aria-hidden="true"
               className="relative h-20 w-32 shrink-0 overflow-hidden rounded-md border border-border bg-surface"
@@ -273,7 +273,7 @@ export function AppearanceTab() {
             ))}
           </Select>
         </div>
-        <div className="space-y-2 rounded-lg border border-border bg-surface-2/40 p-3">
+        <div className="space-y-2 rounded-xl bg-surface-2/60 p-3">
           <p className="font-heading text-base font-semibold text-fg">标题字体示例 Aa 文章标题</p>
           <p className="text-sm text-muted" style={{ fontFamily: 'var(--font-body)' }}>
             正文字体示例：好的排版让长文读起来不费力，中文与 English 混排也应保持节奏。
@@ -316,7 +316,7 @@ export function AppearanceTab() {
             ]}
           />
         </Row>
-        <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface-2/40 p-3">
+        <div className="flex flex-wrap items-end gap-3 rounded-xl bg-surface-2/60 p-3">
           {(
             [
               { key: 'none', label: '直角' },
@@ -339,23 +339,36 @@ export function AppearanceTab() {
           label="内容最大宽度"
           value={theme.maxWidth}
           onChange={(e) => setTheme({ maxWidth: e.target.value })}
-          placeholder="72ch"
-          hint="支持 ch / px / rem，如 72ch 或 760px。"
+          placeholder="100%"
+          hint="支持 % / ch / px / rem,默认 100% 占满容器,填 68ch 可限制行宽。"
           wrapperClassName="sm:max-w-[12rem]"
         />
-        <Select
-          label="代码高亮主题"
-          value={theme.codeTheme}
-          onChange={(e) => setTheme({ codeTheme: e.target.value })}
-        >
-          {Object.entries(CODE_THEMES).map(([value, { label }]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </Select>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Select
+            label="亮色代码主题"
+            value={theme.codeThemeLight ?? 'github'}
+            onChange={(e) => setTheme({ codeThemeLight: e.target.value })}
+          >
+            {Object.entries(CODE_THEMES).map(([value, { label }]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="暗色代码主题"
+            value={theme.codeTheme}
+            onChange={(e) => setTheme({ codeTheme: e.target.value })}
+          >
+            {Object.entries(CODE_THEMES).map(([value, { label }]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </div>
         {/* 代码块使用真实 highlight.js 类名，注入的高亮主题会直接作用在这里。 */}
-        <div className="overflow-hidden rounded-lg border border-border">
+        <div className="overflow-hidden rounded-xl shadow-card">
           <pre className="m-0 overflow-x-auto text-xs leading-relaxed">
             <code className="hljs">
               <span className="hljs-keyword">const</span>{' '}
@@ -367,6 +380,46 @@ export function AppearanceTab() {
         </div>
       </Section>
 
+      <Section title="玻璃材质" description="只作用于顶栏、粘滞栏与弹层；静止卡片保持平面" icon="monitor">
+        <div className="space-y-1.5">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-sm font-medium text-fg">玻璃不透明度</span>
+            <span className="text-xs tabular-nums text-muted">
+              {Math.round((theme.glassOpacity ?? 0.34) * 100)}%
+            </span>
+          </div>
+          <input
+            type="range"
+            min={5}
+            max={95}
+            step={1}
+            value={Math.round((theme.glassOpacity ?? 0.34) * 100)}
+            onChange={(e) => setTheme({ glassOpacity: Number(e.target.value) / 100 })}
+            aria-label="玻璃不透明度"
+            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-surface-2 accent-brand"
+          />
+          <p className="text-xs text-muted">越低越透明；暗色模式会自动加重一档，保证文字可读。</p>
+        </div>
+
+        {/* 用真实玻璃类做预览，滑块拖动时立即反映到当前主题。 */}
+        <div className="relative h-32 overflow-hidden rounded-xl bg-[linear-gradient(120deg,rgb(var(--c-brand)/0.55),rgb(var(--c-surface-2))_46%,rgb(var(--c-brand)/0.28))]">
+          <div className="eb-glass-bar flex h-11 items-center justify-between px-3">
+            <span className="flex items-center gap-2 text-xs font-medium text-fg">
+              <span className="flex size-5 items-center justify-center rounded bg-brand text-[10px] font-bold text-brand-fg">
+                E
+              </span>
+              预览顶栏
+            </span>
+            <span className="flex gap-2">
+              <span className="h-1.5 w-6 rounded-full bg-fg/40" />
+              <span className="h-1.5 w-6 rounded-full bg-fg/25" />
+              <span className="h-1.5 w-6 rounded-full bg-fg/25" />
+            </span>
+          </div>
+          <p className="px-3 pt-6 font-mono text-[11px] text-white/90">背景从玻璃后面经过时最明显</p>
+        </div>
+      </Section>
+
       <Section
         title="效果预览"
         description="改动会实时同步到整个后台与前台"
@@ -374,19 +427,19 @@ export function AppearanceTab() {
         className="xl:col-span-2"
       >
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-3 rounded-lg border border-border bg-bg p-4">
+          <div className="space-y-3 rounded-xl bg-surface-2/50 p-4">
             <div className="flex flex-wrap items-center gap-2">
               <span className="flex h-9 items-center rounded-md bg-brand px-3 text-sm font-medium text-brand-fg">
                 主要按钮
               </span>
-              <span className="flex h-9 items-center rounded-md border border-border bg-surface-2 px-3 text-sm text-fg">
+              <span className="flex h-9 items-center rounded-md bg-surface-2 px-3 text-sm text-fg">
                 次要按钮
               </span>
               <a href="#preview" className="text-sm font-medium text-brand underline-offset-4 hover:underline">
                 链接文字
               </a>
             </div>
-            <div className="rounded-md border border-border bg-surface p-3">
+            <div className="rounded-lg bg-surface p-3 shadow-card">
               <p className="text-sm font-semibold text-fg">卡片标题</p>
               <p className="mt-1 text-xs text-muted">正文说明文字，用来看正文色与背景的层次。</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -410,7 +463,7 @@ export function AppearanceTab() {
             </div>
           </div>
 
-          <div className="space-y-2 rounded-lg border border-border bg-surface-2/40 p-4">
+          <div className="space-y-2 rounded-xl bg-surface-2/50 p-4">
             <p className="text-sm font-semibold text-fg">明暗对照</p>
             <p className="text-xs text-muted">
               左为亮色、右为暗色，都使用当前预设与自定义背景色。

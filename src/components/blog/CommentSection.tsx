@@ -172,7 +172,7 @@ export function CommentSection({ postSlug }: { postSlug: string }) {
   const guestsBlocked = !comments.allowGuests && !user;
 
   return (
-    <section id="comments" className="mt-16 border-t border-border pt-10">
+    <section id="comments" className="mt-16">
       <h2 className="flex items-center gap-2 text-lg font-semibold text-fg">
         <Icon name="message" size={18} />
         评论
@@ -180,11 +180,11 @@ export function CommentSection({ postSlug }: { postSlug: string }) {
       </h2>
 
       {guestsBlocked ? (
-        <p className="mt-6 rounded-xl border border-border bg-surface p-4 text-sm text-muted">
+        <p className="mt-6 rounded-2xl bg-surface p-4 text-sm text-muted shadow-card">
           评论仅对已登录用户开放。
         </p>
       ) : (
-        <form onSubmit={submit} className="mt-6 rounded-xl border border-border bg-surface p-4">
+        <form onSubmit={submit} className="mt-6 rounded-2xl bg-surface p-5 shadow-card">
           {replyTo && (
             <div className="mb-3 flex items-center justify-between rounded-md bg-surface-2 px-3 py-2 text-xs text-muted">
               <span>正在回复 @{replyTo.author}</span>

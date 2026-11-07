@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
-import type { PostSummary } from '@shared/types';
-import { Badge } from '../ui/Badge';
+import type { ReactNode } from 'react';
+import type { PostSummary, SidebarModule, SidebarModuleId } from '@shared/types';
+import { DEFAULT_SETTINGS } from '@shared/settings-defaults';
 import { Icon } from '../ui/icons';
 import { api } from '../../lib/api';
 import { fetchTags } from '../../lib/resource';
@@ -8,11 +9,34 @@ import { formatDateShort } from '../../lib/format';
 import { useAsync } from '../../hooks';
 import { useSettings } from '../../providers/SettingsProvider';
 
-function Widget({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
+/**
+ * 读取侧栏卡片开关。旧数据或缓存里没有这个字段时回退到默认（全部开启），
+ * 避免升级后侧栏整块消失。
+ */
+export function resolveSidebarModules(modules?: SidebarModule[]): SidebarModule[] {
+  return Array.isArray(modules) && modules.length > 0
+    ? modules
+    : DEFAULT_SETTINGS.layout.sidebarModules;
+}
+
+/** 侧栏是否有任何卡片处于开启状态；全关时上层不渲染侧栏列。 */
+export function hasVisibleSidebarCards(modules?: SidebarModule[]): boolean {
+  return resolveSidebarModules(modules).some((module) => module.enabled);
+}
+
+function RailSection({
+  label,
+  action,
+  children,
+}: {
+  label: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <section className="rounded-xl border border-border bg-surface p-5">
+    <section className="rounded-2xl bg-surface p-5 shadow-card">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold tracking-tight text-fg">{title}</h3>
+        <h2 className="eb-kicker">{label}</h2>
         {action}
       </div>
       {children}
@@ -20,72 +44,123 @@ function Widget({ title, action, children }: { title: string; action?: React.Rea
   );
 }
 
+/**
+ * 页边索引栏：圆角面板承载索引信息，配合小号标签，
+ * 与正文形成“索引 → 内容”的阅读顺序。
+ */
 export function Sidebar() {
   const { settings } = useSettings();
-  const { site, features } = settings;
+  const { site, features, layout } = settings;
   const vt = features.viewTransitions;
+  // 关于卡片头像：优先卡片专属 Logo，其次站点图片 Logo，最后回退首字母。
+  const aboutAvatar = site.aboutLogo || (site.logo.type === 'image' ? site.logo.imageUrl : '');
 
   const recent = useAsync(() => api.get<PostSummary[]>('/posts?perPage=5&sort=newest').then((r) => r.data), []);
   const tags = useAsync(() => fetchTags(), []);
 
+  const modules = resolveSidebarModules(layout.sidebarModules);
+  const enabled = (id: SidebarModuleId) => modules.some((m) => m.id === id && m.enabled);
+
   return (
     <div className="flex flex-col gap-5">
-      <Widget title="关于本站">
-        <Link to="/about" viewTransition={vt} className="flex items-center gap-2.5 text-fg no-underline">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand text-sm font-bold text-brand-fg">
-            {(site.logo.text || site.name).slice(0, 1).toUpperCase()}
-          </span>
-          <span className="font-semibold">{site.name}</span>
-        </Link>
-        <p className="mt-3 text-sm leading-relaxed text-muted">{site.description || site.tagline}</p>
-      </Widget>
-
-      <Widget title="最新文章">
-        <ul className="space-y-3">
-          {(recent.data ?? []).map((post) => (
-            <li key={post.id}>
-              <Link
-                to={`/posts/${post.slug}`}
-                viewTransition={vt}
-                className="line-clamp-2 text-sm font-medium text-fg no-underline transition-colors hover:text-brand"
-              >
-                {post.title}
-              </Link>
-              <span className="mt-0.5 block font-mono text-xs text-faint">
-                {formatDateShort(post.published_at ?? post.created_at)}
+      {enabled('about') && (
+        <RailSection label="关于">
+          <Link
+            to="/about"
+            viewTransition={vt}
+            className="group flex flex-col items-center gap-4 text-center no-underline"
+          >
+            {aboutAvatar ? (
+              <img
+                src={aboutAvatar}
+                alt=""
+                className="size-20 shrink-0 rounded-full object-cover shadow-card ring-8 ring-surface"
+              />
+            ) : (
+              <span className="flex size-20 shrink-0 items-center justify-center rounded-full bg-brand text-2xl font-bold text-brand-fg shadow-card ring-8 ring-surface">
+                {(site.logo.text || site.name).slice(0, 1).toUpperCase()}
               </span>
-            </li>
-          ))}
-          {recent.loading && !recent.data && <li className="text-sm text-faint">载入中…</li>}
-          {recent.data && recent.data.length === 0 && <li className="text-sm text-faint">暂无文章</li>}
-        </ul>
-      </Widget>
+            )}
+            <span className="font-heading text-lg leading-tight text-fg transition-colors group-hover:text-brand">
+              {site.name}
+            </span>
+          </Link>
+          <p className="mt-3 text-center text-sm leading-relaxed text-muted">
+            {site.aboutText || site.description || site.tagline}
+          </p>
+        </RailSection>
+      )}
 
-      {tags.data && tags.data.length > 0 && (
-        <Widget title="标签">
-          <div className="flex flex-wrap gap-1.5">
+      {enabled('latest') && (
+        <RailSection
+          label="最新"
+          action={
+            <Link
+              to="/posts"
+              viewTransition={vt}
+              className="eb-kicker inline-flex items-center gap-1 no-underline hover:text-brand"
+            >
+              全部
+              <Icon name="arrowRight" size={12} />
+            </Link>
+          }
+        >
+          <ol>
+            {(recent.data ?? []).map((post, i) => (
+              <li key={post.id}>
+                <Link
+                  to={`/posts/${post.slug}`}
+                  viewTransition={vt}
+                  className="eb-index-row group -mx-2 flex items-start gap-3 rounded-xl px-2 py-2.5 no-underline transition-colors hover:bg-surface-2"
+                >
+                  <span className="eb-index-num pt-0.5">{String(i + 1).padStart(2, '0')}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="line-clamp-2 block text-sm font-medium leading-snug text-fg transition-colors group-hover:text-brand">
+                      {post.title}
+                    </span>
+                    <span className="mt-1 block text-[11px] text-faint">
+                      {formatDateShort(post.published_at ?? post.created_at)}
+                    </span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+            {recent.loading && !recent.data && <li className="py-2 text-sm text-faint">载入中…</li>}
+            {!recent.loading && (!recent.data || recent.data.length === 0) && (
+              <li className="py-2 text-sm text-faint">暂无文章</li>
+            )}
+          </ol>
+        </RailSection>
+      )}
+
+      {enabled('tags') && tags.data && tags.data.length > 0 && (
+        <RailSection label="标签">
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
             {tags.data.map((tag) => (
-              <Link key={tag.id} to={`/posts?tag=${encodeURIComponent(tag.slug)}`} className="no-underline">
-                <Badge tone="outline" className="transition-colors hover:border-brand hover:text-brand">
-                  {tag.name}
-                </Badge>
+              <Link
+                key={tag.id}
+                to={`/posts?tag=${encodeURIComponent(tag.slug)}`}
+                className="group inline-flex items-baseline gap-1.5 text-sm text-muted no-underline transition-colors hover:text-brand"
+              >
+                {tag.name}
+                <span className="eb-index-num">{tag.post_count}</span>
               </Link>
             ))}
           </div>
-        </Widget>
+        </RailSection>
       )}
 
-      {features.rss && (
-        <Widget title="订阅">
-          <p className="text-sm text-muted">通过 RSS 订阅，第一时间获取新文章。</p>
+      {enabled('subscribe') && features.rss && (
+        <RailSection label="订阅">
+          <p className="text-sm leading-relaxed text-muted">通过 RSS 订阅，新文章会直接送到你的阅读器。</p>
           <a
             href="/rss.xml"
-            className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand no-underline hover:underline"
+            className="group mt-3 inline-flex items-center gap-2 text-xs font-medium text-brand no-underline hover:underline"
           >
-            <Icon name="rss" size={15} />
-            RSS 订阅
+            <Icon name="rss" size={14} />
+            /rss.xml
           </a>
-        </Widget>
+        </RailSection>
       )}
     </div>
   );

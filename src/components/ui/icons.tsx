@@ -45,6 +45,7 @@ const icons = {
   arrowRight: <path d="M5 12h14M12 5l7 7-7 7" />,
   arrowLeft: <path d="M19 12H5M12 19l-7-7 7-7" />,
   arrowUp: <path d="M12 19V5M5 12l7-7 7 7" />,
+  arrowDown: <path d="M12 5v14M5 12l7 7 7-7" />,
   calendar: (
     <>
       <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -144,6 +145,12 @@ const icons = {
     <>
       <circle cx="12" cy="12" r="10" />
       <path d="m10 8 6 4-6 4Z" />
+    </>
+  ),
+  pause: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M10 9v6M14 9v6" />
     </>
   ),
   dashboard: (

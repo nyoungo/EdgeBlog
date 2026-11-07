@@ -435,7 +435,7 @@ export function PostEditorPage() {
             <div className="flex flex-col gap-2">
               <span className="text-sm font-medium text-fg">封面图</span>
               {form.coverUrl && (
-                <img src={form.coverUrl} alt="封面预览" className="aspect-video w-full rounded-md border border-border object-cover" />
+                <img src={form.coverUrl} alt="封面预览" className="aspect-video w-full rounded-xl object-cover ring-1 ring-fg/10" />
               )}
               <div className="flex gap-2">
                 <Input

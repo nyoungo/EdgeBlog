@@ -75,7 +75,7 @@ export function DashboardPage() {
           <a
             href="/api/export"
             download
-            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md border border-border px-4 text-sm font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg sm:flex-none"
+            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-surface px-4 text-sm font-medium text-muted shadow-card transition-shadow hover:text-fg hover:shadow-lift sm:flex-none"
             title="导出文章 / 标签 / 媒体清单 / 设置为 JSON"
           >
             <Icon name="save" size={16} />
@@ -103,7 +103,7 @@ export function DashboardPage() {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <Card className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div className="flex items-center justify-between bg-surface-2/40 px-5 py-4">
             <h2 className="text-sm font-semibold text-fg">最近文章</h2>
             <Link to="/admin/posts" className="text-xs text-muted hover:text-brand">
               全部
@@ -128,7 +128,7 @@ export function DashboardPage() {
         </Card>
 
         <Card className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div className="flex items-center justify-between bg-surface-2/40 px-5 py-4">
             <h2 className="text-sm font-semibold text-fg">最新评论</h2>
             <Link to="/admin/comments" className="text-xs text-muted hover:text-brand">
               全部

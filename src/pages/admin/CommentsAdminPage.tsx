@@ -127,7 +127,7 @@ export function CommentsAdminPage() {
   };
 
   const actionBtn =
-    'rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50';
+    'rounded-md bg-surface-2 px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50';
 
   return (
     <div className="w-full">
@@ -137,7 +137,7 @@ export function CommentsAdminPage() {
       </header>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-surface p-1">
+        <div className="flex flex-wrap gap-1 rounded-full bg-surface-2 p-1">
           {TABS.map((tab) => (
             <button
               key={tab.value}
@@ -162,7 +162,7 @@ export function CommentsAdminPage() {
       </div>
 
       {selected.size > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm">
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-surface-2 px-3 py-2 text-sm">
           <span className="text-muted">已选择 {selected.size} 条</span>
           <div className="ml-auto flex flex-wrap gap-2">
             <Button size="sm" variant="secondary" loading={batchBusy} onClick={() => void runBatch('approved')}>

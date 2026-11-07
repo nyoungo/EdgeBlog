@@ -34,7 +34,7 @@ export function ShareButtons({ title, slug }: { title: string; slug: string }) {
   };
 
   const btn =
-    'inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted transition-colors hover:bg-surface-2 hover:text-fg';
+    'inline-flex h-9 w-9 items-center justify-center rounded-lg bg-surface text-muted shadow-card transition-shadow hover:text-fg hover:shadow-lift';
 
   return (
     <div className="flex items-center gap-2">

@@ -199,7 +199,7 @@ export function AppearancePage() {
     update('advanced', { ...draft.advanced, ...patch });
 
   if (!ready) {
-    return <div className="py-20 text-center text-sm text-faint">载入中…</div>;
+    return <div className="py-20 text-center text-sm text-faint">载入中...</div>;
   }
 
   const currentTab = TAB_MAP[tab];
@@ -217,13 +217,15 @@ export function AppearancePage() {
           onClick={() => setTab(id)}
           aria-current={active ? 'page' : undefined}
           className={cn(
-            'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
-            active ? 'bg-brand/10 font-semibold text-brand' : 'text-muted hover:bg-surface-2 hover:text-fg',
+            'flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm transition-colors',
+            active
+              ? 'bg-brand font-medium text-brand-fg shadow-sm'
+              : 'text-muted hover:bg-surface-2 hover:text-fg',
           )}
         >
           <Icon name={def.icon} size={16} className="shrink-0" />
           <span className="min-w-0 flex-1 truncate">{def.label}</span>
-          {marked && <DirtyDot />}
+          {marked && <DirtyDot className={active ? 'bg-brand-fg' : undefined} />}
         </button>
       );
     }
@@ -234,10 +236,10 @@ export function AppearancePage() {
         onClick={() => setTab(id)}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
+          'flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors',
           active
-            ? 'border-brand bg-brand text-brand-fg'
-            : 'border-border bg-surface text-muted hover:bg-surface-2 hover:text-fg',
+            ? 'bg-brand text-brand-fg shadow-sm'
+            : 'bg-surface text-muted shadow-card hover:text-fg',
         )}
       >
         <Icon name={def.icon} size={15} />
@@ -265,14 +267,21 @@ export function AppearancePage() {
       }}
     >
       <div className="pb-2">
-        <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-fg">站点设置</h1>
-            <p className="mt-1 text-sm text-muted">按站点、内容、外观与系统分组，修改实时预览、保存后永久生效</p>
+        <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-brand/10 text-brand">
+              <Icon name="palette" size={22} />
+            </span>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-fg">站点设置</h1>
+              <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted">
+                按站点、内容、外观与系统分区管理;改动实时预览,保存后前台永久生效。
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {dirty.size > 0 && (
-              <span className="hidden items-center gap-1.5 text-xs text-warning sm:inline-flex">
+              <span className="hidden items-center gap-1.5 rounded-full bg-warning/10 px-2.5 py-1 text-xs text-warning sm:inline-flex">
                 <DirtyDot />
                 有未保存的修改
               </span>
@@ -289,18 +298,21 @@ export function AppearancePage() {
           </div>
         </header>
 
-        {/* 窄屏：横向滚动的页签 */}
-        <div className="-mx-1 mb-4 flex gap-1.5 overflow-x-auto px-1 pb-2 lg:hidden">
+        {/* 窄屏:横向滚动的页签 */}
+        <div className="-mx-1 mb-4 flex gap-1.5 overflow-x-auto px-1 pb-1 lg:hidden">
           {TAB_DEFS.map((def) => tabButton(def.id, false))}
         </div>
 
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
-          {/* 宽屏：左侧区域导航 */}
-          <aside className="hidden w-56 shrink-0 lg:sticky lg:top-20 lg:block">
-            <nav aria-label="设置分组" className="space-y-5 rounded-xl border border-border bg-surface p-3">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+          {/* 宽屏:左侧分组导航 */}
+          <aside className="hidden w-60 shrink-0 lg:sticky lg:top-20 lg:block">
+            <nav
+              aria-label="设置分组"
+              className="space-y-4 rounded-3xl bg-surface p-3 shadow-card"
+            >
               {GROUPS.map((group) => (
                 <div key={group.label}>
-                  <p className="mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-wider text-faint">
+                  <p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-faint">
                     {group.label}
                   </p>
                   <div className="space-y-0.5">{group.tabs.map((id) => tabButton(id, true))}</div>
@@ -310,16 +322,21 @@ export function AppearancePage() {
           </aside>
 
           <div className="min-w-0 flex-1">
-            <div className="mb-4">
-              <h2 className="text-base font-semibold text-fg">{currentTab.label}</h2>
-              <p className="mt-0.5 text-xs text-muted">{currentTab.hint}</p>
+            <div className="mb-4 flex items-start gap-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
+                <Icon name={currentTab.icon} size={18} />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold text-fg">{currentTab.label}</h2>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted">{currentTab.hint}</p>
+              </div>
             </div>
 
             <TabView />
 
-            {/* 长表单滚到底也能直接保存 */}
-            <div className="sticky bottom-0 z-20 mt-5 border-t border-border eb-glass py-3">
-              <div className="flex flex-wrap items-center justify-end gap-2">
+            {/* 长表单滚到底也能直接保存:悬浮圆角面板,始终贴在视口底部 */}
+            <div className="sticky bottom-4 z-20 mt-6">
+              <div className="flex flex-wrap items-center justify-end gap-2 rounded-2xl bg-surface p-3 shadow-pop ring-1 ring-fg/5">
                 <span
                   className={cn(
                     'mr-auto flex items-center gap-1.5 text-xs',

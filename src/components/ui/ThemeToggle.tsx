@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ThemeMode } from '@shared/types';
-import { buttonStyles } from './Button';
 import { Icon, type IconName } from './icons';
 import { cn } from '../../lib/utils';
 import { useSettings } from '../../providers/SettingsProvider';
@@ -32,7 +31,7 @@ export function ThemeToggle() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={buttonStyles({ variant: 'ghost', size: 'icon-sm' })}
+        className="eb-icon-btn"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="切换主题"
@@ -43,7 +42,7 @@ export function ThemeToggle() {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-50 mt-2 w-40 animate-fade-up overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-pop"
+          className="eb-glass-panel absolute right-0 z-50 mt-2 w-40 animate-fade-up overflow-hidden rounded-lg p-1 shadow-pop"
         >
           {OPTIONS.map((option) => (
             <button

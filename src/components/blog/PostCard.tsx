@@ -45,9 +45,9 @@ const BLUR: Record<CardBlur, string> = {
 };
 
 /** Card surface: solid, or frosted-glass when a blur level is set. */
-function surfaceClass(blur: CardBlur): string {
+export function surfaceClass(blur: CardBlur): string {
   return cn(
-    'border border-border shadow-card',
+    'shadow-card transition-shadow hover:shadow-lift',
     blur === 'none' ? 'bg-surface' : cn(BLUR[blur], 'dark:bg-surface/[0.85]'),
   );
 }
@@ -162,7 +162,7 @@ export function PostCard({
       <Link
         to={href}
         viewTransition={vt}
-        className="group block border-b border-border py-6 no-underline first:pt-0 last:border-0"
+        className="group block rounded-2xl px-3 py-5 no-underline transition-colors hover:bg-surface-2 first:pt-0"
       >
         <div className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
@@ -197,7 +197,7 @@ export function PostCard({
         to={href}
         viewTransition={vt}
         className={cn(
-          'group flex items-center gap-3 rounded-lg no-underline transition-colors hover:bg-surface-2',
+          'group flex items-center gap-3 rounded-2xl no-underline transition-colors hover:bg-surface-2',
           surfaceClass(blur),
           s.pad,
         )}
@@ -223,7 +223,7 @@ export function PostCard({
       <Link
         to={href}
         viewTransition={vt}
-        className={cn('group relative flex h-full flex-col overflow-hidden rounded-xl no-underline', surfaceClass(blur))}
+        className={cn('group relative flex h-full flex-col overflow-hidden rounded-2xl no-underline', surfaceClass(blur))}
       >
         <Cover
           url={post.cover_url}
@@ -263,7 +263,7 @@ export function PostCard({
         to={href}
         viewTransition={vt}
         className={cn(
-          'group flex h-full flex-col overflow-hidden rounded-xl no-underline transition-transform duration-200 hover:-translate-y-0.5',
+          'group flex h-full flex-col overflow-hidden rounded-2xl no-underline transition-transform duration-200 hover:-translate-y-0.5',
           surfaceClass(blur),
         )}
       >

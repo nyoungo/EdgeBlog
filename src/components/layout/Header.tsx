@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import type { HeaderSettings, NavAlign } from '@shared/types';
-import { buttonStyles } from '../ui/Button';
-import { Icon } from '../ui/icons';
+import { IconButton, IconLink } from '../ui/IconButton';
 import { ThemeToggle } from '../ui/ThemeToggle';
 import { cn } from '../../lib/utils';
 import { useSettings } from '../../providers/SettingsProvider';
@@ -17,19 +16,20 @@ const LEFT_NAV_WIDTH = '16rem';
 function navLinkClass(style: NavStyle, active: boolean): string {
   if (style === 'minimal') {
     return cn(
-      'relative px-3 py-2 text-sm font-medium transition-colors',
+      'relative px-1 py-2 text-sm font-medium transition-colors',
       active ? 'text-fg' : 'text-muted hover:text-fg',
     );
   }
   if (style === 'pill') {
     return cn(
       'rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors',
-      active ? 'bg-brand text-brand-fg' : 'text-muted hover:bg-surface-2 hover:text-fg',
+      active ? 'bg-fg/[0.08] text-fg' : 'text-muted hover:bg-fg/[0.05] hover:text-fg',
     );
   }
+  // default: 现代胶囊导航项,不再用下划线。
   return cn(
-    'rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-surface-2 hover:text-fg',
-    active ? 'text-fg' : 'text-muted',
+    'rounded-full px-3.5 py-2 text-sm font-medium transition-colors',
+    active ? 'bg-fg/[0.07] text-fg' : 'text-muted hover:bg-fg/5 hover:text-fg',
   );
 }
 
@@ -37,27 +37,26 @@ function navLinkClass(style: NavStyle, active: boolean): string {
 function verticalNavItemClass(style: NavStyle, align: NavAlign, active: boolean): string {
   const justify =
     align === 'center' ? 'justify-center text-center' : align === 'right' ? 'justify-end text-right' : 'justify-start';
-  const rowBase = 'flex w-full items-center rounded-md px-3 py-2 text-sm font-medium transition-colors';
-  if (style === 'minimal') {
-    return cn(rowBase, justify, active ? 'text-fg' : 'text-muted hover:text-fg');
-  }
+  const rowBase = 'flex w-full items-center rounded-xl px-3 py-2 text-sm font-medium transition-colors';
   if (style === 'pill') {
     return cn(
       'flex w-full items-center rounded-full px-3.5 py-2 text-sm font-medium transition-colors',
       justify,
-      active ? 'bg-brand text-brand-fg' : 'text-muted hover:bg-surface-2 hover:text-fg',
+      active ? 'bg-fg/[0.08] text-fg' : 'text-muted hover:bg-fg/5 hover:text-fg',
     );
   }
-  return cn(rowBase, justify, active ? 'bg-surface-2 text-fg' : 'text-muted hover:bg-surface-2 hover:text-fg');
+  return cn(
+    rowBase,
+    justify,
+    active ? 'bg-fg/[0.06] text-fg' : 'text-muted hover:bg-fg/[0.04] hover:text-fg',
+  );
 }
 
 function NavItems({ vertical, vt, onNavigate }: { vertical: boolean; vt: boolean; onNavigate?: () => void }) {
   const { settings } = useSettings();
   const { style, align, navColor } = settings.layout.header;
 
-  // 自定义导航文字颜色：留空时沿用主题的 active / muted 配色。
   const itemStyle = navColor ? { color: navColor } : undefined;
-
   const itemClass = (active: boolean) =>
     vertical ? verticalNavItemClass(style, align, active) : navLinkClass(style, active);
 
@@ -94,31 +93,61 @@ function NavItems({ vertical, vt, onNavigate }: { vertical: boolean; vt: boolean
   );
 }
 
+/**
+ * The header switches to a white-on-media treatment only while a hero section
+ * is actually behind it. A scroll threshold alone used to flip the bar after
+ * 8px; this observes the hero's bottom edge instead.
+ */
+function useHeroOverlap(height: number) {
+  const [over, setOver] = useState(false);
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const hero = document.querySelector('[data-hero]');
+      if (!hero) {
+        setOver(false);
+        return;
+      }
+      const rect = hero.getBoundingClientRect();
+      // 只有英雄区真的盖住顶栏区域时才切换成压媒体的白字。
+      setOver(rect.top < height && rect.bottom > 0);
+    };
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(measure);
+    };
+
+    measure();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+    };
+  }, [height, pathname]);
+
+  return over;
+}
+
 export function Header() {
   const { settings } = useSettings();
   const { user } = useAuth();
   const location = useLocation();
   const [open, setOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const menuId = 'eb-mobile-menu';
 
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
-  // Close the drawer whenever the route changes (e.g. browser back), so it can
-  // never linger open over a different page.
+  // Close the drawer whenever the route changes.
   useEffect(() => {
     setOpen(false);
   }, [location.pathname]);
 
-  // Esc closes the menu and returns focus to the trigger; opening moves focus
-  // into the menu so keyboard/screen-reader users are not left behind.
+  // Esc closes the menu and returns focus to the trigger.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -135,16 +164,16 @@ export function Header() {
 
   const { site, features, layout } = settings;
   const header = layout.header;
+  const headerHeight = Number.parseInt(header.height || '64', 10) || 64;
 
-  // Expose the configured bar height so in-page anchors (headings, TOC links)
-  // can offset themselves below a sticky/fixed header instead of hiding under it.
   useEffect(() => {
     document.documentElement.style.setProperty('--eb-header-h', header.height || '64px');
   }, [header.height]);
+
+  const overMedia = useHeroOverlap(headerHeight);
   const logoText = site.logo.text || site.name;
   const vt = features.viewTransitions;
 
-  // 顶栏三个可自定义颜色：留空时跟随主题。
   const logoStyle: CSSProperties | undefined = header.logoColor ? { color: header.logoColor } : undefined;
   const navStyle: CSSProperties | undefined = header.navColor ? { color: header.navColor } : undefined;
   const actionStyle = header.actionColor
@@ -159,17 +188,14 @@ export function Header() {
         ? 'sticky top-0'
         : 'relative';
 
-  const transparentNow = header.transparentOnTop && !scrolled;
-  // 「顶部透明」= 页面在顶部时顶栏完全透明,让英雄区完整露出;
-  // 可读性交给 Logo / 导航自带的文字阴影。
-  const transparentBar = transparentNow || header.background === 'transparent';
-  const surfaceClass = transparentBar
-    ? 'border-transparent bg-transparent'
-    : header.background === 'glass'
-      ? 'border-border eb-glass'
-      : 'border-border bg-bg';
-  // 左侧竖排导航旁边始终是正文,不能真的透明,否则文字会和内容叠在一起。
-  const asideSurfaceClass = transparentBar ? 'border-transparent eb-glass' : surfaceClass;
+  // Over a hero we go fully transparent + white; everywhere else a transparent
+  // setting falls back to glass so the bar never disappears on a plain page.
+  const transparentNow = header.transparentOnTop && overMedia && header.position !== 'left';
+  const surfaceClass = transparentNow
+    ? 'eb-header-on-media border-transparent bg-transparent'
+    : header.background === 'glass' || header.background === 'transparent'
+      ? 'eb-glass-bar'
+      : 'bg-surface/95 backdrop-blur-md';
 
   const renderLogo = (className?: string) => (
     <Link
@@ -183,10 +209,10 @@ export function Header() {
         <img src={site.logo.imageUrl} alt={site.name} className="h-7 w-auto" />
       ) : (
         <>
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-sm font-bold text-brand-fg">
+          <span className="eb-logo-mark flex size-8 items-center justify-center rounded-lg bg-brand text-xs font-bold text-brand-fg">
             {logoText.slice(0, 1).toUpperCase()}
           </span>
-          <span className="eb-logo-text text-base font-semibold tracking-tight">{logoText}</span>
+          <span className="eb-logo-text text-[15px] font-semibold">{logoText}</span>
         </>
       )}
     </Link>
@@ -194,36 +220,15 @@ export function Header() {
 
   const actions: ReactNode = (
     <>
-      {features.search && (
-        <Link to="/search" className={buttonStyles({ variant: 'ghost', size: 'icon-sm' })} aria-label="搜索" title="搜索">
-          <Icon name="search" size={18} />
-        </Link>
-      )}
+      {features.search && <IconLink to="/search" icon="search" label="搜索" />}
       <ThemeToggle />
-      {user ? (
-        <Link
-          to="/admin"
-          className={buttonStyles({ variant: 'secondary', size: 'sm' })}
-          aria-label="管理后台"
-          title="管理后台"
-        >
-          <Icon name="dashboard" size={15} />
-          {/* Icon-only on phones — previously the entry was hidden entirely, so
-              mobile owners had to type /admin by hand. */}
-          <span className="hidden sm:inline">后台</span>
-        </Link>
-      ) : null}
-      <button
-        ref={toggleRef}
-        type="button"
-        className={buttonStyles({ variant: 'ghost', size: 'icon-sm', className: 'md:hidden' })}
+      {user ? <IconLink to="/admin" icon="dashboard" label="管理后台" /> : null}
+      <IconButton
+        icon={open ? 'close' : 'menu'}
+        label={open ? '关闭菜单' : '打开菜单'}
         onClick={() => setOpen((v) => !v)}
-        aria-label={open ? '关闭菜单' : '打开菜单'}
-        aria-expanded={open}
-        aria-controls={menuId}
-      >
-        <Icon name={open ? 'close' : 'menu'} size={20} />
-      </button>
+        className="md:hidden"
+      />
     </>
   );
 
@@ -232,8 +237,10 @@ export function Header() {
       ref={menuRef}
       id={menuId}
       className={cn(
-        'border-t border-border md:hidden',
-        header.background === 'glass' || header.background === 'transparent' ? 'eb-glass' : 'bg-bg',
+        'md:hidden',
+        header.background === 'glass' || header.background === 'transparent'
+          ? 'eb-glass-panel border-x-0 border-b-0'
+          : 'bg-surface shadow-card',
       )}
     >
       <nav className="eb-header-nav container-page flex flex-col py-2">
@@ -245,7 +252,7 @@ export function Header() {
               target={item.newTab ? '_blank' : undefined}
               rel={item.newTab ? 'noopener noreferrer' : undefined}
               onClick={() => setOpen(false)}
-              className="rounded-md px-3 py-2.5 text-sm font-medium text-muted hover:bg-surface-2 hover:text-fg"
+              className="rounded-xl px-3 py-2.5 text-sm font-medium text-muted hover:bg-fg/5 hover:text-fg"
               style={navStyle}
             >
               {item.label}
@@ -260,14 +267,23 @@ export function Header() {
               style={navStyle}
               className={({ isActive }) =>
                 cn(
-                  'rounded-md px-3 py-2.5 text-sm font-medium hover:bg-surface-2',
-                  isActive ? 'text-brand' : 'text-muted',
+                  'rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-fg/5',
+                  isActive ? 'text-fg' : 'text-muted',
                 )
               }
             >
               {item.label}
             </NavLink>
           ),
+        )}
+        {user && (
+          <NavLink
+            to="/admin"
+            onClick={() => setOpen(false)}
+            className="mt-1 flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium text-muted hover:bg-fg/5 hover:text-fg"
+          >
+            管理后台
+          </NavLink>
         )}
       </nav>
     </div>
@@ -277,43 +293,44 @@ export function Header() {
   if (header.position === 'left') {
     const justify =
       header.align === 'center' ? 'justify-center' : header.align === 'right' ? 'justify-end' : 'justify-start';
-    const mutedEdge = transparentNow || header.background === 'transparent';
     return (
       <>
         <aside
-          className={cn('fixed inset-y-0 left-0 z-40 hidden flex-col border-r lg:flex', asideSurfaceClass)}
+          className="eb-glass-panel fixed inset-y-0 left-0 z-40 hidden flex-col rounded-none border-y-0 border-l-0 lg:flex"
           style={{ width: LEFT_NAV_WIDTH }}
         >
           <div className={cn('flex shrink-0 items-center px-5', justify)} style={barStyle}>
             {renderLogo()}
           </div>
-          <nav className="eb-header-nav flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-2">
+          <nav className="eb-header-nav flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 py-2">
             <NavItems vertical vt={vt} />
           </nav>
           <div
-            className={cn(
-              'eb-header-actions flex shrink-0 items-center gap-1 border-t px-3 py-3',
-              mutedEdge ? 'border-transparent' : 'border-border',
-              justify,
-            )}
+            className={cn('eb-header-actions flex shrink-0 items-center gap-1 bg-surface-2/50 px-3 py-3', justify)}
             style={actionStyle}
           >
             {actions}
           </div>
         </aside>
 
-        <header className={cn('sticky top-0 z-40 w-full border-b transition-colors lg:hidden', surfaceClass)}>
+        <header
+          className={cn('sticky top-0 z-40 w-full border-b transition-colors lg:hidden', surfaceClass)}
+          data-over-media={transparentNow ? 'true' : 'false'}
+        >
           <div className="container-page flex items-center gap-4" style={barStyle}>
             {renderLogo()}
             <nav
               className={cn(
                 'eb-header-nav hidden items-center gap-1 md:flex',
-                header.style === 'pill' && 'rounded-full border border-border bg-surface-2/70 p-1 backdrop-blur-md backdrop-saturate-150',
+                header.style === 'pill' &&
+                  (transparentNow
+                    ? 'rounded-full border border-white/20 bg-white/10 p-1 backdrop-blur-md'
+                    : 'rounded-full border border-border bg-surface-2/70 p-1 backdrop-blur-md'),
               )}
             >
               <NavItems vertical={false} vt={vt} />
             </nav>
-            <div className="eb-header-actions ml-auto flex items-center gap-1" style={actionStyle}>
+            <div className="eb-header-actions ml-auto flex items-center gap-0.5" style={actionStyle}>
               {actions}
             </div>
           </div>
@@ -324,26 +341,33 @@ export function Header() {
   }
 
   const centered = header.align === 'center';
-
-  // For "center" we switch to a 3-column grid at md+ so the nav is centred in
-  // the bar itself (not just in the space left over by the logo/actions).
   const barInnerClass = cn('container-page flex items-center gap-4', centered && 'md:grid md:grid-cols-[1fr_auto_1fr]');
 
   const navClass = cn(
     'eb-header-nav hidden items-center md:flex',
+    header.style === 'pill' && 'eb-nav-pill',
     header.style === 'pill'
-      ? 'gap-1 rounded-full border border-border bg-surface-2/70 p-1 backdrop-blur-md backdrop-saturate-150'
-      : 'gap-1',
+      ? transparentNow
+        ? 'gap-1 rounded-full border border-white/20 bg-white/10 p-1 backdrop-blur-md'
+        : 'gap-1 rounded-full border border-border bg-surface-2/70 p-1 backdrop-blur-md'
+      : 'gap-5',
     !centered && header.align === 'left' && 'mr-auto',
     !centered && header.align === 'right' && 'ml-auto',
     centered && 'md:justify-self-center',
   );
 
-  const actionsClass = cn('flex items-center gap-1', centered ? 'ml-auto md:ml-0 md:justify-self-end' : 'ml-auto');
+  const actionsClass = cn(
+    'eb-header-actions flex items-center gap-0.5',
+    centered ? 'ml-auto md:ml-0 md:justify-self-end' : 'ml-auto',
+  );
 
   return (
     <>
-      <header className={cn(positionClass, 'z-40 w-full border-b transition-colors', surfaceClass)}>
+      <header
+        className={cn(positionClass, 'z-40 w-full transition-colors', surfaceClass)}
+        data-over-media={transparentNow ? 'true' : 'false'}
+        style={{ '--eb-header-h': header.height || '64px' } as CSSProperties}
+      >
         <div className={barInnerClass} style={barStyle}>
           {renderLogo(centered ? 'md:justify-self-start' : undefined)}
 
@@ -351,7 +375,7 @@ export function Header() {
             <NavItems vertical={false} vt={vt} />
           </nav>
 
-          <div className={cn(actionsClass, 'eb-header-actions')} style={actionStyle}>
+          <div className={actionsClass} style={actionStyle}>
             {actions}
           </div>
         </div>

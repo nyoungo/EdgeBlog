@@ -37,6 +37,12 @@ describe('mergeSettings', () => {
     );
   });
 
+  it('fills the about-card fields for site rows saved before they existed', () => {
+    const merged = mergeSettings({ site: { name: 'Old Blog' } });
+    expect(merged.site.aboutLogo).toBe('');
+    expect(merged.site.aboutText).toBe('');
+  });
+
   it('replaces arrays wholesale instead of merging them by index', () => {
     const merged = mergeSettings({
       social: [{ id: 'x', label: 'X', type: 'x', url: 'https://x.example' }],
@@ -68,8 +74,19 @@ describe('mergeSettings', () => {
 });
 
 /**
- * 顶栏三个颜色是后加的字段：旧库没有它们时靠默认值兜底，写回时又必须能通过
- * 校验（zod 的 object 会丢掉 schema 未声明的键，漏写就等于设置不生效）。
+ * 版式默认值:圆角使用中号,正文列宽占满容器。
+ * 旧库保存过 68ch 时仍按保存值渲染,这里只锁定新装默认。
+ */
+describe('theme defaults', () => {
+  it('uses medium radius and full content width', () => {
+    expect(DEFAULT_SETTINGS.theme.radius).toBe('md');
+    expect(DEFAULT_SETTINGS.theme.maxWidth).toBe('100%');
+  });
+});
+
+/**
+ * 顶栏三个颜色是后加的字段:旧库没有它们时靠默认值兜底,写回时又必须能通过
+ * 校验(zod 的 object 会丢掉 schema 未声明的键,漏写就等于设置不生效)。
  */
 describe('header colours', () => {
   it('defaults to empty strings so the header falls back to the theme', () => {

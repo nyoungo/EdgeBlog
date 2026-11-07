@@ -27,12 +27,11 @@ interface ToastApi {
 
 const ToastContext = createContext<ToastApi | null>(null);
 
-// 半透明色块在纯黑/纯白背景上会失去保证,统一用实色面板承载文字,
-// 状态只通过边框和图标颜色表达。
+// 状态面板统一用实色卡片 + 轻投影承载文字,状态靠图标颜色表达,不靠边线。
 const STYLES: Record<ToastKind, string> = {
-  info: 'border-border bg-surface text-fg',
-  success: 'border-success/60 bg-surface text-fg',
-  error: 'border-danger/60 bg-surface text-fg',
+  info: 'bg-surface text-fg',
+  success: 'bg-surface text-fg',
+  error: 'bg-surface text-fg',
 };
 
 const ICON_STYLES: Record<ToastKind, string> = {
@@ -86,7 +85,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={item.id}
             className={cn(
-              'pointer-events-auto flex items-start gap-3 rounded-lg border px-4 py-3 shadow-pop',
+              'pointer-events-auto flex items-start gap-3 rounded-xl px-4 py-3 shadow-pop ring-1 ring-fg/5',
               'animate-fade-up',
               STYLES[item.kind],
             )}

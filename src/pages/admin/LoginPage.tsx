@@ -49,7 +49,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-surface/95 px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-bg px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-brand text-lg font-bold text-brand-fg">
@@ -59,7 +59,7 @@ export function LoginPage() {
           <p className="mt-1 text-sm text-muted">{settings.site.name}</p>
         </div>
 
-        <form onSubmit={submit} className="rounded-xl border border-border bg-surface p-6 shadow-card">
+        <form onSubmit={submit} className="rounded-3xl bg-surface p-7 shadow-pop ring-1 ring-fg/5">
           <div className="space-y-4">
             <Input
               label="用户名"

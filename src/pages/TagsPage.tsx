@@ -1,7 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Badge } from '../components/ui/Badge';
 import { EmptyState, Skeleton } from '../components/ui/Feedback';
-import { Icon } from '../components/ui/icons';
 import { PageWithSidebar } from '../components/layout/PageWithSidebar';
 import { fetchTags } from '../lib/resource';
 import { useAsync, useDocumentTitle } from '../hooks';
@@ -14,39 +12,34 @@ export function TagsPage() {
 
   return (
     <PageWithSidebar>
-      <header className="mb-8">
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-fg">
-          <Icon name="tag" size={22} className="text-brand" />
-          标签
-        </h1>
-        <p className="mt-1.5 text-sm text-muted">
-          {data ? `共 ${data.length} 个标签` : '按主题浏览文章'}
+      <header className="mb-10">
+        <span className="eb-kicker">分类</span>
+        <h1 className="mt-3 font-heading text-3xl tracking-tight text-fg sm:text-4xl">标签</h1>
+        <p className="mt-2 text-xs text-faint">
+          {data ? `${data.length} 个标签` : '按主题浏览文章'}
         </p>
       </header>
 
       {loading && !data ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 w-full" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-14 w-full rounded-2xl" />
           ))}
         </div>
       ) : !data || data.length === 0 ? (
-        <EmptyState icon="tag" title="还没有标签" description="为文章添加标签后，这里会显示标签云。" />
+        <EmptyState icon="tag" title="还没有标签" description="为文章添加标签后，这里会显示标签索引。" />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           {data.map((tag) => (
             <Link
               key={tag.id}
               to={`/posts?tag=${encodeURIComponent(tag.slug)}`}
-              className="group flex items-center justify-between rounded-xl border border-border bg-surface p-5 no-underline transition-colors hover:border-brand"
+              className="group flex items-center justify-between gap-4 rounded-2xl bg-surface px-5 py-4 no-underline shadow-card transition-shadow hover:shadow-lift"
             >
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
-                  <Icon name="tag" size={17} />
-                </span>
-                <span className="truncate text-base font-medium text-fg group-hover:text-brand">{tag.name}</span>
-              </div>
-              <Badge tone="neutral">{tag.post_count} 篇</Badge>
+              <span className="font-medium text-fg transition-colors group-hover:text-brand">
+                {tag.name}
+              </span>
+              <span className="eb-index-num rounded-full bg-surface-2 px-2.5 py-1">{tag.post_count}</span>
             </Link>
           ))}
         </div>

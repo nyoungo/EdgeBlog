@@ -31,6 +31,8 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
   "tagline": "在边缘写作，与世界相连",
   "description": "一个部署在 Cloudflare Pages 上的现代化动态博客，React + Hono + D1。",
   "logo": { "type": "text", "text": "Edge", "imageUrl": "" },
+  "aboutLogo": "",
+  "aboutText": "",
   "favicon": "",
   "footerText": "© 2026 Edge Blog. 保留所有权利。",
   "footerLinks": [
@@ -55,9 +57,11 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
   "fontHeading": "sans",
   "fontScale": "md",
   "radius": "md",
-  "maxWidth": "72ch",
+  "maxWidth": "100%",
   "lineHeight": "relaxed",
-  "codeTheme": "github-dark"
+  "codeTheme": "github-dark",
+  "codeThemeLight": "github",
+  "glassOpacity": 0.34
 }')),
 
 ('layout', json('{
@@ -68,6 +72,12 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
     { "id": "tags",       "enabled": true },
     { "id": "newsletter", "enabled": false }
   ],
+  "sidebarModules": [
+    { "id": "about",     "enabled": true },
+    { "id": "latest",    "enabled": true },
+    { "id": "tags",      "enabled": true },
+    { "id": "subscribe", "enabled": true }
+  ],
   "sidebar": "right",
   "cardStyle": "magazine",
   "cardSize": "md",
@@ -75,7 +85,7 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
   "postsPerPage": 9,
   "hero": {
     "width": "contained",
-    "height": "",
+    "height": "480px",
     "fullScreen": false,
     "background": "",
     "backgroundMedia": "",

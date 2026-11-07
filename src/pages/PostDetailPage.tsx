@@ -5,11 +5,10 @@ import { ApiError, api } from '../lib/api';
 import { formatDate, formatNumber } from '../lib/format';
 import { useAsync, useDocumentTitle, useMetaDescription } from '../hooks';
 import { useSettings } from '../providers/SettingsProvider';
-import { Badge } from '../components/ui/Badge';
 import { buttonStyles } from '../components/ui/Button';
 import { Centered, ErrorState, Spinner } from '../components/ui/Feedback';
 import { Icon } from '../components/ui/icons';
-import { PostCard, cardGridClass } from '../components/blog/PostCard';
+import { PostCollection } from '../components/blog/PostListItem';
 import { TableOfContents } from '../components/blog/TableOfContents';
 import { ShareButtons } from '../components/blog/ShareButtons';
 import { CommentSection } from '../components/blog/CommentSection';
@@ -113,39 +112,40 @@ export function PostDetailPage() {
   const published = detail.published_at ?? detail.created_at;
 
   return (
-    <article className="container-page py-10">
+    <article className="container-page py-12">
       <ReadingProgress />
-      <nav className="mb-6 flex items-center gap-1.5 text-sm text-faint">
+      <nav className="mb-6 flex items-center gap-1.5 text-xs text-faint">
         <Link to="/" className="no-underline transition-colors hover:text-fg">
           首页
         </Link>
-        <Icon name="chevronRight" size={14} />
+        <Icon name="chevronRight" size={12} />
         <Link to="/posts" className="no-underline transition-colors hover:text-fg">
           文章
         </Link>
       </nav>
 
       <header className="max-w-3xl">
-        <h1 className="text-3xl font-bold leading-tight tracking-tight text-fg text-balance sm:text-4xl">
+        <span className="eb-kicker">文章</span>
+        <h1 className="mt-3 font-heading text-3xl leading-tight tracking-tight text-fg text-balance sm:text-4xl lg:text-5xl">
           {detail.title}
         </h1>
-        <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-faint">
+        <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-faint">
           {detail.author_name && (
             <span className="inline-flex items-center gap-1.5">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-brand-fg">
+              <span className="flex size-6 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-brand-fg">
                 {detail.author_name.slice(0, 1).toUpperCase()}
               </span>
               {detail.author_name}
             </span>
           )}
           <span className="inline-flex items-center gap-1.5">
-            <Icon name="calendar" size={15} />
+            <Icon name="calendar" size={13} />
             {formatDate(published, settings.site.locale)}
           </span>
           {features.views && (
             <span className="inline-flex items-center gap-1.5">
-              <Icon name="eye" size={15} />
-              {formatNumber(detail.views)} 次浏览
+              <Icon name="eye" size={13} />
+              {formatNumber(detail.views)}
             </span>
           )}
         </div>
@@ -153,7 +153,7 @@ export function PostDetailPage() {
 
       {detail.cover_url && (
         // Fixed aspect box reserves the space before the image loads (no CLS).
-        <div className="mt-8 aspect-[16/9] w-full overflow-hidden rounded-xl border border-border bg-surface-2">
+        <div className="mt-8 aspect-[16/9] w-full overflow-hidden rounded-2xl bg-surface-2 shadow-card">
           <img
             src={detail.cover_url}
             alt={detail.title}
@@ -168,7 +168,7 @@ export function PostDetailPage() {
 
       {showToc && (
         // Long reads used to have no navigation at all on phones.
-        <details className="mt-8 rounded-xl border border-border bg-surface p-4 lg:hidden">
+        <details className="mt-8 rounded-2xl bg-surface p-4 shadow-card lg:hidden">
           <summary className="cursor-pointer list-none text-sm font-semibold text-fg">
             <span className="inline-flex items-center gap-1.5">
               <Icon name="list" size={15} />
@@ -185,14 +185,15 @@ export function PostDetailPage() {
         <div className="min-w-0 flex-1">
           <Prose markdown={detail.content_md ?? ''} html={html} className="max-w-content" />
 
-          <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6">
-            <div className="flex flex-wrap gap-1.5">
+          <div className="mt-10 flex flex-wrap items-center justify-between gap-4 pt-2">
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
               {detail.tags.map((tag) => (
-                <Link key={tag.id} to={`/posts?tag=${encodeURIComponent(tag.slug)}`} className="no-underline">
-                  <Badge tone="outline" className="px-2.5 py-1">
-                    <Icon name="tag" size={12} />
-                    {tag.name}
-                  </Badge>
+                <Link
+                  key={tag.id}
+                  to={`/posts?tag=${encodeURIComponent(tag.slug)}`}
+                  className="text-sm text-muted no-underline transition-colors hover:text-brand"
+                >
+                  #{tag.name}
                 </Link>
               ))}
             </div>
@@ -204,13 +205,13 @@ export function PostDetailPage() {
               {detail.prev ? (
                 <Link
                   to={`/posts/${detail.prev.slug}`}
-                  className="group rounded-xl border border-border bg-surface p-4 no-underline transition-colors hover:border-brand"
+                  className="group rounded-2xl bg-surface p-4 no-underline shadow-card transition-shadow hover:shadow-lift"
                 >
-                  <span className="flex items-center gap-1.5 text-xs text-faint">
-                    <Icon name="arrowLeft" size={13} />
+                  <span className="eb-kicker inline-flex items-center gap-1.5">
+                    <Icon name="arrowLeft" size={12} />
                     上一篇
                   </span>
-                  <p className="mt-1.5 line-clamp-2 text-sm font-medium text-fg group-hover:text-brand">
+                  <p className="mt-2 line-clamp-2 font-heading text-base text-fg transition-colors group-hover:text-brand">
                     {detail.prev.title}
                   </p>
                 </Link>
@@ -220,13 +221,13 @@ export function PostDetailPage() {
               {detail.next && (
                 <Link
                   to={`/posts/${detail.next.slug}`}
-                  className="group rounded-xl border border-border bg-surface p-4 text-right no-underline transition-colors hover:border-brand"
+                  className="group rounded-2xl bg-surface p-4 text-right no-underline shadow-card transition-shadow hover:shadow-lift"
                 >
-                  <span className="flex items-center justify-end gap-1.5 text-xs text-faint">
+                  <span className="eb-kicker inline-flex items-center gap-1.5">
                     下一篇
-                    <Icon name="arrowRight" size={13} />
+                    <Icon name="arrowRight" size={12} />
                   </span>
-                  <p className="mt-1.5 line-clamp-2 text-sm font-medium text-fg group-hover:text-brand">
+                  <p className="mt-2 line-clamp-2 font-heading text-base text-fg transition-colors group-hover:text-brand">
                     {detail.next.title}
                   </p>
                 </Link>
@@ -239,7 +240,7 @@ export function PostDetailPage() {
 
         {showToc && (
           <aside className="hidden w-56 shrink-0 lg:block">
-            <div className="sticky top-24">
+            <div className="rail-sticky">
               <TableOfContents entries={toc} />
             </div>
           </aside>
@@ -247,13 +248,9 @@ export function PostDetailPage() {
       </div>
 
       {features.relatedPosts && detail.related.length > 0 && (
-        <section className="mt-20 border-t border-border pt-10">
-          <h2 className="mb-6 text-xl font-semibold tracking-tight text-fg">相关文章</h2>
-          <div className={cardGridClass(settings.layout.cardStyle, settings.layout.cardSize)}>
-            {detail.related.map((post) => (
-              <PostCard key={post.id} post={post} style={settings.layout.cardStyle} />
-            ))}
-          </div>
+        <section className="mt-20">
+          <h2 className="mb-4 font-heading text-2xl tracking-tight text-fg">相关文章</h2>
+          <PostCollection posts={detail.related} />
         </section>
       )}
     </article>
