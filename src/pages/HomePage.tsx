@@ -10,7 +10,7 @@ import { api, qs } from '../lib/api';
 import { resolveHeroMedia } from '../lib/hero-media';
 import { fetchTags } from '../lib/resource';
 import { cn } from '../lib/utils';
-import { useAsync, useMediaQuery } from '../hooks';
+import { useAsync, useDocumentTitle, useMediaQuery, useScrolled } from '../hooks';
 import { useSettings } from '../providers/SettingsProvider';
 
 type HeroStyle = CSSProperties & Record<`--${string}`, string>;
@@ -72,6 +72,8 @@ function HomeHero({
   const media = resolveHeroMedia(hero);
   // 手机 / 平板不加载视频：直接显示封面图，省流量也避开自动播放限制。
   const compact = useMediaQuery('(max-width: 767px), (hover: none) and (pointer: coarse)');
+  // 向下箭头只在页面还停在最顶部时出现，一旦开始滚动就淡出。
+  const atTop = !useScrolled(0);
 
   const mode: 'full' | 'fixed' | 'auto' = hero.fullScreen
     ? 'full'
@@ -193,13 +195,16 @@ function HomeHero({
       {mode === 'full' && (
         <div
           className={cn(
-            'relative z-20 mt-auto flex justify-center',
+            'relative z-20 mt-auto flex justify-center transition-all duration-300',
             full ? 'container-page pb-6 pt-8' : 'px-6 pb-5 sm:px-10',
+            !atTop && 'pointer-events-none translate-y-2 opacity-0',
           )}
         >
           <a
             href="#latest"
             aria-label="向下浏览"
+            aria-hidden={!atTop}
+            tabIndex={atTop ? undefined : -1}
             className={cn(
               'eb-scroll-cue inline-flex items-center justify-center p-1.5 no-underline',
               onMedia ? 'text-white/80 hover:text-white' : 'text-muted hover:text-fg',
@@ -235,6 +240,10 @@ export function HomePage() {
   const { settings } = useSettings();
   const { site, layout } = settings;
   const perPage = layout.postsPerPage;
+
+  // Match the server-rendered title for `/`; without this the article title
+  // from the previous route sticks around after navigating back home.
+  useDocumentTitle(site.tagline ? `${site.name} — ${site.tagline}` : site.name);
 
   const modules = layout.homeModules.filter((m) => m.enabled);
   // 只请求已启用模块真正需要的数据。
@@ -272,7 +281,7 @@ export function HomePage() {
   return (
     <>
       {heroOutside && <HomeHero {...heroProps} />}
-      <PageWithSidebar>
+      <PageWithSidebar afterHero={heroOutside}>
         {modules.map((module) => {
           switch (module.id) {
             case 'hero':
@@ -285,7 +294,11 @@ export function HomePage() {
             case 'latest': {
               const posts = latest.data ?? [];
               return (
-                <section key="latest" id="latest" className="mb-16">
+                <section
+                  key="latest"
+                  id="latest"
+                  className="mb-16 scroll-mt-[calc(var(--eb-header-h,64px)+2.5rem)]"
+                >
                   {latest.error ? (
                     <ErrorState description={latest.error} onRetry={latest.reload} />
                   ) : latest.loading && !latest.data ? (

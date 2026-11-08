@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { ThemeMode } from '@shared/types';
 import { Icon, type IconName } from './icons';
+import { Tooltip } from './Tooltip';
 import { cn } from '../../lib/utils';
 import { useSettings } from '../../providers/SettingsProvider';
 
@@ -14,6 +15,7 @@ export function ThemeToggle() {
   const { mode, setMode } = useSettings();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const tooltipId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -28,17 +30,19 @@ export function ThemeToggle() {
 
   return (
     <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="eb-icon-btn"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label="切换主题"
-        title="切换主题"
-      >
-        <Icon name={current.icon} size={18} />
-      </button>
+      <Tooltip id={tooltipId} label="切换主题" visible={!open}>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="eb-icon-btn"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="切换主题"
+          aria-describedby={tooltipId}
+        >
+          <Icon name={current.icon} size={18} />
+        </button>
+      </Tooltip>
       {open && (
         <div
           role="menu"

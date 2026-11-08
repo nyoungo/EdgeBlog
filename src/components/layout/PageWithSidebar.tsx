@@ -9,17 +9,27 @@ import { Sidebar, hasVisibleSidebarCards } from '../blog/Sidebar';
  * Below the `lg` breakpoint the rail always stacks underneath the content.
  * 侧栏卡片全部关闭时，这一列也不再渲染，避免正文旁留白。
  */
-export function PageWithSidebar({ children, className }: { children: ReactNode; className?: string }) {
+export function PageWithSidebar({
+  children,
+  className,
+  afterHero = false,
+}: {
+  children: ReactNode;
+  className?: string;
+  /** Extra breathing room when the page opens with a full-bleed hero. */
+  afterHero?: boolean;
+}) {
   const { settings } = useSettings();
   const position = settings.layout.sidebar;
   const showRail = position !== 'none' && hasVisibleSidebarCards(settings.layout.sidebarModules);
+  const spacing = afterHero ? 'pb-12 pt-20' : 'py-12';
 
   if (!showRail) {
-    return <div className={cn('container-page py-12', className)}>{children}</div>;
+    return <div className={cn('container-page', spacing, className)}>{children}</div>;
   }
 
   return (
-    <div className={cn('container-page py-12', className)}>
+    <div className={cn('container-page', spacing, className)}>
       <div
         className={cn(
           'flex flex-col gap-12',
