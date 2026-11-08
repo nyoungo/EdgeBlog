@@ -4,7 +4,8 @@
 --   * posts.deleted_at: soft delete / recycle bin for articles
 -- ============================================================================
 
-PRAGMA foreign_keys = ON;
+-- D1 enforces foreign keys automatically; `PRAGMA foreign_keys = ON` is
+-- rejected by some D1 setups (SQLITE_AUTH), so it is intentionally omitted.
 
 -- ---------------------------------------------------------------------------
 -- audit_log — an append-only trail of privileged mutations.

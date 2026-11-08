@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import type { AppEnv, Env } from '../functions/lib/env';
 import { assertSecrets } from '../functions/lib/env';
 import { attachUser, requireAdmin, requireAuth } from '../functions/lib/auth';
-import { isAppError } from '../functions/lib/errors';
+import { isAppError, isMissingTableError } from '../functions/lib/errors';
 import { normalizeAiBaseUrl } from '../functions/lib/ai';
 import { signJwt, verifyJwt } from '../functions/lib/jwt';
 import { looksLikeSpam } from '../functions/lib/sanitize';
@@ -191,5 +191,19 @@ describe('session revocation', () => {
       sessionEnv(0),
     );
     expect(admin.status).toBe(200);
+  });
+});
+
+describe('isMissingTableError', () => {
+  it('recognizes the D1 error for an uninitialized database', () => {
+    expect(isMissingTableError(new Error('D1_ERROR: no such table: settings: SQLITE_ERROR'))).toBe(
+      true,
+    );
+    expect(isMissingTableError('no such table: posts')).toBe(true);
+  });
+
+  it('ignores unrelated failures', () => {
+    expect(isMissingTableError(new Error('UNIQUE constraint failed: users.username'))).toBe(false);
+    expect(isMissingTableError(undefined)).toBe(false);
   });
 });

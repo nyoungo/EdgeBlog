@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { attachUser } from '../lib/auth';
+import { first } from '../lib/db';
 import { assertSecrets, type AppEnv } from '../lib/env';
-import { isAppError } from '../lib/errors';
+import { isAppError, isMissingTableError } from '../lib/errors';
 import { corsMiddleware, csrfGuard, requestId, securityHeaders } from '../lib/middleware';
 import { fail } from '../lib/response';
 import { authRoutes } from './auth';
@@ -40,15 +41,42 @@ api.onError((err, c) => {
   if (isAppError(err)) {
     return fail(c, err.code, err.message, err.status, err.details);
   }
+  // An empty D1 database is a setup problem, not a server bug. A generic 500
+  // here is what made "D1 无法初始化" reports so hard to diagnose.
+  if (isMissingTableError(err)) {
+    console.error('[api] database not initialized', err);
+    return fail(
+      c,
+      'INTERNAL',
+      '数据库尚未初始化：请按 README 的「初始化远程数据库」执行 db/init.sql，或依次执行 migrations/ 下的 SQL 与 seed/seed.sql',
+      500,
+      { hint: 'database-not-initialized' },
+    );
+  }
   console.error('[api] unhandled error', err);
   return fail(c, 'INTERNAL', '服务器内部错误', 500);
 });
 
 api.notFound((c) => fail(c, 'NOT_FOUND', '接口不存在', 404));
 
-api.get('/health', (c) => {
+api.get('/health', async (c) => {
   c.header('Cache-Control', 'no-store');
-  return c.json({ ok: true, data: { status: 'ok', ts: Date.now() } });
+  // A missing `settings` table means migrations were never applied. Report it
+  // here so a misconfigured deployment is visible before users hit 500s.
+  let db: 'ok' | 'uninitialized' | 'error' = 'ok';
+  try {
+    const table = await first<{ name: string }>(
+      c.env,
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'settings'",
+    );
+    if (!table) db = 'uninitialized';
+  } catch {
+    db = 'error';
+  }
+  return c.json({
+    ok: true,
+    data: { status: db === 'ok' ? 'ok' : 'degraded', db, ts: Date.now() },
+  });
 });
 
 api.route('/auth', authRoutes);

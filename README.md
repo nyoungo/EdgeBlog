@@ -112,19 +112,65 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 
 ### 4. 初始化远程数据库
 
-进入 D1 数据库的 **Console**，依次复制并执行以下文件的内容（顺序不能变）：
+新建的 D1 数据库是空的，必须先执行建表 SQL；否则业务接口都会返回 500。
 
-```
-migrations/0001_init.sql
-migrations/0002_fts.sql
-migrations/0003_auth_hardening.sql
-migrations/0004_write_amplification.sql
-migrations/0005_audit_and_soft_delete.sql
-migrations/0006_media_thumbnail.sql
-seed/seed.sql
+> **⚠️ 要复制的是 SQL 文件的内容，不是文件名或路径。**
+> 如果把 `migrations/0001_init.sql` 这样的路径粘贴进 D1 Console，SQLite 会把它当成 SQL 解析，
+> 报 `near "migrations": syntax error at offset 0`。这不是 SQL 有问题，而是粘贴错了内容。
+
+#### 方式 A：执行合并脚本（推荐，一次粘贴）
+
+1. 打开 [`db/init.sql`](db/init.sql)，点击页面右上角的 **Raw**。
+2. 全选（Ctrl/Cmd + A）并复制**整个文件内容**，第一行应该以 `--` 注释开头。
+3. 回到 D1 数据库 → **Console**，把内容粘贴进 SQL 输入框，点击 **Execute**。
+4. 确认每条语句都执行成功、没有红色错误。
+
+`db/init.sql` 已按 `0001 → 0006 → seed` 的顺序合并好，**只适用于空库**。
+重复执行会在 `ALTER TABLE ... ADD COLUMN` 处报 `duplicate column name`。
+它由 `npm run db:bundle` 从下面的原始文件生成，CI 会校验两者是否一致。
+
+#### 方式 B：逐个文件执行
+
+对下表中每个文件重复「打开 → Raw → 复制全部内容 → 粘贴到 Console → Execute」，**顺序不能变**：
+
+| 顺序 | 文件 | 作用 |
+| --- | --- | --- |
+| 1 | [`migrations/0001_init.sql`](migrations/0001_init.sql) | 用户、文章、标签、评论、设置、媒体、登录记录 |
+| 2 | [`migrations/0002_fts.sql`](migrations/0002_fts.sql) | FTS5 全文搜索表与同步触发器 |
+| 3 | [`migrations/0003_auth_hardening.sql`](migrations/0003_auth_hardening.sql) | 会话版本号、评论父级索引 |
+| 4 | [`migrations/0004_write_amplification.sql`](migrations/0004_write_amplification.sql) | 触发器改写、登录记录索引 |
+| 5 | [`migrations/0005_audit_and_soft_delete.sql`](migrations/0005_audit_and_soft_delete.sql) | 审计日志、文章软删除 |
+| 6 | [`migrations/0006_media_thumbnail.sql`](migrations/0006_media_thumbnail.sql) | 视频封面字段 |
+| 7 | [`seed/seed.sql`](seed/seed.sql) | 默认管理员、示例文章与默认配置 |
+
+#### 报错了怎么办
+
+| 报错 | 原因 | 处理 |
+| --- | --- | --- |
+| `near "migrations": syntax error at offset 0` | 粘贴的是文件路径 | 改为粘贴文件内容 |
+| `duplicate column name: token_version` / `deleted_at` / `thumbnail_url` | 该列已存在，库不是空的 | 跳过这条 `ALTER TABLE`，继续执行其余语句 |
+| `not authorized: SQLITE_AUTH` | 脚本里有 D1 不允许的 PRAGMA | 使用本仓库当前版本（已移除 `PRAGMA foreign_keys`） |
+| 页面 500，或 `/api/health` 返回 `data.db` 为 `uninitialized` | 迁移没有执行完 | 按上表顺序补齐，或执行 `db/init.sql` |
+| `no such table` / `no such column` | 库结构与代码版本不一致 | 用 `db/init.sql` 初始化，或检查是否漏了某个迁移 |
+
+如果库已被写坏、又没有任何需要保留的数据，最省事的做法是删除这个 D1 数据库，重新创建后把新的
+`database_id` 填进 `wrangler.toml`，再执行一次初始化。
+
+#### 命令行方式（可选）
+
+本地装有 Node.js 时，可以让 wrangler 直接读取文件，完全避开复制粘贴：
+
+```bash
+npx wrangler login
+npm run db:init          # 远程：执行 db/init.sql
+npm run db:init:local    # 本地：执行 db/init.sql
 ```
 
-`seed.sql` 会写入默认管理员、示例文章与默认配置。
+已有数据、只想补跑某个迁移时，也可以单独执行：
+
+```bash
+npx wrangler d1 execute edge-blog --remote --file=./migrations/0006_media_thumbnail.sql
+```
 
 ### 5. 创建 Pages 项目
 
@@ -197,12 +243,14 @@ seed/seed.sql
 ```bash
 npm install
 cp .dev.vars.example .dev.vars   # 填入 JWT_SECRET
-npm run db:migrate:local
-npm run db:seed:local
+npm run db:init:local            # 首次：建表 + 种子数据（见下方说明）
 
 npm run build
 npm run dev:pages   # http://127.0.0.1:8788
 ```
+
+> `db:init:local` 只适用于全新的本地数据库；已经有本地数据时不要重复执行，
+> 改用 `npm run db:migrate:local` 补齐迁移，或用 `npm run db:seed:local` 单独写入种子数据。
 
 只调试前端时，另开一个终端运行 `npm run dev`，Vite 会把 `/api` 代理到 `8788`。
 
@@ -217,8 +265,11 @@ npm run dev:pages   # http://127.0.0.1:8788
 | `npm run lint` | ESLint（零警告） |
 | `npm test` | Vitest 单元测试 |
 | `npm run deploy` | 构建并部署到 Cloudflare Pages |
-| `npm run db:migrate[:local]` | 应用 D1 迁移（远程 / 本地） |
+| `npm run db:bundle` | 把迁移与种子数据合并生成 `db/init.sql` |
+| `npm run db:init[:local]` | 用 `db/init.sql` 初始化全新数据库（远程 / 本地） |
+| `npm run db:migrate[:local]` | 逐个应用 D1 迁移（远程 / 本地） |
 | `npm run db:seed[:local]` | 写入种子数据（远程 / 本地） |
+| `npm run db:reset:local` | 等同 `db:init:local`（不会删除已有本地库） |
 | `npm run hash-password -- "密码"` | 生成 PBKDF2 密码哈希 |
 
 ## 项目结构
@@ -233,8 +284,9 @@ src/
   styles/               tokens.css（设计令牌）+ globals.css
 shared/                 前后端共享类型与默认配置
 migrations/             D1 迁移（建表、FTS5、审计、软删除等）
+db/init.sql             合并后的初始化 SQL（npm run db:bundle 生成）
 seed/                   示例文章、默认设置与管理员
-scripts/                密码哈希生成
+scripts/                密码哈希生成、SQL 合并脚本
 public/                 静态资源与安全响应头
 docs/screenshots/       README 界面截图
 index.html              SPA 外壳（首屏防闪烁脚本、SEO / 配置注入占位）

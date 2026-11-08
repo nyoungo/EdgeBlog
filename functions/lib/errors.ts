@@ -78,3 +78,13 @@ export class AppError extends Error {
 export function isAppError(err: unknown): err is AppError {
   return err instanceof AppError;
 }
+
+/**
+ * True when D1 reports a missing table. The usual cause is that the database
+ * was created but the SQL in migrations/ (or db/init.sql) was never applied,
+ * so the API should point at the setup docs instead of a generic 500.
+ */
+export function isMissingTableError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /no such table/i.test(message);
+}

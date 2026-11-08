@@ -26,6 +26,13 @@ jobs:
 
       - run: npm ci
 
+      # db/init.sql is what browser-only users paste into the D1 console; it
+      # must always match the migrations + seed it is generated from.
+      - name: SQL bundle is up to date
+        run: |
+          npm run db:bundle
+          git diff --exit-code -- db/init.sql
+
       - name: Lint
         run: npm run lint
 

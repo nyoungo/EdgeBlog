@@ -3,13 +3,13 @@
 -- Target: Cloudflare D1 (SQLite).
 --
 -- Conventions:
---   * All timestamps are ISO-8601 UTC strings, produced by datetime('now').
+--   * All timestamps are ISO-8601 UTC strings, produced by the SQLite
+--     datetime function.
 --   * "status" columns use CHECK constraints so bad states cannot be stored.
---   * Every foreign key declares an ON DELETE action; D1 enforces FKs when
---     `PRAGMA foreign_keys = ON` is set per-connection (see functions/db.ts).
+--   * Every foreign key declares an ON DELETE action. D1 always enforces
+--     foreign keys (the equivalent of `PRAGMA foreign_keys = ON`), and rejects
+--     that PRAGMA in some setups, so it is intentionally not executed here.
 -- ============================================================================
-
-PRAGMA foreign_keys = ON;
 
 -- ---------------------------------------------------------------------------
 -- users — blog authors / admins
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS posts (
   cover_url        TEXT,
   status           TEXT    NOT NULL DEFAULT 'draft'
                            CHECK (status IN ('draft', 'published', 'scheduled')),
-  published_at     TEXT,                        -- may be in the future for 'scheduled'
+  published_at     TEXT,                        -- may be in the future while status is scheduled
   -- Per-post SEO overrides (fall back to global settings when NULL)
   meta_title       TEXT,
   meta_description TEXT,

@@ -18,11 +18,14 @@
     "test:watch": "vitest",
     "dev:pages": "wrangler pages dev ./dist --live-reload",
     "deploy": "npm run build && wrangler pages deploy ./dist",
+    "db:bundle": "node ./scripts/build-sql-bundle.mjs",
+    "db:init": "wrangler d1 execute edge-blog --remote --file=./db/init.sql",
+    "db:init:local": "wrangler d1 execute edge-blog --local --file=./db/init.sql",
     "db:migrate": "wrangler d1 execute edge-blog --remote --file=./migrations/0001_init.sql && wrangler d1 execute edge-blog --remote --file=./migrations/0002_fts.sql && wrangler d1 execute edge-blog --remote --file=./migrations/0003_auth_hardening.sql && wrangler d1 execute edge-blog --remote --file=./migrations/0004_write_amplification.sql && wrangler d1 execute edge-blog --remote --file=./migrations/0005_audit_and_soft_delete.sql && wrangler d1 execute edge-blog --remote --file=./migrations/0006_media_thumbnail.sql",
     "db:migrate:local": "wrangler d1 execute edge-blog --local --file=./migrations/0001_init.sql && wrangler d1 execute edge-blog --local --file=./migrations/0002_fts.sql && wrangler d1 execute edge-blog --local --file=./migrations/0003_auth_hardening.sql && wrangler d1 execute edge-blog --local --file=./migrations/0004_write_amplification.sql && wrangler d1 execute edge-blog --local --file=./migrations/0005_audit_and_soft_delete.sql && wrangler d1 execute edge-blog --local --file=./migrations/0006_media_thumbnail.sql",
     "db:seed": "wrangler d1 execute edge-blog --remote --file=./seed/seed.sql",
     "db:seed:local": "wrangler d1 execute edge-blog --local --file=./seed/seed.sql",
-    "db:reset:local": "wrangler d1 execute edge-blog --local --file=./migrations/0001_init.sql --file=./migrations/0002_fts.sql --file=./migrations/0003_auth_hardening.sql --file=./migrations/0004_write_amplification.sql --file=./migrations/0005_audit_and_soft_delete.sql --file=./migrations/0006_media_thumbnail.sql --file=./seed/seed.sql",
+    "db:reset:local": "npm run db:init:local",
     "hash-password": "node ./scripts/hash-password.mjs"
   },
   "dependencies": {
