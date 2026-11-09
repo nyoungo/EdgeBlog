@@ -13,17 +13,29 @@ import { Icon, type IconName } from '../../components/ui/icons';
 import { cn } from '../../lib/utils';
 
 const PROVIDERS: Array<{ value: AiProvider; label: string; baseUrl: string; model: string }> = [
+  {
+    value: 'cloudflare',
+    label: 'Cloudflare Workers AI（内置，推荐）',
+    baseUrl: '',
+    model: '@cf/zai-org/glm-4.7-flash',
+  },
   { value: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
   { value: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
   { value: 'custom', label: '自定义（OpenAI 兼容）', baseUrl: '', model: '' },
 ];
 
-type FormState = Omit<AiSettingsView, 'hasApiKey'>;
+type FormState = Omit<AiSettingsView, 'hasApiKey' | 'bindingAvailable' | 'ready'>;
 
 function toForm(view: AiSettingsView): FormState {
-  // `hasApiKey` is a view-only flag; the form holds the (write-only) key itself.
-  const { hasApiKey: _hasApiKey, ...rest } = view;
+  // View-only flags; the form holds the (write-only) key itself.
+  const { hasApiKey: _hasApiKey, bindingAvailable: _bindingAvailable, ready: _ready, ...rest } = view;
   return rest;
+}
+
+/** Defaults with the view-only flags filled in; the stored key is never loaded. */
+function defaultsForm(flags: { hasApiKey: boolean; bindingAvailable: boolean }): FormState {
+  const { apiKey: _apiKey, ...rest } = AI_DEFAULTS;
+  return toForm({ ...rest, ...flags, ready: false });
 }
 
 function Section({
@@ -61,8 +73,11 @@ export function AiSettingsPage() {
   const { settings } = useSettings();
   const { success, error: toastError } = useToast();
 
-  const [form, setForm] = useState<FormState>(() => toForm({ ...AI_DEFAULTS, hasApiKey: false }));
+  const [form, setForm] = useState<FormState>(() =>
+    defaultsForm({ hasApiKey: false, bindingAvailable: false }),
+  );
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [bindingAvailable, setBindingAvailable] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [clearKey, setClearKey] = useState(false);
   const [ready, setReady] = useState(false);
@@ -82,6 +97,7 @@ export function AiSettingsPage() {
         if (cancelled) return;
         setForm(toForm(data));
         setHasApiKey(data.hasApiKey);
+        setBindingAvailable(data.bindingAvailable);
       } catch (err) {
         if (!cancelled) toastError(err instanceof Error ? err.message : '加载 AI 设置失败');
       } finally {
@@ -96,12 +112,16 @@ export function AiSettingsPage() {
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
+  const isCloudflare = form.provider === 'cloudflare';
+  const keyConfigured = hasApiKey && !clearKey;
+  const providerUsable = isCloudflare ? bindingAvailable : keyConfigured;
+
   const fetchModels = async (silent = false) => {
     setModelsLoading(true);
     try {
       const { data } = await api.post<{ models: string[] }>('/ai/models', {
         provider: form.provider,
-        baseUrl: form.baseUrl,
+        baseUrl: isCloudflare ? undefined : form.baseUrl,
       });
       setModels(data.models);
       setForm((prev) => (prev.model ? prev : { ...prev, model: data.models[0] ?? '' }));
@@ -115,10 +135,10 @@ export function AiSettingsPage() {
   };
 
   useEffect(() => {
-    if (ready && hasApiKey) void fetchModels(true);
-    // Only re-run when a key first becomes available.
+    if (ready && providerUsable) void fetchModels(true);
+    // Only re-run when the provider first becomes usable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, hasApiKey]);
+  }, [ready, providerUsable]);
 
   const modelOptions = useMemo(() => {
     const list = [...models];
@@ -146,10 +166,12 @@ export function AiSettingsPage() {
       const { data } = await api.patch<AiSettingsView>('/ai/settings', patch);
       setForm(toForm(data));
       setHasApiKey(data.hasApiKey);
+      setBindingAvailable(data.bindingAvailable);
       setApiKey('');
       setClearKey(false);
       success('AI 设置已保存');
-      if (data.hasApiKey) void fetchModels(true);
+      window.dispatchEvent(new Event('edgeblog:ai-settings-changed'));
+      if (data.ready) void fetchModels(true);
     } catch (err) {
       toastError(err instanceof Error ? err.message : '保存失败');
     } finally {
@@ -158,7 +180,7 @@ export function AiSettingsPage() {
   };
 
   const restoreDefaults = () => {
-    setForm(toForm({ ...AI_DEFAULTS, hasApiKey }));
+    setForm(defaultsForm({ hasApiKey, bindingAvailable }));
     success('已载入默认值，别忘了保存');
   };
 
@@ -184,14 +206,14 @@ export function AiSettingsPage() {
     return <div className="py-20 text-center text-sm text-faint">载入中…</div>;
   }
 
-  const keyConfigured = hasApiKey && !clearKey;
-
   return (
     <div className="pb-16">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-fg">AI 设置</h1>
-          <p className="mt-1 text-sm text-muted">配置用于「生成摘要 / 生成正文」的大模型服务，接口密钥只保存在服务端</p>
+          <p className="mt-1 text-sm text-muted">
+            默认使用 Cloudflare Workers AI，也可接入任意 OpenAI 兼容服务；接口密钥只保存在服务端
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" onClick={restoreDefaults}>
@@ -204,12 +226,16 @@ export function AiSettingsPage() {
       </header>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <Section title="启用与连通性" description="关闭后，文章编辑器不会显示 AI 生成按钮" icon="sparkles">
+        <Section
+          title="启用与连通性"
+          description="关闭后，文章编辑器和后台浮动助手都不会出现 AI 入口"
+          icon="sparkles"
+        >
           <Switch
             checked={form.enabled}
             onChange={(v) => set('enabled', v)}
-            label="启用 AI 辅助写作"
-            description="允许在文章编辑页生成摘要与正文"
+            label="启用 AI 辅助"
+            description="允许生成摘要 / 正文，并开启后台 AI 助手"
           />
           <div className="flex items-center gap-2">
             <Button
@@ -217,13 +243,19 @@ export function AiSettingsPage() {
               variant="secondary"
               size="sm"
               loading={testing}
-              disabled={!keyConfigured || !form.enabled}
+              disabled={!providerUsable || !form.enabled}
               onClick={() => void testConnection()}
             >
               <Icon name="zap" size={15} /> 测试连接
             </Button>
             <span className="text-xs text-muted">
-              {keyConfigured ? '已配置 API Key' : '尚未配置 API Key'}
+              {isCloudflare
+                ? bindingAvailable
+                  ? 'Workers AI 绑定可用'
+                  : '未检测到 Workers AI 绑定'
+                : keyConfigured
+                  ? '已配置 API Key'
+                  : '尚未配置 API Key'}
             </span>
           </div>
           {testResult && (
@@ -233,7 +265,11 @@ export function AiSettingsPage() {
           )}
         </Section>
 
-        <Section title="服务商" description="支持任意 OpenAI 兼容的 /chat/completions 接口" icon="globe">
+        <Section
+          title="服务商"
+          description="默认内置 Workers AI；其他服务需兼容 /chat/completions 接口"
+          icon="globe"
+        >
           <Select label="服务商" value={form.provider} onChange={(e) => applyProvider(e.target.value as AiProvider)}>
             {PROVIDERS.map((p) => (
               <option key={p.value} value={p.value}>
@@ -241,78 +277,128 @@ export function AiSettingsPage() {
               </option>
             ))}
           </Select>
-          <Input
-            label="接口地址（Base URL）"
-            value={form.baseUrl}
-            onChange={(e) => set('baseUrl', e.target.value)}
-            placeholder="留空使用服务商默认地址"
-            hint="形如 https://api.openai.com/v1，会自动拼接 /chat/completions"
-          />
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium text-fg">模型名称</span>
-              <button
-                type="button"
-                onClick={() => void fetchModels()}
-                disabled={modelsLoading || !hasApiKey}
-                title={hasApiKey ? '从服务商获取可用模型' : '请先填写并保存 API Key'}
-                className="inline-flex items-center gap-1 text-xs font-medium text-brand transition-opacity hover:opacity-80 disabled:opacity-60"
-              >
-                <Icon name="refresh" size={13} className={modelsLoading ? 'animate-spin' : undefined} />
-                {modelsLoading ? '获取中…' : '获取模型'}
-              </button>
-            </div>
-            <Select value={form.model} onChange={(e) => set('model', e.target.value)}>
-              {modelOptions.length === 0 ? (
-                <option value={form.model}>{form.model || '尚未获取到模型'}</option>
-              ) : (
-                modelOptions.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))
-              )}
-            </Select>
-            <p className="text-xs text-faint">
-              {models.length > 0
-                ? `共 ${models.length} 个可选模型`
-                : hasApiKey
-                  ? '尚未获取到模型列表，可点击「获取模型」重试'
-                  : '保存 API Key 后会自动获取可用模型'}
-            </p>
-          </div>
-        </Section>
 
-        <Section title="API 密钥" description="仅存储于服务端，前端只显示是否已配置" icon="lock">
-          <Input
-            label="API Key"
-            type="password"
-            value={apiKey}
-            onChange={(e) => {
-              setApiKey(e.target.value);
-              if (e.target.value) setClearKey(false);
-            }}
-            placeholder={keyConfigured ? '留空表示保持不变' : '粘贴你的 API Key'}
-            autoComplete="off"
-            disabled={clearKey}
-          />
-          {hasApiKey && (
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs text-muted">{clearKey ? '保存后将清除已存的 Key' : '已保存一个 Key'}</span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setClearKey((v) => !v);
-                  setApiKey('');
-                }}
-              >
-                {clearKey ? '取消清除' : '清除'}
-              </Button>
+          {isCloudflare ? (
+            <div
+              className={cn(
+                'rounded-xl border p-3 text-xs leading-relaxed',
+                bindingAvailable
+                  ? 'border-brand/30 bg-brand/5 text-muted'
+                  : 'border-danger/30 bg-danger/5 text-danger',
+              )}
+            >
+              {bindingAvailable
+                ? '已检测到 AI 绑定（wrangler.toml 中的 [ai] binding = "AI"），无需 API Key。Workers AI 会按 Cloudflare 账户的免费额度/用量计费。'
+                : '未检测到 AI 绑定。请在 wrangler.toml 中添加 [ai] binding = "AI"，或在 Pages 控制台的 Bindings 中配置 Workers AI，然后重新部署。'}
+            </div>
+          ) : (
+            <>
+              <Input
+                label="接口地址（Base URL）"
+                value={form.baseUrl}
+                onChange={(e) => set('baseUrl', e.target.value)}
+                placeholder="留空使用服务商默认地址"
+                hint="形如 https://api.openai.com/v1，会自动拼接 /chat/completions"
+              />
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-fg">模型名称</span>
+                  <button
+                    type="button"
+                    onClick={() => void fetchModels()}
+                    disabled={modelsLoading || !keyConfigured}
+                    title={keyConfigured ? '从服务商获取可用模型' : '请先填写并保存 API Key'}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-brand transition-opacity hover:opacity-80 disabled:opacity-60"
+                  >
+                    <Icon name="refresh" size={13} className={modelsLoading ? 'animate-spin' : undefined} />
+                    {modelsLoading ? '获取中…' : '获取模型'}
+                  </button>
+                </div>
+                <Input
+                  value={form.model}
+                  onChange={(e) => set('model', e.target.value)}
+                  placeholder="例如 gpt-4o-mini"
+                  list="ai-model-options"
+                />
+                <p className="text-xs text-faint">
+                  {models.length > 0
+                    ? `共 ${models.length} 个可选模型，也可手动输入模型 ID`
+                    : keyConfigured
+                      ? '可直接手动输入模型 ID，或点击「获取模型」'
+                      : '保存 API Key 后会自动获取可用模型'}
+                </p>
+              </div>
+            </>
+          )}
+
+          {isCloudflare && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-medium text-fg">模型名称</span>
+                <button
+                  type="button"
+                  onClick={() => void fetchModels()}
+                  disabled={modelsLoading || !bindingAvailable}
+                  title={bindingAvailable ? '获取 Workers AI 文本生成模型' : '需要 Workers AI 绑定'}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-brand transition-opacity hover:opacity-80 disabled:opacity-60"
+                >
+                  <Icon name="refresh" size={13} className={modelsLoading ? 'animate-spin' : undefined} />
+                  {modelsLoading ? '获取中…' : '获取模型'}
+                </button>
+              </div>
+              <Input
+                value={form.model}
+                onChange={(e) => set('model', e.target.value)}
+                placeholder="@cf/zai-org/glm-4.7-flash"
+                list="ai-model-options"
+              />
+              <p className="text-xs text-faint">
+                {models.length > 0
+                  ? `共 ${models.length} 个可选模型，也可手动输入模型 ID`
+                  : '默认 @cf/zai-org/glm-4.7-flash，支持工具调用'}
+              </p>
             </div>
           )}
+
+          <datalist id="ai-model-options">
+            {modelOptions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
         </Section>
+
+        {!isCloudflare && (
+          <Section title="API 密钥" description="仅存储于服务端，前端只显示是否已配置" icon="lock">
+            <Input
+              label="API Key"
+              type="password"
+              value={apiKey}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                if (e.target.value) setClearKey(false);
+              }}
+              placeholder={keyConfigured ? '留空表示保持不变' : '粘贴你的 API Key'}
+              autoComplete="off"
+              disabled={clearKey}
+            />
+            {hasApiKey && (
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-muted">{clearKey ? '保存后将清除已存的 Key' : '已保存一个 Key'}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setClearKey((v) => !v);
+                    setApiKey('');
+                  }}
+                >
+                  {clearKey ? '取消清除' : '清除'}
+                </Button>
+              </div>
+            )}
+          </Section>
+        )}
 
         <Section title="生成参数" description="控制模型输出长度与随机性" icon="settings">
           <Input

@@ -440,7 +440,7 @@ export interface MusicSettings {
 
 /* ------------------------------------------------------------- ai (admin) */
 
-export type AiProvider = 'openai' | 'deepseek' | 'custom';
+export type AiProvider = 'cloudflare' | 'openai' | 'deepseek' | 'custom';
 
 /** Request kind for the AI helper: a short excerpt, or a full Markdown article. */
 export type AiGenerateMode = 'excerpt' | 'content';
@@ -459,7 +459,40 @@ export interface AiSettings {
 }
 
 /** AI settings safe to hand back to the admin UI (secret replaced by a flag). */
-export type AiSettingsView = Omit<AiSettings, 'apiKey'> & { hasApiKey: boolean };
+export type AiSettingsView = Omit<AiSettings, 'apiKey'> & {
+  hasApiKey: boolean;
+  /** Workers AI binding (`env.AI`) is present in this deployment. */
+  bindingAvailable: boolean;
+  /** Feature is enabled AND the selected provider is actually usable. */
+  ready: boolean;
+};
+
+/* ------------------------------------------------------- ai chat assistant */
+
+export interface AiChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/** Extra page context the assistant can use without asking the user. */
+export interface AiChatContext {
+  /** Current admin path, e.g. /admin/posts/hello-world. */
+  path?: string;
+  postId?: number;
+  postSlug?: string;
+}
+
+/** One tool the assistant executed while handling a message. */
+export interface AiChatAction {
+  tool: string;
+  summary: string;
+  ok: boolean;
+}
+
+export interface AiChatResult {
+  reply: string;
+  actions: AiChatAction[];
+}
 
 /** The full configuration object returned by GET /api/settings/public. */
 export interface PublicSettings {

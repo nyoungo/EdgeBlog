@@ -49,7 +49,7 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 
 - 带工具栏、快捷键、拖拽 / 粘贴上传、分栏预览与全屏的 Markdown 编辑器
 - 本地草稿自动恢复，避免误关页面丢内容
-- 可接入 OpenAI / DeepSeek / 任意 OpenAI 兼容服务，一键生成摘要或正文
+- 内置 Cloudflare Workers AI（默认，无需 API Key），也可接入 OpenAI / DeepSeek / 任意 OpenAI 兼容服务，一键生成摘要、正文或使用后台浮动 AI 助手
 
 ### 站点定制
 
@@ -106,7 +106,9 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 - `SITE_URL` 改成 `https://<项目名>.pages.dev`（或你的自定义域名）
 - `ALLOWED_ORIGINS` 改成自己的域名；没有额外来源时留空即可
 
-绑定名 `DB`、`MEDIA`、`CACHE` 不要修改，`compatibility_date` 与 `nodejs_compat` 保持原样。`name` 同时决定默认的 `<name>.pages.dev` 子域，需要全局唯一。
+绑定名 `DB`、`MEDIA`、`CACHE`、`AI` 不要修改，`compatibility_date` 与 `nodejs_compat` 保持原样。`name` 同时决定默认的 `<name>.pages.dev` 子域，需要全局唯一。
+
+> `[ai] binding = "AI"` 让 Pages Functions 直接调用 Workers AI（默认 AI 服务商，无需 API Key）。如果不需要 AI，也可以删除这段绑定，后台的 AI 入口会自动隐藏。
 
 > `wrangler.toml` 存在时是 Pages 配置的唯一来源，Dashboard 中对应字段会变为只读，因此以文件为准。
 
@@ -234,7 +236,7 @@ npx wrangler d1 execute edge-blog --remote --file=./migrations/0006_media_thumbn
 | `SESSION_COOKIE` | `wrangler.toml` | 会话 Cookie 名称，默认 `eb_session` |
 | `ALLOWED_ORIGINS` | `wrangler.toml` | 额外允许的跨域来源，逗号分隔；同源始终允许，`*` 会被忽略 |
 
-绑定：`DB`（D1）、`MEDIA`（R2）、`CACHE`（KV）、`ASSETS`（Pages 静态资源）。
+绑定：`DB`（D1）、`MEDIA`（R2）、`CACHE`（KV）、`AI`（Workers AI，可选）、`ASSETS`（Pages 静态资源）。
 
 ## 本地开发
 
@@ -302,16 +304,21 @@ wrangler.toml           Pages + D1 / R2 / KV 绑定
 - **Hero**：背景按视频 → 图片 → 颜色依次回退，视频静音播放，可设置循环或播放一次，以及自定义循环区间。整段循环或单次播放只挂载一个 `<video>`；只有自定义区间循环才启用双解码面，第二个视频在第一段开始播放后才加载，切点原子换层，无黑帧或 seek 卡顿。移动端不加载视频，直接使用封面图。
 - **卡片**：`cardStyle` 控制五种卡片形态，`cardSize` 控制密度，`cardBlur` 为卡片启用毛玻璃。
 
-## AI 辅助写作
+## AI 辅助写作与后台助手
 
-后台「AI 设置」页（`/admin/ai`）支持 OpenAI、DeepSeek 与任意 OpenAI 兼容接口：
+AI 功能默认关闭，不会迁移或覆盖已有配置。后台「AI 设置」页（`/admin/ai`）提供两种接入方式：
 
-- 保存 API Key 后自动拉取可用模型列表
-- 可配置 Base URL、温度、最大 Tokens 以及「生成摘要」「生成正文」两套提示词
-- API Key 仅保存在服务端，接口只返回 `hasApiKey`；`/api/ai/generate` 由 Functions 代理请求
-- 支持一键连通性测试
+- **Cloudflare Workers AI（默认）**：通过 `wrangler.toml` 中的 `[ai] binding = "AI"` 直接调用，无需 API Key。默认模型 `@cf/zai-org/glm-4.7-flash`，可在设置页手动输入或拉取其他文本生成模型。
+- **OpenAI / DeepSeek / 自定义 OpenAI 兼容接口**：保存 API Key 后自动拉取模型列表，可配置 Base URL、温度、最大 Tokens 与提示词。已有配置会继续按原样工作。
 
-文章编辑器在配置就绪后会出现「AI 生成正文」与「AI 生成摘要」入口。
+开启后：
+
+- 文章编辑器出现「AI 生成正文」「AI 生成摘要」入口
+- 后台每个页面右下角出现可拖动的圆形 AI 助手，可对话式创建/修改文章、上传图片与视频、给视频设置封面、审核评论、查看统计等
+- 助手执行的每次写操作都会写入审计日志（`via: 'ai'`）
+- API Key 仅保存在服务端，接口只返回 `hasApiKey`；`/api/ai/generate` 与 `/api/ai/chat` 均由 Functions 代理请求
+
+> Workers AI 调用会按 Cloudflare 账户的免费额度/用量计费，即使在本地的 `wrangler pages dev` 中也是如此。`npm run dev` 不会加载 Functions 与绑定，AI 相关接口不可用。
 
 ## 安全
 

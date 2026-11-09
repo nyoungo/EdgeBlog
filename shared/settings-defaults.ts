@@ -190,10 +190,10 @@ export const AI_NAMESPACE = 'ai';
 
 export const AI_DEFAULTS: AiSettings = {
   enabled: false,
-  provider: 'openai',
+  provider: 'cloudflare',
   baseUrl: '',
   apiKey: '',
-  model: 'gpt-4o-mini',
+  model: '@cf/zai-org/glm-4.7-flash',
   temperature: 0.7,
   maxTokens: 2048,
   excerptPrompt:

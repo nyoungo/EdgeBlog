@@ -2,15 +2,15 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { MediaItem, MediaUsage } from '@shared/types';
 import { requireAuth } from '../lib/auth';
-import { hashIp, randomToken } from '../lib/crypto';
+import { hashIp } from '../lib/crypto';
 import { all, first, run } from '../lib/db';
-import type { AppEnv, Env } from '../lib/env';
+import type { AppEnv } from '../lib/env';
 import { AppError } from '../lib/errors';
 import { hit } from '../lib/rate-limit';
 import { created, ok } from '../lib/response';
 import { paginationSchema } from '../lib/validate';
-import { nowSql } from '../lib/datetime';
 import { recordAudit } from '../lib/audit';
+import { mediaObjectKey, mediaPublicUrl } from '../lib/media-store';
 import {
   EXT_BY_MIME,
   IMAGE_MAX_SIZE,
@@ -30,32 +30,12 @@ mediaRoutes.use('*', requireAuth);
 /** 视频封面允许的图片类型（浏览器抽帧只会产出这三类）。 */
 const THUMBNAIL_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
-/**
- * Public URL stored in `media.url`.
- *
- * Default (MEDIA_PUBLIC_BASE unset) is the **relative** path `/media/<key>`:
- * it works on any hostname, so binding/renaming a custom domain never
- * invalidates existing records (and RSS/sitemap/OG absolutize it against
- * SITE_URL via `absoluteUrl` in lib/seo.ts).
- * Set MEDIA_PUBLIC_BASE only when R2 is fronted by its own custom domain.
- */
-function publicUrl(env: Env, key: string): string {
-  const base = (env.MEDIA_PUBLIC_BASE ?? '').replace(/\/+$/, '');
-  return base ? `${base}/${key}` : `/media/${key}`;
+function publicUrl(env: { MEDIA_PUBLIC_BASE?: string }, key: string): string {
+  return mediaPublicUrl(env.MEDIA_PUBLIC_BASE, key);
 }
 
 function objectKey(originalName: string, mime: string): string {
-  const ext = EXT_BY_MIME[mime] ?? 'bin';
-  const now = nowSql(); // "YYYY-MM-DD HH:MM:SS"
-  const [year, month] = now.split('-');
-  // Keep the original basename for readability, strip anything unsafe.
-  const base = originalName
-    .replace(/\.[^.]+$/, '')
-    .replace(/[^\w.-]+/g, '-')
-    .slice(0, 60)
-    .replace(/^-+|-+$/g, '');
-  const prefix = base || (isVideoMime(mime) ? 'video' : 'image');
-  return `uploads/${year}/${month}/${prefix}-${randomToken(6)}.${ext}`;
+  return mediaObjectKey(originalName, mime);
 }
 
 mediaRoutes.get('/', async (c) => {

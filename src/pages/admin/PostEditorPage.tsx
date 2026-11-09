@@ -158,7 +158,7 @@ export function PostEditorPage() {
     api
       .get<AiSettingsView>('/ai/settings')
       .then(({ data }) => {
-        if (!cancelled) setAiReady(data.enabled && data.hasApiKey);
+        if (!cancelled) setAiReady(data.ready);
       })
       .catch(() => {
         /* AI is optional — silently hide the helpers */

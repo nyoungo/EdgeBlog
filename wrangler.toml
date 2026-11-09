@@ -28,6 +28,10 @@ bucket_name = "edge-blog-media"
 binding = "CACHE"
 id = "17f2c666debb4590be75cfa7d8879ede"
 
+# Workers AI — default AI provider (no API key required inside Pages Functions)
+[ai]
+binding = "AI"
+
 # ---------------------------------------------------------------------------
 # Non-secret variables. SECRETS (JWT_SECRET, ...) must be set via
 # `wrangler pages secret put` or the dashboard, never committed.

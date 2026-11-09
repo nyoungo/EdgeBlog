@@ -3,6 +3,7 @@ import { Link, NavLink, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { buttonStyles } from '../../components/ui/Button';
 import { Icon, type IconName } from '../../components/ui/icons';
 import { Centered, Spinner } from '../../components/ui/Feedback';
+import { AiAssistant } from '../../components/admin/AiAssistant';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../providers/AuthProvider';
 import { useSettings } from '../../providers/SettingsProvider';
@@ -119,6 +120,8 @@ export function AdminLayout() {
           </Suspense>
         </main>
       </div>
+
+      <AiAssistant />
     </div>
   );
 }

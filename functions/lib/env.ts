@@ -25,6 +25,8 @@ export interface Env {
   CACHE: KVNamespace;
   /** Pages static asset fetcher (present in Pages Functions). */
   ASSETS: Fetcher;
+  /** Workers AI binding. Optional so local Vite dev / unbound envs still boot. */
+  AI?: Ai;
 
   /** Secret: HMAC key for JWTs. Set via `wrangler pages secret put`. */
   JWT_SECRET: string;

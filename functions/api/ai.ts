@@ -1,8 +1,17 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
-import type { AiSettings, AiSettingsView } from '@shared/types';
+import type { AiChatContext, AiChatMessage, AiSettings, AiSettingsView } from '@shared/types';
 import { requireAdmin } from '../lib/auth';
-import { chatComplete, listAiModels, readAiSettings, writeAiSettings, type ChatMessage } from '../lib/ai';
+import {
+  aiBindingAvailable,
+  aiProviderReady,
+  chatComplete,
+  listAiModels,
+  readAiSettings,
+  writeAiSettings,
+  type ChatMessage,
+} from '../lib/ai';
+import { runAiAgent } from '../lib/ai-agent';
 import type { AppEnv } from '../lib/env';
 import { AppError } from '../lib/errors';
 import { hit } from '../lib/rate-limit';
@@ -14,7 +23,7 @@ export const aiRoutes = new Hono<AppEnv>();
 aiRoutes.use('*', requireAdmin);
 
 /**
- * Throttle the two routes that spend real money (upstream API calls / tokens).
+ * Throttle the routes that spend real money (upstream API calls / tokens).
  * Keyed per admin account so one runaway editor tab cannot drain the quota.
  */
 async function limitUpstream(c: Context<AppEnv>, bucket: string, limit: number, windowSeconds: number): Promise<void> {
@@ -23,15 +32,20 @@ async function limitUpstream(c: Context<AppEnv>, bucket: string, limit: number, 
   if (!result.allowed) throw AppError.rateLimited('操作过于频繁，请稍后再试');
 }
 
-function view(settings: AiSettings): AiSettingsView {
+function view(env: AppEnv['Bindings'], settings: AiSettings): AiSettingsView {
   const { apiKey, ...rest } = settings;
-  return { ...rest, hasApiKey: apiKey.length > 0 };
+  return {
+    ...rest,
+    hasApiKey: apiKey.length > 0,
+    bindingAvailable: aiBindingAvailable(env),
+    ready: aiProviderReady(env, settings),
+  };
 }
 
 const patchSchema = z
   .object({
     enabled: z.boolean(),
-    provider: z.enum(['openai', 'deepseek', 'custom']),
+    provider: z.enum(['cloudflare', 'openai', 'deepseek', 'custom']),
     baseUrl: z.string().trim().max(300),
     apiKey: z.string().max(400),
     clearApiKey: z.boolean(),
@@ -46,7 +60,7 @@ const patchSchema = z
 /** Admin: current AI config (API key replaced by a `hasApiKey` flag). */
 aiRoutes.get('/settings', async (c) => {
   c.header('Cache-Control', 'no-store');
-  return ok(c, view(await readAiSettings(c.env)));
+  return ok(c, view(c.env, await readAiSettings(c.env)));
 });
 
 /** Admin: patch the AI config. An empty `apiKey` keeps the stored one. */
@@ -55,11 +69,11 @@ aiRoutes.patch('/settings', async (c) => {
   const patch: Partial<AiSettings> = { ...rest };
   if (clearApiKey) patch.apiKey = '';
   else if (apiKey !== undefined && apiKey.trim() !== '') patch.apiKey = apiKey.trim();
-  return ok(c, view(await writeAiSettings(c.env, patch)));
+  return ok(c, view(c.env, await writeAiSettings(c.env, patch)));
 });
 
 const modelsSchema = z.object({
-  provider: z.enum(['openai', 'deepseek', 'custom']).optional(),
+  provider: z.enum(['cloudflare', 'openai', 'deepseek', 'custom']).optional(),
   baseUrl: z.string().trim().max(300).optional(),
 });
 
@@ -106,4 +120,45 @@ aiRoutes.post('/generate', async (c) => {
 
   const text = await chatComplete(c.env, messages);
   return ok(c, { text, mode: body.mode });
+});
+
+/* ------------------------------------------------------------- chat agent */
+
+const chatSchema = z.object({
+  messages: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().max(8000),
+      }),
+    )
+    .min(1)
+    .max(30),
+  context: z
+    .object({
+      path: z.string().trim().max(300).optional(),
+      postId: z.coerce.number().int().positive().optional(),
+      postSlug: z.string().trim().max(200).optional(),
+    })
+    .optional(),
+});
+
+/**
+ * Admin: one turn of the floating assistant.
+ * The agent may call tools (create/edit posts, media, comments) on the admin's
+ * behalf, so this route shares the same admin-only guard as the rest of the file.
+ */
+aiRoutes.post('/chat', async (c) => {
+  await limitUpstream(c, 'chat', 30, 300);
+  const user = c.get('user');
+  if (!user) throw AppError.unauthorized();
+
+  const body = await parseJson(c, chatSchema);
+  const messages: AiChatMessage[] = body.messages.map((message) => ({
+    role: message.role,
+    content: message.content,
+  }));
+  const context: AiChatContext | undefined = body.context;
+  const result = await runAiAgent(c.env, user, messages, context);
+  return ok(c, result);
 });
