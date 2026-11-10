@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { AiSettingsView, AiProvider } from '@shared/types';
 import { AI_DEFAULTS } from '@shared/settings-defaults';
 import { api } from '../../lib/api';
@@ -7,6 +7,7 @@ import { useSettings } from '../../providers/SettingsProvider';
 import { useToast } from '../../providers/ToastProvider';
 import { Button } from '../../components/ui/Button';
 import { Input, Select, Textarea } from '../../components/ui/Field';
+import { ComboBox } from '../../components/ui/ComboBox';
 import { Switch } from '../../components/ui/Switch';
 import { Card } from '../../components/ui/Feedback';
 import { Icon, type IconName } from '../../components/ui/icons';
@@ -139,12 +140,6 @@ export function AiSettingsPage() {
     // Only re-run when the provider first becomes usable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, providerUsable]);
-
-  const modelOptions = useMemo(() => {
-    const list = [...models];
-    if (form.model && !list.includes(form.model)) list.unshift(form.model);
-    return list;
-  }, [models, form.model]);
 
   const applyProvider = (value: AiProvider) => {
     const preset = PROVIDERS.find((p) => p.value === value);
@@ -314,15 +309,16 @@ export function AiSettingsPage() {
                     {modelsLoading ? '获取中…' : '获取模型'}
                   </button>
                 </div>
-                <Input
+                <ComboBox
                   value={form.model}
-                  onChange={(e) => set('model', e.target.value)}
+                  onChange={(value) => set('model', value)}
+                  options={models}
                   placeholder="例如 gpt-4o-mini"
-                  list="ai-model-options"
+                  emptyText="没有匹配的模型，可直接输入完整 ID"
                 />
                 <p className="text-xs text-faint">
                   {models.length > 0
-                    ? `共 ${models.length} 个可选模型，也可手动输入模型 ID`
+                    ? `共 ${models.length} 个可选模型，点击输入框展开列表，也可手动输入模型 ID`
                     : keyConfigured
                       ? '可直接手动输入模型 ID，或点击「获取模型」'
                       : '保存 API Key 后会自动获取可用模型'}
@@ -346,25 +342,21 @@ export function AiSettingsPage() {
                   {modelsLoading ? '获取中…' : '获取模型'}
                 </button>
               </div>
-              <Input
+              <ComboBox
                 value={form.model}
-                onChange={(e) => set('model', e.target.value)}
+                onChange={(value) => set('model', value)}
+                options={models}
                 placeholder="@cf/zai-org/glm-4.7-flash"
-                list="ai-model-options"
+                emptyText="没有匹配的模型，可直接输入完整 ID"
               />
               <p className="text-xs text-faint">
                 {models.length > 0
-                  ? `共 ${models.length} 个可选模型，也可手动输入模型 ID`
+                  ? `共 ${models.length} 个可选模型，点击输入框展开列表，也可手动输入模型 ID`
                   : '默认 @cf/zai-org/glm-4.7-flash，支持工具调用'}
               </p>
             </div>
           )}
 
-          <datalist id="ai-model-options">
-            {modelOptions.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
         </Section>
 
         {!isCloudflare && (
