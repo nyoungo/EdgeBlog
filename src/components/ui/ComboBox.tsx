@@ -225,12 +225,12 @@ export function ComboBox({
                     option.value === value && 'font-medium text-brand',
                   )}
                 >
-                  <span className="truncate">{option.label}</span>
+                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
                   {option.hint && (
-                    <span className="ml-auto shrink-0 truncate text-xs text-faint">{option.hint}</span>
+                    <span className="min-w-0 max-w-[55%] shrink truncate text-xs text-faint">{option.hint}</span>
                   )}
                   {option.value === value && (
-                    <Icon name="check" size={13} className={cn('shrink-0', !option.hint && 'ml-auto')} />
+                    <Icon name="check" size={13} className="shrink-0" />
                   )}
                 </li>
               ))
