@@ -51,15 +51,15 @@ SESSION_COOKIE = "eb_session"
 # (a wildcard plus credentials is unsafe). SITE_URL is included automatically.
 ALLOWED_ORIGINS = "https://www.068800.xyz"
 
-# Web search fallback: Cloudflare Web Search API (AI Gateway).
-# Primary channel scrapes bing.com/search without any key. When that fails the
-# AI assistant retries through AI Gateway using SEARCH_PROVIDER (default: exa).
+# Web search: the primary channel calls the Monid gateway (TinyFish free web
+# search). Cloudflare Web Search API (AI Gateway) is the fallback when Monid is
+# not configured or fails. Set SEARCH_PROVIDER for that fallback (default: exa).
 # Leave these commented to use the built-in defaults.
 # AI_GATEWAY_ID = "default"
 # SEARCH_PROVIDER = "exa"
 # SEARCH_BYOK_ALIAS = "default"
 #
-# Optional Monid search gateway (https://api.monid.ai). Leave empty and save the
-# key in Admin -> AI settings instead, or provide it here as a secret:
+# Monid search gateway key (https://api.monid.ai). Save it in Admin -> AI
+# settings instead, or provide it here as a secret:
 #   wrangler pages secret put MONID_API_KEY
 # MONID_API_KEY = ""

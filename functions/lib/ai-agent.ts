@@ -29,15 +29,7 @@ import {
 } from './posts-write';
 import { countWords, deriveExcerpt } from './sanitize';
 import { htmlToText } from './html-to-text';
-import {
-  bingSearchRssUrl,
-  bingSearchUrl,
-  looksLikeBingChallenge,
-  parseBingResults,
-  parseBingRss,
-  resultsLookRelevant,
-  type SearchResult,
-} from './serp';
+import { resultsLookRelevant, type SearchResult } from './serp';
 import { resolveSearchQuery } from './search-query';
 import {
   MONID_API_BASE,
@@ -421,7 +413,7 @@ function withDeadline<T>(promise: Promise<T>, ms: number, message: string): Prom
   });
 }
 
-/** 兜底通道的搜索源，默认 Exa（可用 SEARCH_PROVIDER 覆盖）。 */
+/** Cloudflare 兜底通道的搜索源，默认 Exa（可用 SEARCH_PROVIDER 覆盖）。 */
 function resolveSearchProvider(env: Env): WebSearchProvider {
   const raw = (env.SEARCH_PROVIDER ?? '').trim().toLowerCase();
   return raw === 'ceramic' || raw === 'linkup' ? raw : 'exa';
@@ -430,66 +422,6 @@ function resolveSearchProvider(env: Env): WebSearchProvider {
 function searchErrorMessage(err: unknown, fallback: string): string {
   const message = err instanceof Error ? err.message : '';
   return message.trim() || fallback;
-}
-
-/** 主通道：解析 Bing 搜索结果页（无需 Key）。 */
-/** 发起一次 Bing 请求,带超时与统一请求头。 */
-async function fetchBing(url: string): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'user-agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-        accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-      },
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.text();
-  } catch (err) {
-    throw new Error(
-      err instanceof Error && err.name === 'AbortError'
-        ? '请求超时'
-        : searchErrorMessage(err, '无法访问 bing.com'),
-    );
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * 主通道:抓取 Bing 结果。
- *
- * 优先用 RSS 输出(结构化、少广告与推荐模块),失败或结果与关键词无关时
- * 再退化到 HTML 页解析;两路都不行则抛错,交给下一级兜底通道。
- */
-async function searchBing(query: string, limit: number): Promise<SearchResult[]> {
-  const failures: string[] = [];
-
-  try {
-    const xml = await fetchBing(bingSearchRssUrl(query, limit));
-    const results = parseBingRss(xml, limit);
-    if (results.length > 0 && resultsLookRelevant(query, results)) return results;
-    failures.push(results.length === 0 ? 'RSS 未解析到结果' : 'RSS 结果与关键词无关');
-  } catch (err) {
-    failures.push(`RSS ${searchErrorMessage(err, '请求失败')}`);
-  }
-
-  try {
-    const html = await fetchBing(bingSearchUrl(query, limit));
-    if (looksLikeBingChallenge(html)) throw new Error('触发了人机验证');
-    const results = parseBingResults(html, limit);
-    if (results.length > 0 && resultsLookRelevant(query, results)) return results;
-    failures.push(results.length === 0 ? 'HTML 未解析到结果' : 'HTML 结果与关键词无关');
-  } catch (err) {
-    failures.push(`HTML ${searchErrorMessage(err, '请求失败')}`);
-  }
-
-  throw new Error(failures.join(';'));
 }
 
 async function searchViaCloudflare(env: Env, query: string, limit: number): Promise<SearchResult[]> {
@@ -553,11 +485,10 @@ async function resolveMonidApiKey(env: Env): Promise<string> {
 }
 
 /**
- * 兜底通道：通过 Monid 网关调用 TinyFish 的免费网页搜索。
+ * 主通道：通过 Monid 网关调用 TinyFish 的免费网页搜索。
  *
- * Bing 从数据中心出口访问时会间歇性按截断后的关键词或无关热门内容返回结果，
- * 主通道的相关性校验会把它判为失败并转到这里。这里同样做相关性校验，避免把
- * 可疑结果交给模型。
+ * 结果会做相关性校验，避免把可疑内容交给模型；校验不通过时由调用方继续
+ * 尝试下一级通道。
  */
 async function searchViaMonid(apiKey: string, query: string, limit: number): Promise<SearchResult[]> {
   const controller = new AbortController();
@@ -1408,26 +1339,19 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
 
       const failures: string[] = [];
 
-      let source: 'bing' | 'monid' | WebSearchProvider | null = null;
+      let source: 'monid' | WebSearchProvider | null = null;
       let results: SearchResult[] = [];
 
-      try {
-        results = await searchBing(query, limit);
-        source = 'bing';
-      } catch (err) {
-        failures.push(`Bing 抓取失败（${searchErrorMessage(err, '未知错误')}）`);
-      }
-
-      if (!source) {
-        const monidKey = await resolveMonidApiKey(env);
-        if (monidKey) {
-          try {
-            results = await searchViaMonid(monidKey, query, limit);
-            source = 'monid';
-          } catch (err) {
-            failures.push(`Monid 搜索失败（${searchErrorMessage(err, '未知错误')}）`);
-          }
+      const monidKey = await resolveMonidApiKey(env);
+      if (monidKey) {
+        try {
+          results = await searchViaMonid(monidKey, query, limit);
+          source = 'monid';
+        } catch (err) {
+          failures.push(`Monid 搜索失败（${searchErrorMessage(err, '未知错误')}）`);
         }
+      } else {
+        failures.push('未配置 Monid 搜索 Key（后台 AI 设置 → 联网搜索）');
       }
 
       if (!source) {
@@ -1442,7 +1366,7 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
 
       if (!source) throw AppError.upstream(`联网搜索失败：${failures.join('；')}`);
 
-      const label = source === 'bing' ? 'Bing' : source === 'monid' ? 'Monid' : `Cloudflare/${source}`;
+      const label = source === 'monid' ? 'Monid' : `Cloudflare/${source}`;
       return {
         summary: `搜索「${query}」（${label}，${results.length} 条）`,
         data: { query, source, results },

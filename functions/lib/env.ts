@@ -39,7 +39,7 @@ export interface Env {
 
   /** AI Gateway id used by the Cloudflare Web Search API fallback（默认 default）。 */
   AI_GATEWAY_ID?: string;
-  /** 兜底搜索源：ceramic | exa | linkup，默认 exa。 */
+  /** Cloudflare Web Search 的搜索源：ceramic | exa | linkup，默认 exa。 */
   SEARCH_PROVIDER?: string;
   /** AI Gateway 上存储的 provider Key 别名，配合 BYOK 使用（例如 default）。 */
   SEARCH_BYOK_ALIAS?: string;

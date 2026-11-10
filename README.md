@@ -324,17 +324,17 @@ AI 功能默认关闭，不会迁移或覆盖已有配置。后台「AI 设置�
 
 助手提供两个联网工具：
 
-- `web_search`：主通道抓 `bing.com/search` 的结果页（优先 RSS，失败回退 HTML），无需任何 Key。结果会做相关性校验：标题、摘要、链接里都找不到查询关键词（例如「雷军」被截成「雷」）就判为失败，依次改用 **Monid 搜索网关**（若配置了 Key）与 Cloudflare Web Search API。
+- `web_search`：主通道通过 **Monid 搜索网关**（`api.monid.ai` → TinyFish 免费网页搜索）取回结果；失败或结果与关键词无关时回退 Cloudflare Web Search API。结果会做相关性校验：标题、摘要、链接里都找不到查询关键词（例如「雷军」被截成「雷」）就判为失败，不会把垃圾结果交给模型。
 - `fetch_web_page`：读取指定网页正文（http/https），HTML 转纯文本后交给模型，默认 6000 字、上限 10000 字，单页 2MB。
 
-Monid 通道（可选，推荐）：在后台「AI 设置 → 联网搜索」填入 `monid_live_…` 形式的 API Key 即可，Key 只保存在服务端。也可改用 `MONID_API_KEY` 环境变量 / secret 提供（后台配置优先）。该通道经 `api.monid.ai` 调用 TinyFish 的免费网页搜索，不消耗 Monid 钱包余额；未配置时自动跳过。
+Monid 搜索（推荐配置）：在后台「AI 设置 → 联网搜索」填入 `monid_live_…` 形式的 API Key 即可，Key 只保存在服务端。也可改用 `MONID_API_KEY` 环境变量 / secret 提供（后台配置优先）。该通道经 `api.monid.ai` 调用 TinyFish 的免费网页搜索，不消耗 Monid 钱包余额。
 
-Cloudflare 兜底通道（可选，不配也能跑，只是前面两条都失败时没有备选）：
+Cloudflare 兜底通道（可选；Monid 未配置或失败时使用）：
 
 1. Cloudflare Dashboard → **AI Gateway** → 选中网关（默认 `default`）→ **Provider Keys** → 添加 Exa Key，别名填 `default`（即 BYOK，费用由 Exa 直接结算，可用每月 $10 免费额度）。
 2. 需要换网关/供应商时，在 `wrangler.toml` 的 `[vars]` 里设置 `AI_GATEWAY_ID`、`SEARCH_PROVIDER`（`ceramic` / `exa` / `linkup`）、`SEARCH_BYOK_ALIAS`；省略 `SEARCH_BYOK_ALIAS` 时按 AI Gateway credits 计费。
 
-> Bing 抓取完全免费，但依赖对方页面结构，且 Cloudflare 出口 IP 可能被验证码拦截；两条通道都失败时，助手会明确回报失败原因，不会编造搜索结果。
+> 两条通道都失败（或都未配置）时，助手会明确回报失败原因，不会编造搜索结果。
 
 > Workers AI 调用会按 Cloudflare 账户的免费额度/用量计费，即使在本地的 `wrangler pages dev` 中也是如此。`npm run dev` 不会加载 Functions 与绑定，AI 相关接口不可用。
 

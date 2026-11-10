@@ -417,7 +417,7 @@ export function AiSettingsPage() {
 
         <Section
           title="联网搜索"
-          description="后台助手的 web_search 会先抓 Bing；结果无关或失败时自动改用 Monid 搜索"
+          description="后台助手的 web_search 通过 Monid 调用 TinyFish 免费网页搜索；失败时回退 Cloudflare"
           icon="search"
         >
           <Input
@@ -429,7 +429,7 @@ export function AiSettingsPage() {
               if (e.target.value) setClearMonidKey(false);
             }}
             placeholder={monidKeyConfigured ? '留空表示保持不变' : '粘贴 monid_live_… 形式的 Key'}
-            hint="通过 api.monid.ai 的免费 TinyFish 网页搜索取回结果；Key 只保存在服务端，不会下发给公开设置。留空则不启用。"
+            hint="通过 api.monid.ai 的免费 TinyFish 网页搜索取回结果；Key 只保存在服务端，不会下发给公开设置。留空则只走 Cloudflare 兜底（若已配置）。"
             autoComplete="off"
             disabled={clearMonidKey}
           />
