@@ -96,6 +96,7 @@ function normalize(value: unknown): AiSettings {
     provider: provider(src['provider']),
     baseUrl: str(src['baseUrl'], AI_DEFAULTS.baseUrl).trim(),
     apiKey: str(src['apiKey'], AI_DEFAULTS.apiKey).trim(),
+    monidApiKey: str(src['monidApiKey'], AI_DEFAULTS.monidApiKey).trim(),
     model: str(src['model'], AI_DEFAULTS.model).trim(),
     temperature: Math.min(2, Math.max(0, num(src['temperature'], AI_DEFAULTS.temperature))),
     maxTokens: Math.min(32_000, Math.max(64, Math.round(num(src['maxTokens'], AI_DEFAULTS.maxTokens)))),

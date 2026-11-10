@@ -451,6 +451,8 @@ export interface AiSettings {
   provider: AiProvider;
   baseUrl: string;
   apiKey: string;
+  /** Monid 搜索网关（api.monid.ai）的 API Key，仅用于后台助手的联网搜索。 */
+  monidApiKey: string;
   model: string;
   temperature: number;
   maxTokens: number;
@@ -458,9 +460,11 @@ export interface AiSettings {
   contentPrompt: string;
 }
 
-/** AI settings safe to hand back to the admin UI (secret replaced by a flag). */
-export type AiSettingsView = Omit<AiSettings, 'apiKey'> & {
+/** AI settings safe to hand back to the admin UI (secrets replaced by flags). */
+export type AiSettingsView = Omit<AiSettings, 'apiKey' | 'monidApiKey'> & {
   hasApiKey: boolean;
+  /** Monid 搜索网关是否已配置 API Key。 */
+  hasMonidApiKey: boolean;
   /** Workers AI binding (`env.AI`) is present in this deployment. */
   bindingAvailable: boolean;
   /** Feature is enabled AND the selected provider is actually usable. */

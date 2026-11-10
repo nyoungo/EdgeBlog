@@ -43,6 +43,11 @@ export interface Env {
   SEARCH_PROVIDER?: string;
   /** AI Gateway 上存储的 provider Key 别名，配合 BYOK 使用（例如 default）。 */
   SEARCH_BYOK_ALIAS?: string;
+  /**
+   * Monid 搜索网关（api.monid.ai）的 API Key。
+   * 也可以在后台「AI 设置」里保存；后台设置优先于这里的环境变量。
+   */
+  MONID_API_KEY?: string;
 }
 
 export type Role = 'admin' | 'editor';

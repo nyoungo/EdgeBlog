@@ -12,6 +12,7 @@ import type { Env, SessionUser } from './env';
 import { AppError } from './errors';
 import {
   aiChatComplete,
+  readAiSettings,
   type AiToolCall,
   type AiToolDefinition,
   type ChatMessage,
@@ -38,6 +39,12 @@ import {
   type SearchResult,
 } from './serp';
 import { resolveSearchQuery } from './search-query';
+import {
+  MONID_API_BASE,
+  buildMonidSearchRequest,
+  describeMonidError,
+  parseMonidSearchOutput,
+} from './monid';
 import {
   EXT_BY_MIME,
   IMAGE_MAX_SIZE,
@@ -535,6 +542,60 @@ async function searchViaCloudflare(env: Env, query: string, limit: number): Prom
     if (results.length >= limit) break;
   }
   if (results.length === 0) throw new Error('Web Search API 没有返回结果');
+  return results;
+}
+
+/** 读取 Monid 的 API Key：后台 AI 设置优先，其次环境变量（都为空则不启用）。 */
+async function resolveMonidApiKey(env: Env): Promise<string> {
+  const settings = await readAiSettings(env);
+  const stored = settings.monidApiKey.trim();
+  return stored || (env.MONID_API_KEY ?? '').trim();
+}
+
+/**
+ * 兜底通道：通过 Monid 网关调用 TinyFish 的免费网页搜索。
+ *
+ * Bing 从数据中心出口访问时会间歇性按截断后的关键词或无关热门内容返回结果，
+ * 主通道的相关性校验会把它判为失败并转到这里。这里同样做相关性校验，避免把
+ * 可疑结果交给模型。
+ */
+async function searchViaMonid(apiKey: string, query: string, limit: number): Promise<SearchResult[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`${MONID_API_BASE}/v1/run`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify(buildMonidSearchRequest(query)),
+    });
+  } catch (err) {
+    throw new Error(
+      err instanceof Error && err.name === 'AbortError'
+        ? '请求超时'
+        : searchErrorMessage(err, '无法访问 api.monid.ai'),
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = (await response.json()) as unknown;
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) throw new Error(describeMonidError(payload, response.status));
+
+  const results = parseMonidSearchOutput(payload, limit);
+  if (results.length === 0) throw new Error('没有返回结果');
+  if (!resultsLookRelevant(query, results)) throw new Error('结果与关键词无关');
   return results;
 }
 
@@ -1347,7 +1408,7 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
 
       const failures: string[] = [];
 
-      let source: 'bing' | WebSearchProvider | null = null;
+      let source: 'bing' | 'monid' | WebSearchProvider | null = null;
       let results: SearchResult[] = [];
 
       try {
@@ -1355,6 +1416,18 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
         source = 'bing';
       } catch (err) {
         failures.push(`Bing 抓取失败（${searchErrorMessage(err, '未知错误')}）`);
+      }
+
+      if (!source) {
+        const monidKey = await resolveMonidApiKey(env);
+        if (monidKey) {
+          try {
+            results = await searchViaMonid(monidKey, query, limit);
+            source = 'monid';
+          } catch (err) {
+            failures.push(`Monid 搜索失败（${searchErrorMessage(err, '未知错误')}）`);
+          }
+        }
       }
 
       if (!source) {
@@ -1369,7 +1442,7 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
 
       if (!source) throw AppError.upstream(`联网搜索失败：${failures.join('；')}`);
 
-      const label = source === 'bing' ? 'Bing' : `Cloudflare/${source}`;
+      const label = source === 'bing' ? 'Bing' : source === 'monid' ? 'Monid' : `Cloudflare/${source}`;
       return {
         summary: `搜索「${query}」（${label}，${results.length} 条）`,
         data: { query, source, results },

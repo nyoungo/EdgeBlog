@@ -58,3 +58,8 @@ ALLOWED_ORIGINS = "https://www.068800.xyz"
 # AI_GATEWAY_ID = "default"
 # SEARCH_PROVIDER = "exa"
 # SEARCH_BYOK_ALIAS = "default"
+#
+# Optional Monid search gateway (https://api.monid.ai). Leave empty and save the
+# key in Admin -> AI settings instead, or provide it here as a secret:
+#   wrangler pages secret put MONID_API_KEY
+# MONID_API_KEY = ""

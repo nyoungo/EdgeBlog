@@ -324,10 +324,12 @@ AI 功能默认关闭，不会迁移或覆盖已有配置。后台「AI 设置�
 
 助手提供两个联网工具：
 
-- `web_search`：主通道直接抓 `bing.com/search` 结果页，无需任何 Key；失败（改版解析不到、人机验证、超时）时自动改用 Cloudflare Web Search API（经 AI Gateway，默认 provider 为 `exa`）。
+- `web_search`：主通道抓 `bing.com/search` 的结果页（优先 RSS，失败回退 HTML），无需任何 Key。结果会做相关性校验：标题、摘要、链接里都找不到查询关键词（例如「雷军」被截成「雷」）就判为失败，依次改用 **Monid 搜索网关**（若配置了 Key）与 Cloudflare Web Search API。
 - `fetch_web_page`：读取指定网页正文（http/https），HTML 转纯文本后交给模型，默认 6000 字、上限 10000 字，单页 2MB。
 
-兜底通道可选配置（不配也能跑，只是 Bing 失败时没有备选）：
+Monid 通道（可选，推荐）：在后台「AI 设置 → 联网搜索」填入 `monid_live_…` 形式的 API Key 即可，Key 只保存在服务端。也可改用 `MONID_API_KEY` 环境变量 / secret 提供（后台配置优先）。该通道经 `api.monid.ai` 调用 TinyFish 的免费网页搜索，不消耗 Monid 钱包余额；未配置时自动跳过。
+
+Cloudflare 兜底通道（可选，不配也能跑，只是前面两条都失败时没有备选）：
 
 1. Cloudflare Dashboard → **AI Gateway** → 选中网关（默认 `default`）→ **Provider Keys** → 添加 Exa Key，别名填 `default`（即 BYOK，费用由 Exa 直接结算，可用每月 $10 免费额度）。
 2. 需要换网关/供应商时，在 `wrangler.toml` 的 `[vars]` 里设置 `AI_GATEWAY_ID`、`SEARCH_PROVIDER`（`ceramic` / `exa` / `linkup`）、`SEARCH_BYOK_ALIAS`；省略 `SEARCH_BYOK_ALIAS` 时按 AI Gateway credits 计费。

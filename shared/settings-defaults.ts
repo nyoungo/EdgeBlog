@@ -193,6 +193,7 @@ export const AI_DEFAULTS: AiSettings = {
   provider: 'cloudflare',
   baseUrl: '',
   apiKey: '',
+  monidApiKey: '',
   model: '@cf/zai-org/glm-4.7-flash',
   temperature: 0.7,
   maxTokens: 2048,

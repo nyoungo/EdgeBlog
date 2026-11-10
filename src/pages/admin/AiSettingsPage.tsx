@@ -25,17 +25,30 @@ const PROVIDERS: Array<{ value: AiProvider; label: string; baseUrl: string; mode
   { value: 'custom', label: '自定义（OpenAI 兼容）', baseUrl: '', model: '' },
 ];
 
-type FormState = Omit<AiSettingsView, 'hasApiKey' | 'bindingAvailable' | 'ready'>;
+type FormState = Omit<
+  AiSettingsView,
+  'hasApiKey' | 'hasMonidApiKey' | 'bindingAvailable' | 'ready'
+>;
 
 function toForm(view: AiSettingsView): FormState {
-  // View-only flags; the form holds the (write-only) key itself.
-  const { hasApiKey: _hasApiKey, bindingAvailable: _bindingAvailable, ready: _ready, ...rest } = view;
+  // View-only flags; the form holds the (write-only) keys itself.
+  const {
+    hasApiKey: _hasApiKey,
+    hasMonidApiKey: _hasMonidApiKey,
+    bindingAvailable: _bindingAvailable,
+    ready: _ready,
+    ...rest
+  } = view;
   return rest;
 }
 
-/** Defaults with the view-only flags filled in; the stored key is never loaded. */
-function defaultsForm(flags: { hasApiKey: boolean; bindingAvailable: boolean }): FormState {
-  const { apiKey: _apiKey, ...rest } = AI_DEFAULTS;
+/** Defaults with the view-only flags filled in; the stored keys are never loaded. */
+function defaultsForm(flags: {
+  hasApiKey: boolean;
+  hasMonidApiKey: boolean;
+  bindingAvailable: boolean;
+}): FormState {
+  const { apiKey: _apiKey, monidApiKey: _monidApiKey, ...rest } = AI_DEFAULTS;
   return toForm({ ...rest, ...flags, ready: false });
 }
 
@@ -75,12 +88,15 @@ export function AiSettingsPage() {
   const { success, error: toastError } = useToast();
 
   const [form, setForm] = useState<FormState>(() =>
-    defaultsForm({ hasApiKey: false, bindingAvailable: false }),
+    defaultsForm({ hasApiKey: false, hasMonidApiKey: false, bindingAvailable: false }),
   );
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [hasMonidApiKey, setHasMonidApiKey] = useState(false);
   const [bindingAvailable, setBindingAvailable] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [clearKey, setClearKey] = useState(false);
+  const [monidKey, setMonidKey] = useState('');
+  const [clearMonidKey, setClearMonidKey] = useState(false);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -98,6 +114,7 @@ export function AiSettingsPage() {
         if (cancelled) return;
         setForm(toForm(data));
         setHasApiKey(data.hasApiKey);
+        setHasMonidApiKey(data.hasMonidApiKey);
         setBindingAvailable(data.bindingAvailable);
       } catch (err) {
         if (!cancelled) toastError(err instanceof Error ? err.message : '加载 AI 设置失败');
@@ -115,6 +132,7 @@ export function AiSettingsPage() {
 
   const isCloudflare = form.provider === 'cloudflare';
   const keyConfigured = hasApiKey && !clearKey;
+  const monidKeyConfigured = hasMonidApiKey && !clearMonidKey;
   const providerUsable = isCloudflare ? bindingAvailable : keyConfigured;
 
   const fetchModels = async (silent = false) => {
@@ -158,12 +176,17 @@ export function AiSettingsPage() {
       const patch: Record<string, unknown> = { ...form };
       if (clearKey) patch['clearApiKey'] = true;
       else if (apiKey.trim() !== '') patch['apiKey'] = apiKey.trim();
+      if (clearMonidKey) patch['clearMonidApiKey'] = true;
+      else if (monidKey.trim() !== '') patch['monidApiKey'] = monidKey.trim();
       const { data } = await api.patch<AiSettingsView>('/ai/settings', patch);
       setForm(toForm(data));
       setHasApiKey(data.hasApiKey);
+      setHasMonidApiKey(data.hasMonidApiKey);
       setBindingAvailable(data.bindingAvailable);
       setApiKey('');
       setClearKey(false);
+      setMonidKey('');
+      setClearMonidKey(false);
       success('AI 设置已保存');
       window.dispatchEvent(new Event('edgeblog:ai-settings-changed'));
       if (data.ready) void fetchModels(true);
@@ -175,7 +198,7 @@ export function AiSettingsPage() {
   };
 
   const restoreDefaults = () => {
-    setForm(defaultsForm({ hasApiKey, bindingAvailable }));
+    setForm(defaultsForm({ hasApiKey, hasMonidApiKey, bindingAvailable }));
     success('已载入默认值，别忘了保存');
   };
 
@@ -391,6 +414,44 @@ export function AiSettingsPage() {
             )}
           </Section>
         )}
+
+        <Section
+          title="联网搜索"
+          description="后台助手的 web_search 会先抓 Bing；结果无关或失败时自动改用 Monid 搜索"
+          icon="search"
+        >
+          <Input
+            label="Monid API Key"
+            type="password"
+            value={monidKey}
+            onChange={(e) => {
+              setMonidKey(e.target.value);
+              if (e.target.value) setClearMonidKey(false);
+            }}
+            placeholder={monidKeyConfigured ? '留空表示保持不变' : '粘贴 monid_live_… 形式的 Key'}
+            hint="通过 api.monid.ai 的免费 TinyFish 网页搜索取回结果；Key 只保存在服务端，不会下发给公开设置。留空则不启用。"
+            autoComplete="off"
+            disabled={clearMonidKey}
+          />
+          {hasMonidApiKey && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-muted">
+                {clearMonidKey ? '保存后将清除已存的 Monid Key' : '已保存一个 Monid Key'}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setClearMonidKey((v) => !v);
+                  setMonidKey('');
+                }}
+              >
+                {clearMonidKey ? '取消清除' : '清除'}
+              </Button>
+            </div>
+          )}
+        </Section>
 
         <Section title="生成参数" description="控制模型输出长度与随机性" icon="settings">
           <Input

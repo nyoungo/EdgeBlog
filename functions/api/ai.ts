@@ -33,10 +33,11 @@ async function limitUpstream(c: Context<AppEnv>, bucket: string, limit: number, 
 }
 
 function view(env: AppEnv['Bindings'], settings: AiSettings): AiSettingsView {
-  const { apiKey, ...rest } = settings;
+  const { apiKey, monidApiKey, ...rest } = settings;
   return {
     ...rest,
     hasApiKey: apiKey.length > 0,
+    hasMonidApiKey: monidApiKey.length > 0,
     bindingAvailable: aiBindingAvailable(env),
     ready: aiProviderReady(env, settings),
   };
@@ -49,6 +50,8 @@ const patchSchema = z
     baseUrl: z.string().trim().max(300),
     apiKey: z.string().max(400),
     clearApiKey: z.boolean(),
+    monidApiKey: z.string().max(400),
+    clearMonidApiKey: z.boolean(),
     model: z.string().trim().max(120),
     temperature: z.number().min(0).max(2),
     maxTokens: z.number().int().min(64).max(32000),
@@ -65,10 +68,12 @@ aiRoutes.get('/settings', async (c) => {
 
 /** Admin: patch the AI config. An empty `apiKey` keeps the stored one. */
 aiRoutes.patch('/settings', async (c) => {
-  const { clearApiKey, apiKey, ...rest } = await parseJson(c, patchSchema);
+  const { clearApiKey, apiKey, clearMonidApiKey, monidApiKey, ...rest } = await parseJson(c, patchSchema);
   const patch: Partial<AiSettings> = { ...rest };
   if (clearApiKey) patch.apiKey = '';
   else if (apiKey !== undefined && apiKey.trim() !== '') patch.apiKey = apiKey.trim();
+  if (clearMonidApiKey) patch.monidApiKey = '';
+  else if (monidApiKey !== undefined && monidApiKey.trim() !== '') patch.monidApiKey = monidApiKey.trim();
   return ok(c, view(c.env, await writeAiSettings(c.env, patch)));
 });
 
