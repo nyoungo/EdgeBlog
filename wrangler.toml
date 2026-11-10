@@ -1,7 +1,7 @@
 # Cloudflare Pages project configuration.
 # Docs: https://developers.cloudflare.com/pages/functions/wrangler-configuration/
 name = "edge-blog"
-compatibility_date = "2024-12-01"
+compatibility_date = "2026-11-10"
 compatibility_flags = ["nodejs_compat"]
 
 # Where Vite emits the static build. Pages serves this directory.
