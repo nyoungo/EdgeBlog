@@ -169,7 +169,7 @@ function HomeHero({
 
           <h1
             className={cn(
-              'font-heading text-[clamp(2.5rem,6.2vw,4.75rem)] font-semibold leading-[1.02] tracking-tight',
+              'font-heading text-[clamp(2.5rem,6.2vw,4.75rem)] font-semibold leading-[1.02] tracking-tight text-balance',
               !hero.textColor && (onMedia ? 'text-white' : 'text-fg'),
             )}
             style={titleStyle}

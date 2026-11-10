@@ -124,7 +124,7 @@ export function PostDetailPage() {
         </Link>
       </nav>
 
-      <header className="max-w-3xl">
+      <header>
         <span className="eb-kicker">文章</span>
         <h1 className="mt-3 font-heading text-3xl leading-tight tracking-tight text-fg text-balance sm:text-4xl lg:text-5xl">
           {detail.title}

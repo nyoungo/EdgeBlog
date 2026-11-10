@@ -46,7 +46,6 @@
   h6 {
     @apply font-heading font-semibold text-fg;
     line-height: 1.15;
-    text-wrap: balance;
   }
 
   p {
