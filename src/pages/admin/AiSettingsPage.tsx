@@ -85,7 +85,7 @@ export function AiSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
-  const [models, setModels] = useState<string[]>([]);
+  const [models, setModels] = useState<Array<{ id: string; label: string }>>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
 
   useDocumentTitle('AI 设置', settings.site.name);
@@ -120,12 +120,12 @@ export function AiSettingsPage() {
   const fetchModels = async (silent = false) => {
     setModelsLoading(true);
     try {
-      const { data } = await api.post<{ models: string[] }>('/ai/models', {
+      const { data } = await api.post<{ models: Array<{ id: string; label: string }> }>('/ai/models', {
         provider: form.provider,
         baseUrl: isCloudflare ? undefined : form.baseUrl,
       });
       setModels(data.models);
-      setForm((prev) => (prev.model ? prev : { ...prev, model: data.models[0] ?? '' }));
+      setForm((prev) => (prev.model ? prev : { ...prev, model: data.models[0]?.id ?? '' }));
       if (!silent) success(`已获取 ${data.models.length} 个模型`);
     } catch (err) {
       setModels([]);
@@ -312,7 +312,7 @@ export function AiSettingsPage() {
                 <ComboBox
                   value={form.model}
                   onChange={(value) => set('model', value)}
-                  options={models}
+                  options={models.map((m) => ({ value: m.id, label: m.label, hint: m.id === m.label ? undefined : m.id }))}
                   placeholder="例如 gpt-4o-mini"
                   emptyText="没有匹配的模型，可直接输入完整 ID"
                 />
@@ -345,7 +345,7 @@ export function AiSettingsPage() {
               <ComboBox
                 value={form.model}
                 onChange={(value) => set('model', value)}
-                options={models}
+                options={models.map((m) => ({ value: m.id, label: m.label, hint: m.id === m.label ? undefined : m.id }))}
                 placeholder="@cf/zai-org/glm-4.7-flash"
                 emptyText="没有匹配的模型，可直接输入完整 ID"
               />

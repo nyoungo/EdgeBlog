@@ -7,6 +7,7 @@ import {
   extractAiText,
   extractToolCalls,
   listAiModels,
+  modelLabel,
   type AiSettings,
 } from '../functions/lib/ai';
 import { AI_DEFAULTS } from '../shared/settings-defaults';
@@ -81,6 +82,35 @@ describe('extractToolCalls', () => {
   it('ignores entries without a function name', () => {
     expect(extractToolCalls({ tool_calls: [{ arguments: '{}' }] })).toEqual([]);
   });
+
+  it('does not duplicate calls when flat and OpenAI shapes coexist', () => {
+    const call = { name: 'web_search', arguments: { query: '雷军' } };
+    const calls = extractToolCalls({
+      tool_calls: [call],
+      choices: [
+        { message: { tool_calls: [{ id: 'call_x', function: { name: 'web_search', arguments: '{"query":"雷军"}' } }] } },
+      ],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('web_search');
+  });
+});
+
+describe('modelLabel', () => {
+  it('prefers a short `name` when the runtime provides one', () => {
+    expect(modelLabel('@cf/zai-org/glm-4.7-flash', 'glm-4.7-flash')).toBe('glm-4.7-flash');
+  });
+
+  it('ignores a `name` that merely repeats the id', () => {
+    expect(modelLabel('@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/meta/llama-3.3-70b-instruct-fp8-fast')).toBe(
+      'meta/llama-3.3-70b-instruct-fp8-fast',
+    );
+  });
+
+  it('falls back to the id without the @cf/ prefix', () => {
+    expect(modelLabel('@cf/qwen/qwen3.8-27b')).toBe('qwen/qwen3.8-27b');
+    expect(modelLabel('gpt-4o-mini')).toBe('gpt-4o-mini');
+  });
 });
 
 describe('Workers AI readiness', () => {
@@ -112,7 +142,9 @@ describe('listAiModels (cloudflare)', () => {
         throw new Error('not supported');
       },
     });
-    await expect(listAiModels(env)).resolves.toEqual(CLOUDFLARE_FALLBACK_MODELS);
+    await expect(listAiModels(env)).resolves.toEqual(
+      CLOUDFLARE_FALLBACK_MODELS.map((id) => ({ id, label: modelLabel(id) })),
+    );
   });
 
   it('returns a sorted, de-duplicated catalogue from the binding', async () => {
@@ -125,6 +157,21 @@ describe('listAiModels (cloudflare)', () => {
         { id: '' },
       ],
     });
-    await expect(listAiModels(env)).resolves.toEqual(['@cf/a-model', '@cf/b-model']);
+    await expect(listAiModels(env)).resolves.toEqual([
+      { id: '@cf/a-model', label: 'a-model' },
+      { id: '@cf/b-model', label: 'b-model' },
+    ]);
+  });
+
+  it('uses the binding `name` as the display label', async () => {
+    const env = fakeEnv({}, {
+      run: () => undefined,
+      models: async () => [
+        { id: '@cf/zai-org/glm-4.7-flash', name: 'glm-4.7-flash' },
+      ],
+    });
+    await expect(listAiModels(env)).resolves.toEqual([
+      { id: '@cf/zai-org/glm-4.7-flash', label: 'glm-4.7-flash' },
+    ]);
   });
 });

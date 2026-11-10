@@ -238,14 +238,24 @@ export function extractAiText(payload: unknown): string {
 /** Normalise flat (Workers AI) and OpenAI-style tool calls into one shape. */
 export function extractToolCalls(payload: unknown): AiToolCall[] {
   const obj = asRecord(payload);
-  const raw: unknown[] = [...asArray(obj.tool_calls)];
-
   const choice = asRecord(asArray(obj.choices)[0]);
   const message = asRecord(choice.message);
-  raw.push(...asArray(message.tool_calls));
-  if (message.function_call) raw.push({ function: message.function_call });
+
+  // Workers AI 与 OpenAI 兼容层可能同时给出扁平 tool_calls 与
+  // choices[].message.tool_calls,内容一致;只取其中一份,避免合并成重复调用。
+  const flat = asArray(obj.tool_calls);
+  const nested = asArray(message.tool_calls);
+  const raw: unknown[] =
+    flat.length > 0
+      ? flat
+      : nested.length > 0
+        ? nested
+        : message.function_call
+          ? [{ function: message.function_call }]
+          : [];
 
   const calls: AiToolCall[] = [];
+  const seen = new Set<string>();
   raw.forEach((entry, index) => {
     const rec = asRecord(entry);
     const fn = asRecord(rec.function);
@@ -259,6 +269,9 @@ export function extractToolCalls(payload: unknown): AiToolCall[] {
         : args === undefined || args === null
           ? '{}'
           : JSON.stringify(args);
+    const key = `${name}\u0000${serialised}`;
+    if (seen.has(key)) return;
+    seen.add(key);
     const id =
       typeof rec.id === 'string' && rec.id
         ? rec.id
@@ -433,36 +446,55 @@ interface ModelsResponse {
   error?: { message?: string };
 }
 
+/** A pickable model: `id` is the callable value, `label` is what users see. */
+export interface AiModelOption {
+  id: string;
+  label: string;
+}
+
+/**
+ * 模型的可读名称。
+ *
+ * Workers AI 的 `models()` 同时返回 `id`(`@cf/作者/模型`)和 `name`(短名),
+ * 但不同运行时偶尔会把 `name` 回填成完整 id,所以两种情况都要兼容:
+ * `name` 已是短名时直接使用,否则从 id 去掉 `@cf/` 前缀。
+ */
+export function modelLabel(id: string, name?: string): string {
+  const short = name?.trim();
+  if (short && !short.startsWith('@') && short !== id) return short;
+  return id.replace(/^@cf\//, '');
+}
+
 /** Fetch the provider's model catalogue. Workers AI uses the binding. */
 export async function listAiModels(
   env: Env,
   override?: { provider?: AiSettings['provider']; baseUrl?: string },
-): Promise<string[]> {
+): Promise<AiModelOption[]> {
   const ai = await readAiSettings(env);
   const provider = override?.provider ?? ai.provider;
 
   if (provider === 'cloudflare') {
     if (!aiBindingAvailable(env) || !env.AI) {
-      throw AppError.badRequest('未检测到 Workers AI 绑定，请检查 wrangler.toml 或 Pages 控制台的 AI 绑定');
+      throw AppError.badRequest('未检测到 Workers AI 绑定,请检查 wrangler.toml 或 Pages 控制台的 AI 绑定');
     }
     try {
       const list = await withTimeout(
         env.AI.models({ task: 'Text Generation' }),
         MODELS_TIMEOUT_MS,
-        '获取模型列表超时，请稍后重试',
+        '获取模型列表超时,请稍后重试',
       );
-      const ids = Array.from(
-        new Set(
-          list
-            .map((entry) => entry.id)
-            .filter((id): id is string => typeof id === 'string' && id.length > 0),
-        ),
-      ).sort((a, b) => a.localeCompare(b));
-      if (ids.length > 0) return ids;
+      const byId = new Map<string, AiModelOption>();
+      for (const entry of list) {
+        const id = typeof entry.id === 'string' ? entry.id : '';
+        if (!id || byId.has(id)) continue;
+        byId.set(id, { id, label: modelLabel(id, entry.name) });
+      }
+      const options = [...byId.values()].sort((a, b) => a.label.localeCompare(b.label));
+      if (options.length > 0) return options;
     } catch {
       // Fall through to the curated list so the settings page stays usable.
     }
-    return [...CLOUDFLARE_FALLBACK_MODELS];
+    return CLOUDFLARE_FALLBACK_MODELS.map((id) => ({ id, label: modelLabel(id) }));
   }
 
   if (!ai.apiKey) throw AppError.badRequest('请先填写并保存 API Key，再获取模型列表');
@@ -512,5 +544,6 @@ export async function listAiModels(
     ),
   ).sort((a, b) => a.localeCompare(b));
   if (ids.length === 0) throw AppError.upstream('AI 服务未返回任何可用模型');
-  return ids;
+  // OpenAI 兼容接口只给出 id,直接用 id 作为展示名。
+  return ids.map((id) => ({ id, label: id }));
 }
