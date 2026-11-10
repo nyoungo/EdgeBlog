@@ -28,7 +28,15 @@ import {
 } from './posts-write';
 import { countWords, deriveExcerpt } from './sanitize';
 import { htmlToText } from './html-to-text';
-import { bingSearchUrl, looksLikeBingChallenge, parseBingResults, type SearchResult } from './serp';
+import {
+  bingSearchRssUrl,
+  bingSearchUrl,
+  looksLikeBingChallenge,
+  parseBingResults,
+  parseBingRss,
+  resultsLookRelevant,
+  type SearchResult,
+} from './serp';
 import { resolveSearchQuery } from './search-query';
 import {
   EXT_BY_MIME,
@@ -418,12 +426,12 @@ function searchErrorMessage(err: unknown, fallback: string): string {
 }
 
 /** 主通道：解析 Bing 搜索结果页（无需 Key）。 */
-async function searchBing(query: string, limit: number): Promise<SearchResult[]> {
+/** 发起一次 Bing 请求,带超时与统一请求头。 */
+async function fetchBing(url: string): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
-  let response: Response;
   try {
-    response = await fetch(bingSearchUrl(query, limit), {
+    const response = await fetch(url, {
       signal: controller.signal,
       redirect: 'follow',
       headers: {
@@ -433,23 +441,50 @@ async function searchBing(query: string, limit: number): Promise<SearchResult[]>
         'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
       },
     });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.text();
   } catch (err) {
     throw new Error(
-      err instanceof Error && err.name === 'AbortError' ? '请求超时' : searchErrorMessage(err, '无法访问 bing.com'),
+      err instanceof Error && err.name === 'AbortError'
+        ? '请求超时'
+        : searchErrorMessage(err, '无法访问 bing.com'),
     );
   } finally {
     clearTimeout(timer);
   }
-
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const html = await response.text();
-  if (looksLikeBingChallenge(html)) throw new Error('触发了人机验证');
-  const results = parseBingResults(html, limit);
-  if (results.length === 0) throw new Error('没有解析到结果，页面结构可能已改版');
-  return results;
 }
 
-/** 兜底通道：Cloudflare Web Search API（经 AI Gateway，默认 provider = exa）。 */
+/**
+ * 主通道:抓取 Bing 结果。
+ *
+ * 优先用 RSS 输出(结构化、少广告与推荐模块),失败或结果与关键词无关时
+ * 再退化到 HTML 页解析;两路都不行则抛错,交给下一级兜底通道。
+ */
+async function searchBing(query: string, limit: number): Promise<SearchResult[]> {
+  const failures: string[] = [];
+
+  try {
+    const xml = await fetchBing(bingSearchRssUrl(query, limit));
+    const results = parseBingRss(xml, limit);
+    if (results.length > 0 && resultsLookRelevant(query, results)) return results;
+    failures.push(results.length === 0 ? 'RSS 未解析到结果' : 'RSS 结果与关键词无关');
+  } catch (err) {
+    failures.push(`RSS ${searchErrorMessage(err, '请求失败')}`);
+  }
+
+  try {
+    const html = await fetchBing(bingSearchUrl(query, limit));
+    if (looksLikeBingChallenge(html)) throw new Error('触发了人机验证');
+    const results = parseBingResults(html, limit);
+    if (results.length > 0 && resultsLookRelevant(query, results)) return results;
+    failures.push(results.length === 0 ? 'HTML 未解析到结果' : 'HTML 结果与关键词无关');
+  } catch (err) {
+    failures.push(`HTML ${searchErrorMessage(err, '请求失败')}`);
+  }
+
+  throw new Error(failures.join(';'));
+}
+
 async function searchViaCloudflare(env: Env, query: string, limit: number): Promise<SearchResult[]> {
   const websearch = webSearchBinding(env);
   if (!websearch) throw new Error('当前环境没有 Workers AI 绑定，无法使用 Web Search API');
