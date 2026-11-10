@@ -314,9 +314,25 @@ AI 功能默认关闭，不会迁移或覆盖已有配置。后台「AI 设置�
 开启后：
 
 - 文章编辑器出现「AI 生成正文」「AI 生成摘要」入口
-- 后台每个页面右下角出现可拖动的圆形 AI 助手，可对话式创建/修改文章、上传图片与视频、给视频设置封面、审核评论、查看统计等
+- 后台每个页面右下角出现可拖动的圆形 AI 助手，可对话式创建/修改文章、上传图片与视频、给视频设置封面、审核评论、查看统计，以及读取指定网页正文（http/https，HTML 转纯文本后供总结或改写）
 - 助手执行的每次写操作都会写入审计日志（`via: 'ai'`）
 - API Key 仅保存在服务端，接口只返回 `hasApiKey`；`/api/ai/generate` 与 `/api/ai/chat` 均由 Functions 代理请求
+
+> 助手抓取网页与下载素材都走同一套地址校验：只放行 http/https，拒绝内网、回环与保留地址（含重定向后的最终地址），单页限 2MB。
+
+### 联网搜索
+
+助手提供两个联网工具：
+
+- `web_search`：主通道直接抓 `bing.com/search` 结果页，无需任何 Key；失败（改版解析不到、人机验证、超时）时自动改用 Cloudflare Web Search API（经 AI Gateway，默认 provider 为 `exa`）。
+- `fetch_web_page`：读取指定网页正文（http/https），HTML 转纯文本后交给模型，默认 6000 字、上限 10000 字，单页 2MB。
+
+兜底通道可选配置（不配也能跑，只是 Bing 失败时没有备选）：
+
+1. Cloudflare Dashboard → **AI Gateway** → 选中网关（默认 `default`）→ **Provider Keys** → 添加 Exa Key，别名填 `default`（即 BYOK，费用由 Exa 直接结算，可用每月 $10 免费额度）。
+2. 需要换网关/供应商时，在 `wrangler.toml` 的 `[vars]` 里设置 `AI_GATEWAY_ID`、`SEARCH_PROVIDER`（`ceramic` / `exa` / `linkup`）、`SEARCH_BYOK_ALIAS`；省略 `SEARCH_BYOK_ALIAS` 时按 AI Gateway credits 计费。
+
+> Bing 抓取完全免费，但依赖对方页面结构，且 Cloudflare 出口 IP 可能被验证码拦截；两条通道都失败时，助手会明确回报失败原因，不会编造搜索结果。
 
 > Workers AI 调用会按 Cloudflare 账户的免费额度/用量计费，即使在本地的 `wrangler pages dev` 中也是如此。`npm run dev` 不会加载 Functions 与绑定，AI 相关接口不可用。
 

@@ -50,3 +50,11 @@ SESSION_COOKIE = "eb_session"
 # requests. Same-origin requests are always allowed; "*" is ignored on purpose
 # (a wildcard plus credentials is unsafe). SITE_URL is included automatically.
 ALLOWED_ORIGINS = "https://www.068800.xyz"
+
+# Web search fallback: Cloudflare Web Search API (AI Gateway).
+# Primary channel scrapes bing.com/search without any key. When that fails the
+# AI assistant retries through AI Gateway using SEARCH_PROVIDER (default: exa).
+# Leave these commented to use the built-in defaults.
+# AI_GATEWAY_ID = "default"
+# SEARCH_PROVIDER = "exa"
+# SEARCH_BYOK_ALIAS = "default"
