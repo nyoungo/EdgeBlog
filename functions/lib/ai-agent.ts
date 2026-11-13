@@ -14,8 +14,6 @@ import {
   aiChatComplete,
   aiChatStream,
   readAiSettings,
-  REQUEST_TIMEOUT_MS,
-  STREAM_TEXT_TIMEOUT_MS,
   type AiToolCall,
   type AiToolDefinition,
   type ChatMessage,
@@ -1473,7 +1471,7 @@ function collectCoverImage(tool: string, result: unknown, sink: string[]): void 
 interface ToolLoopOptions {
   /** 最多几轮模型调用(取数轮 + 成文轮)。 */
   maxRounds: number;
-  /** 单次取数调用的超时;省略用 `ai.ts` 的默认值。 */
+  /** 单次取数调用的超时;省略用「AI 设置」里的 `timeoutMs`。 */
   timeoutMs?: number;
   /** 整体预算(毫秒):耗尽后停止取数、直接成文,避免占满 Cron 墙钟。 */
   budgetMs?: number;
@@ -1481,7 +1479,7 @@ interface ToolLoopOptions {
   toolRounds?: number;
   /** 成文轮是否走流式(`aiChatStream`)。长文必须开启。 */
   streamFinal?: boolean;
-  /** 成文轮的超时;省略用 `ai.ts` 的 `STREAM_TEXT_TIMEOUT_MS`。 */
+  /** 成文轮的超时;省略用「AI 设置」里的 `timeoutMs`。 */
   streamTimeoutMs?: number;
   /**
    * 单条工具结果的截断长度;省略用默认的 12000。
@@ -1526,18 +1524,21 @@ async function runToolLoop(
     return Math.max(0, options.budgetMs - (Date.now() - startedAt));
   };
 
-  /** 按剩余预算收紧本次调用的上限;预算不够时宁可提前失败也不拖过 Cron 墙钟。 */
-  const callTimeout = (limit: number): number => {
+  /**
+   * 本次调用的实际超时 = min(「AI 设置」的值, 调用方给的上限, 预算剩余)。
+   *
+   * 设置里配的是「单次请求最多等多久」的上限,预算只能把它压得更紧,
+   * 不能反过来把用户配置的超时撑大。
+   */
+  const configuredTimeout = (await readAiSettings(ctx.env)).timeoutMs;
+  const capTimeout = (limit?: number): number => {
     const remaining = remainingBudget();
-    return remaining === undefined ? limit : Math.min(limit, remaining);
+    const ceiling = limit === undefined ? configuredTimeout : Math.min(configuredTimeout, limit);
+    return remaining === undefined ? ceiling : Math.min(ceiling, remaining);
   };
-  const toolCallTimeout = (): number => callTimeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS);
+  const toolCallTimeout = (): number => capTimeout(options.timeoutMs);
   const finalCallTimeout = (): number =>
-    callTimeout(
-      streamFinal
-        ? (options.streamTimeoutMs ?? STREAM_TEXT_TIMEOUT_MS)
-        : (options.timeoutMs ?? REQUEST_TIMEOUT_MS),
-    );
+    capTimeout(streamFinal ? options.streamTimeoutMs : options.timeoutMs);
 
   const finalize = (reply: string): AgentLoopResult => ({
     reply: reply.trim() || fallbackReply(actions),
@@ -1636,7 +1637,7 @@ export interface ToolAgentOptions {
   maxRounds?: number;
   /** 允许调用的工具名;省略则开放全部工具。 */
   tools?: string[];
-  /** 单次模型调用的超时;省略用 `ai.ts` 的默认值。 */
+  /** 单次模型调用的超时;省略用「AI 设置」里的 `timeoutMs`。 */
   timeoutMs?: number;
   /** 整体预算(毫秒),超时后停止调用工具、直接成文。 */
   budgetMs?: number;
@@ -1644,7 +1645,7 @@ export interface ToolAgentOptions {
   toolRounds?: number;
   /** 成文轮改用流式:长文写作绕开 Workers AI 非流式请求的 ~120s 上限。 */
   streamFinal?: boolean;
-  /** 流式成文轮的超时;省略用 `ai.ts` 的 `STREAM_TEXT_TIMEOUT_MS`。 */
+  /** 流式成文轮的超时;省略用「AI 设置」里的 `timeoutMs`。 */
   streamTimeoutMs?: number;
   /**
    * 单条工具结果的截断长度;省略用默认的 12000。

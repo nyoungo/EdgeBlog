@@ -10,7 +10,6 @@ import {
   listAiModels,
   readAiSettings,
   resolveCloudflareModel,
-  TEXT_GENERATION_TIMEOUT_MS,
   writeAiSettings,
   type ChatMessage,
 } from '../lib/ai';
@@ -68,6 +67,7 @@ const patchSchema = z
     model: z.string().trim().max(120),
     temperature: z.number().min(0).max(2),
     maxTokens: z.number().int().min(64).max(32000),
+    timeoutMs: z.number().int().min(10_000).max(900_000),
     excerptPrompt: z.string().max(4000),
     contentPrompt: z.string().max(8000),
   })
@@ -141,11 +141,12 @@ aiRoutes.post('/generate', async (c) => {
     { role: 'user', content: parts.join('\n\n') },
   ];
 
-  // 整篇正文动辄两三分钟，非流式会撞 Workers AI 的 ~120s 请求上限（3046），
-  // 长文改走流式聚合；摘要很快，保持普通调用即可。
+  // 整篇正文动辄两三分钟,非流式会撞 Workers AI 的 ~120s 请求上限(3046),
+  // 长文改走流式聚合;摘要很快,保持普通调用即可。两者的整体超时
+  // 都用「AI 设置」里配置的值,调用方不再传死数字。
   const text =
     body.mode === 'content'
-      ? await aiChatStream(c.env, messages, { timeoutMs: TEXT_GENERATION_TIMEOUT_MS })
+      ? await aiChatStream(c.env, messages)
       : await chatComplete(c.env, messages);
   return ok(c, { text, mode: body.mode });
 });

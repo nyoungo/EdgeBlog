@@ -3,8 +3,6 @@ import type { Env } from '../functions/lib/env';
 import {
   CLOUDFLARE_FALLBACK_MODELS,
   STREAM_IDLE_TIMEOUT_MS,
-  STREAM_TEXT_TIMEOUT_MS,
-  TEXT_GENERATION_TIMEOUT_MS,
   aiBindingAvailable,
   aiChatComplete,
   aiChatStream,
@@ -16,6 +14,7 @@ import {
   extractToolCalls,
   listAiModels,
   modelLabel,
+  readAiSettings,
   resolveCloudflareModel,
   type AiSettings,
 } from '../functions/lib/ai';
@@ -405,11 +404,7 @@ describe('请求超时', () => {
     vi.useRealTimers();
   });
 
-  it('长文生成上限为 240s,给定时发文留出余量', () => {
-    expect(TEXT_GENERATION_TIMEOUT_MS).toBe(240_000);
-  });
-
-  it('默认超时是 120s:60s 不再误杀正常生成', async () => {
+  it('默认超时取自「AI 设置」,未配置时为 5 分钟', async () => {
     vi.useFakeTimers();
     const env = fakeEnv({ model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' }, {
       run: () => new Promise(() => {}),
@@ -417,26 +412,43 @@ describe('请求超时', () => {
     const promise = aiChatComplete(env, [{ role: 'user', content: '写一段摘要' }]);
     const outcome = promise.then(() => 'resolved', () => 'rejected');
 
-    // 实测一篇早报要约 115s,旧的 60s 上限会在这里就把请求判死。
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(await stillPending(outcome)).toBe(true);
-
-    await vi.advanceTimersByTimeAsync(60_000);
-    await expect(promise).rejects.toThrow('Workers AI 请求超时');
-  });
-
-  it('调用方传入的超时会覆盖默认值', async () => {
-    vi.useFakeTimers();
-    const env = fakeEnv({ model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' }, {
-      run: () => new Promise(() => {}),
-    });
-    const promise = aiChatComplete(env, [{ role: 'user', content: '写正文' }], undefined, 300_000);
-    const outcome = promise.then(() => 'resolved', () => 'rejected');
-
+    // 旧的 60s / 120s 硬编码会在这里就把请求判死;默认 300s 必须还能继续等。
     await vi.advanceTimersByTimeAsync(120_000);
     expect(await stillPending(outcome)).toBe(true);
 
     await vi.advanceTimersByTimeAsync(180_000);
+    await expect(promise).rejects.toThrow('Workers AI 请求超时');
+  });
+
+  it('设置里配的超时会生效,而不是被常量覆盖', async () => {
+    vi.useFakeTimers();
+    const env = fakeEnv(
+      { model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', timeoutMs: 45_000 },
+      { run: () => new Promise(() => {}) },
+    );
+    const promise = aiChatComplete(env, [{ role: 'user', content: '写一段摘要' }]);
+    const outcome = promise.then(() => 'resolved', () => 'rejected');
+
+    await vi.advanceTimersByTimeAsync(44_999);
+    expect(await stillPending(outcome)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(promise).rejects.toThrow('Workers AI 请求超时');
+  });
+
+  it('调用方传入的超时会覆盖设置值', async () => {
+    vi.useFakeTimers();
+    const env = fakeEnv(
+      { model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', timeoutMs: 600_000 },
+      { run: () => new Promise(() => {}) },
+    );
+    const promise = aiChatComplete(env, [{ role: 'user', content: '写正文' }], undefined, 30_000);
+    const outcome = promise.then(() => 'resolved', () => 'rejected');
+
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(await stillPending(outcome)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(1);
     await expect(promise).rejects.toThrow('Workers AI 请求超时');
   });
 
@@ -467,6 +479,25 @@ describe('请求超时', () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe('readAiSettings 的 timeoutMs', () => {
+  it('默认 5 分钟,老设置里没有该字段时也回落到 5 分钟', async () => {
+    expect(AI_DEFAULTS.timeoutMs).toBe(300_000);
+    // 线上已有设置的 JSON 里不会有这个字段,必须自动带上默认值。
+    await expect(readAiSettings(fakeEnv({}, null))).resolves.toMatchObject({
+      timeoutMs: 300_000,
+    });
+  });
+
+  it('越界的值被夹到 10s – 15min 之间', async () => {
+    await expect(readAiSettings(fakeEnv({ timeoutMs: 1_000 }, null))).resolves.toMatchObject({
+      timeoutMs: 10_000,
+    });
+    await expect(readAiSettings(fakeEnv({ timeoutMs: 10_000_000 }, null))).resolves.toMatchObject({
+      timeoutMs: 900_000,
+    });
   });
 });
 
@@ -572,18 +603,29 @@ describe('aiChatStream (cloudflare)', () => {
     }
   });
 
-  it('默认上限:整体 300s、分片静默 90s', () => {
-    expect(STREAM_TEXT_TIMEOUT_MS).toBe(300_000);
-    expect(STREAM_IDLE_TIMEOUT_MS).toBe(90_000);
+  it('整体超时与静默上限是两个概念:整体可调,静默固定 90s', async () => {
+    vi.useFakeTimers();
+    try {
+      const env = fakeEnv({ timeoutMs: 600_000 }, {
+        run: async () => new ReadableStream<Uint8Array>({ start: () => {} }),
+      });
+      const promise = aiChatStream(env, [{ role: 'user', content: '你好' }]);
+      const outcome = promise.then(() => 'resolved', () => 'rejected');
+
+      await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);
+      await expect(promise).rejects.toThrow('流式输出中断');
+      expect(await outcome).toBe('rejected');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('持续有分片也会在整体上限处停止', async () => {
-    // 用真实定时器 + 极小上限:分片一直有,但总时长到顶就必须停,不能无限跑。
-    const env = fakeEnv({}, {
-      run: async () => endlessStream(20),
-    });
+    // 用真实定时器 + 极小上限:分片一直有(每 20ms 一个,远小于静默上限),
+    // 但总时长到顶就必须停,不能无限跑。
+    const env = fakeEnv({}, { run: async () => endlessStream(20) });
     await expect(
-      aiChatStream(env, [{ role: 'user', content: '你好' }], { timeoutMs: 300, idleTimeoutMs: 150 }),
+      aiChatStream(env, [{ role: 'user', content: '你好' }], { timeoutMs: 400, idleTimeoutMs: 200 }),
     ).rejects.toThrow('流式输出超时');
   });
 });

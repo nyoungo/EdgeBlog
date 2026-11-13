@@ -24,15 +24,16 @@ const PROVIDER_BASE: Record<AiSettings['provider'], string> = {
   custom: '',
 };
 
-/** 单次普通聊天/取数调用的超时(毫秒);长文生成用 `STREAM_TEXT_TIMEOUT_MS`。 */
-export const REQUEST_TIMEOUT_MS = 120_000;
-const MODELS_TIMEOUT_MS = 20_000;
 /**
- * 长文生成(定时发文、后台生成正文)允许更长的等待时间。
- * 实测 qwen3.8-27b 生成一篇早报约 115s,60s 的默认上限会误杀正常请求。
- * 上限受 Cron Trigger 15 分钟墙钟时间约束,留出封面等后续步骤的余量。
+ * 单次 AI 请求超时由后台「AI 设置」的 `timeoutMs` 控制（默认 5 分钟），
+ * 这里只放取值范围的上下限：下限防止误填成几秒就把请求掐死，上限等于
+ * Cron Trigger 的 15 分钟墙钟——再大的值在定时任务里也等不到。
  */
-export const TEXT_GENERATION_TIMEOUT_MS = 240_000;
+export const AI_TIMEOUT_MIN_MS = 10_000;
+export const AI_TIMEOUT_MAX_MS = 900_000;
+
+/** 模型目录这类元数据接口与生成无关，单独给短上限。 */
+const MODELS_TIMEOUT_MS = 20_000;
 
 /** 推理模型的 reasoning 也计入 max_tokens；预算耗尽时按此区间重试一次。 */
 const REASONING_RETRY_MIN_TOKENS = 1024;
@@ -114,6 +115,10 @@ function normalize(value: unknown): AiSettings {
     model: str(src['model'], AI_DEFAULTS.model).trim(),
     temperature: Math.min(2, Math.max(0, num(src['temperature'], AI_DEFAULTS.temperature))),
     maxTokens: Math.min(32_000, Math.max(64, Math.round(num(src['maxTokens'], AI_DEFAULTS.maxTokens)))),
+    timeoutMs: Math.min(
+      AI_TIMEOUT_MAX_MS,
+      Math.max(AI_TIMEOUT_MIN_MS, Math.round(num(src['timeoutMs'], AI_DEFAULTS.timeoutMs))),
+    ),
     excerptPrompt: str(src['excerptPrompt'], AI_DEFAULTS.excerptPrompt),
     contentPrompt: str(src['contentPrompt'], AI_DEFAULTS.contentPrompt),
   };
@@ -432,11 +437,15 @@ export async function aiChatComplete(
   env: Env,
   messages: ChatMessage[],
   tools?: AiToolDefinition[],
-  timeoutMs: number = REQUEST_TIMEOUT_MS,
+  timeoutMs?: number,
 ): Promise<AiCompletion> {
   const ai = await readAiSettings(env);
   if (!ai.enabled) throw AppError.badRequest('AI 功能尚未启用，请先在「AI 设置」中开启');
   if (!ai.model) throw AppError.badRequest('尚未配置 AI 模型名称');
+
+  // 调用方只在需要更紧的上限时（如工具循环的剩余预算）才传超时，
+  // 否则一律用「AI 设置」里的值。
+  const callTimeout = timeoutMs ?? ai.timeoutMs;
 
   if (ai.provider === 'cloudflare') {
     if (!aiBindingAvailable(env) || !env.AI) {
@@ -462,7 +471,7 @@ export async function aiChatComplete(
       try {
         return await withTimeout(
           aiBinding.run(model, { ...inputs, max_tokens: maxTokens }),
-          timeoutMs,
+          callTimeout,
           'Workers AI 请求超时，请稍后重试',
         );
       } catch (err) {
@@ -521,7 +530,7 @@ export async function aiChatComplete(
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), callTimeout);
   let response: Response;
   try {
     response = await fetch(endpoint(base), {
@@ -562,7 +571,7 @@ export async function aiChatComplete(
 export async function chatComplete(
   env: Env,
   messages: ChatMessage[],
-  timeoutMs: number = REQUEST_TIMEOUT_MS,
+  timeoutMs?: number,
 ): Promise<string> {
   const { text, toolCalls } = await aiChatComplete(env, messages, undefined, timeoutMs);
   if (!text.trim()) {
@@ -576,21 +585,19 @@ export async function chatComplete(
 /* --------------------------------------------------------------- streaming */
 
 /**
- * 流式成文的整体上限与分片静默上限(毫秒)。
+ * 流式响应的分片静默上限(毫秒),与整体超时是两个概念。
  *
- * Workers AI 对单次**非流式**请求有约 120s 的时间上限,超时直接返回
- * `3046: Request timeout`。带取数结果的长文(几万 token 上下文、几千字正文)
- * 实测要 2~3 分钟,非流式必失败;改成流式后只要分片持续到达就不会被掐断。
- * 整体上限仍然保留:它约束「一次写作最多占多久」,避免拖过 Cron Trigger
- * 的 15 分钟墙钟,也避免上游卡死后调用方无限等待。
+ * 整体超时来自「AI 设置」的 `timeoutMs`(默认 5 分钟),管「一次请求最多等多久」;
+ * 这里管「多久没收到任何分片就认为连接已死」。Workers AI 对单次**非流式**请求
+ * 另有约 120s 硬上限(`3046 Request timeout`),流式只要分片持续到达就不受它限制,
+ * 所以长文成文必须走流式,而不是靠调大整体超时。
  */
-export const STREAM_TEXT_TIMEOUT_MS = 300_000;
 export const STREAM_IDLE_TIMEOUT_MS = 90_000;
 
 export interface AiStreamOptions {
-  /** 整体上限;默认 `STREAM_TEXT_TIMEOUT_MS`。 */
+  /** 整体上限;省略用「AI 设置」里的 `timeoutMs`。 */
   timeoutMs?: number;
-  /** 两个分片之间允许的最长静默;默认 `STREAM_IDLE_TIMEOUT_MS`。 */
+  /** 两个分片之间允许的最长静默;默认为 `STREAM_IDLE_TIMEOUT_MS`,且不超过整体上限。 */
   idleTimeoutMs?: number;
 }
 
@@ -801,8 +808,9 @@ export async function aiChatStream(
   if (!ai.enabled) throw AppError.badRequest('AI 功能尚未启用，请先在「AI 设置」中开启');
   if (!ai.model) throw AppError.badRequest('尚未配置 AI 模型名称');
 
-  const timeoutMs = options.timeoutMs ?? STREAM_TEXT_TIMEOUT_MS;
-  const idleMs = options.idleTimeoutMs ?? STREAM_IDLE_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? ai.timeoutMs;
+  // 静默上限不能超过整体上限,否则整体超时永远先到,静默判断形同虚设。
+  const idleMs = options.idleTimeoutMs ?? Math.min(STREAM_IDLE_TIMEOUT_MS, timeoutMs);
   const safeMessages = messages.map((message) => ({ ...message, content: message.content ?? '' }));
 
   if (ai.provider === 'cloudflare') {
@@ -1019,7 +1027,7 @@ export async function listAiModels(
   if (!base) throw AppError.badRequest('尚未配置接口地址（Base URL）');
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), MODELS_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(`${base.replace(/\/+$/, '')}/models`, {

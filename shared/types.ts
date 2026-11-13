@@ -591,6 +591,8 @@ export interface AiSettings {
   model: string;
   temperature: number;
   maxTokens: number;
+  /** 单次 AI 请求的最长等待时间（毫秒），后台「AI 设置」可调，默认 5 分钟。 */
+  timeoutMs: number;
   excerptPrompt: string;
   contentPrompt: string;
 }

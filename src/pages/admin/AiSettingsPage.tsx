@@ -453,7 +453,7 @@ export function AiSettingsPage() {
           )}
         </Section>
 
-        <Section title="生成参数" description="控制模型输出长度与随机性" icon="settings">
+        <Section title="生成参数" description="控制模型输出长度、随机性与请求超时" icon="settings">
           <Input
             label="温度（0–2）"
             type="number"
@@ -472,6 +472,16 @@ export function AiSettingsPage() {
             step={64}
             value={String(form.maxTokens)}
             onChange={(e) => set('maxTokens', Number(e.target.value))}
+          />
+          <Input
+            label="请求超时（秒）"
+            type="number"
+            min={10}
+            max={900}
+            step={10}
+            value={String(Math.round(form.timeoutMs / 1000))}
+            onChange={(e) => set('timeoutMs', Math.round(Number(e.target.value) * 1000))}
+            hint="单次 AI 请求最长等多久，默认 300 秒（5 分钟）。Workers AI 的非流式请求另有约 120 秒硬上限，长文写作走流式，不受该上限影响。"
           />
         </Section>
 

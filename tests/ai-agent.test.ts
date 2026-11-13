@@ -1,11 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../functions/lib/env';
 import { runToolAgent } from '../functions/lib/ai-agent';
 import { AI_DEFAULTS } from '../shared/settings-defaults';
 
 /** 只实现 AI 绑定 + 设置读取所需的最小 Env。 */
-function fakeEnv(run: (model: string, inputs: Record<string, unknown>) => Promise<unknown>): Env {
+function fakeEnv(
+  run: (model: string, inputs: Record<string, unknown>) => Promise<unknown>,
+  timeoutMs?: number,
+): Env {
   const stored = { ...AI_DEFAULTS, enabled: true, provider: 'cloudflare' };
+  if (timeoutMs !== undefined) stored.timeoutMs = timeoutMs;
   return {
     DB: {
       prepare: () => ({
@@ -257,5 +261,55 @@ describe('runToolAgent 整体预算', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]?.tools).toBeUndefined();
     expect(result.reply).toBe('收尾正文');
+  });
+
+  it('整体预算会收紧成文轮的流式超时', async () => {
+    vi.useFakeTimers();
+    try {
+      // 分片一直不来,只有「没收到分片」的定时器能结束它;
+      // 若预算没生效,这里会按设置的 5 分钟等下去。
+      const env = fakeEnv(async () => new ReadableStream<Uint8Array>({ start: () => {} }));
+      const promise = runToolAgent(env, null, 'sys', '写文章', {
+        maxRounds: 1,
+        toolRounds: 0,
+        streamFinal: true,
+        tools: ['fetch_web_page'],
+        budgetMs: 5_000,
+      });
+      const outcome = promise.then(() => 'resolved', () => 'rejected');
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(promise).rejects.toThrow('流式输出');
+      expect(await outcome).toBe('rejected');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('设置里的超时同样收紧成文轮,不会被预算撑大', async () => {
+    vi.useFakeTimers();
+    try {
+      // 设置成 10s(下限),预算给 10 分钟:实际必须按 10s 结束。
+      const env = fakeEnv(
+        async () => new ReadableStream<Uint8Array>({ start: () => {} }),
+        10_000,
+      );
+      const promise = runToolAgent(env, null, 'sys', '写文章', {
+        maxRounds: 1,
+        toolRounds: 0,
+        streamFinal: true,
+        tools: ['fetch_web_page'],
+        budgetMs: 600_000,
+      });
+      const outcome = promise.then(() => 'resolved', () => 'rejected');
+
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(await Promise.race([outcome, Promise.resolve('pending')])).toBe('pending');
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(promise).rejects.toThrow('流式输出');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
