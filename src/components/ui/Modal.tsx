@@ -21,6 +21,11 @@ export function Modal({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  // 调用方几乎都传内联箭头函数，onClose 每次渲染都会变。若把它写进 effect
+  // 依赖，父组件每敲一个字符就会重跑一次「移焦 + 归还焦点」，输入框会掉焦点。
+  // 用 ref 取最新值，effect 只在开合时执行。
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
@@ -39,7 +44,7 @@ export function Modal({
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== 'Tab') return;
@@ -73,7 +78,7 @@ export function Modal({
       // Hand focus back to whatever opened the dialog.
       previous?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
