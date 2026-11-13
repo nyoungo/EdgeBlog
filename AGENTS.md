@@ -70,6 +70,26 @@ Domain 绑定到本 Worker（apex `068800.xyz` 302 跳 `www`），`wrangler.toml
 直接把 `id` 当模型名,设置页会显示一串乱码 UUID,保存后调用必然失败。取模型名一律走
 `cloudflareModelId()`;历史遗留的 UUID 值由 `resolveCloudflareModel()` 回查目录纠正。
 
+### 定时发文「Workers AI 请求超时」多半是自己的应用超时,不是网络
+
+`runDueAutomationTasks` 报 `Workers AI 请求超时,请稍后重试` 时,先看
+`automation_runs` 的 `started_at`/`finished_at`:失败记录都**恰好差 60s**,
+说明触发的是代码里的 `REQUEST_TIMEOUT_MS`,而不是 Cloudflare 握手/网络问题。
+实测线上 `@cf/qwen/qwen3.8-27b`(`max_tokens=20480`)生成一篇早报要 **~115s**,
+60s 的默认上限必然误杀正常请求。
+
+**不要指望控制台的 gRPC 开关**:`Network → gRPC` 只作用于接入自有源的 gRPC 流量,
+与 Workers AI **binding**(`env.AI.run`)的调用链路无关。
+
+**解决**(`functions/lib/ai.ts` / `functions/lib/automation.ts`):
+
+- 默认聊天超时提到 `REQUEST_TIMEOUT_MS = 120_000`;
+- 长文生成单独给 `TEXT_GENERATION_TIMEOUT_MS = 240_000`,`aiChatComplete` /
+  `chatComplete` 支持透传;`generateArticle` 与后台 `/ai/generate` 的「正文」模式
+  用长超时,「摘要」模式用默认值;
+- 租约 `LEASE_MINUTES` 由 10 提到 **15**(= Cron Trigger 墙钟上限):定时器每 5 分钟
+  一轮,若租约短于单次执行(正文 240s + 封面工具循环),任务没跑完就会被重复认领、重复发文。
+
 ## 数据层 / SQLite(D1)
 
 ### 改 / 扩充列上的 CHECK 约束只能重建表,而 DROP TABLE 会级联删除子表行

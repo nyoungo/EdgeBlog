@@ -24,8 +24,14 @@ const PROVIDER_BASE: Record<AiSettings['provider'], string> = {
   custom: '',
 };
 
-const REQUEST_TIMEOUT_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 120_000;
 const MODELS_TIMEOUT_MS = 20_000;
+/**
+ * 长文生成(定时发文、后台生成正文)允许更长的等待时间。
+ * 实测 qwen3.8-27b 生成一篇早报约 115s,60s 的默认上限会误杀正常请求。
+ * 上限受 Cron Trigger 15 分钟墙钟时间约束,留出封面等后续步骤的余量。
+ */
+export const TEXT_GENERATION_TIMEOUT_MS = 240_000;
 
 /** 推理模型的 reasoning 也计入 max_tokens；预算耗尽时按此区间重试一次。 */
 const REASONING_RETRY_MIN_TOKENS = 1024;
@@ -425,6 +431,7 @@ export async function aiChatComplete(
   env: Env,
   messages: ChatMessage[],
   tools?: AiToolDefinition[],
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<AiCompletion> {
   const ai = await readAiSettings(env);
   if (!ai.enabled) throw AppError.badRequest('AI 功能尚未启用，请先在「AI 设置」中开启');
@@ -454,7 +461,7 @@ export async function aiChatComplete(
       try {
         return await withTimeout(
           aiBinding.run(model, { ...inputs, max_tokens: maxTokens }),
-          REQUEST_TIMEOUT_MS,
+          timeoutMs,
           'Workers AI 请求超时，请稍后重试',
         );
       } catch (err) {
@@ -513,7 +520,7 @@ export async function aiChatComplete(
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
     response = await fetch(endpoint(base), {
@@ -551,8 +558,12 @@ export async function aiChatComplete(
 }
 
 /** Send a chat completion to the configured provider and return the text. */
-export async function chatComplete(env: Env, messages: ChatMessage[]): Promise<string> {
-  const { text, toolCalls } = await aiChatComplete(env, messages);
+export async function chatComplete(
+  env: Env,
+  messages: ChatMessage[],
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
+): Promise<string> {
+  const { text, toolCalls } = await aiChatComplete(env, messages, undefined, timeoutMs);
   if (!text.trim()) {
     throw AppError.upstream(
       toolCalls.length > 0 ? 'AI 服务只返回了工具调用，未返回文本内容' : 'AI 服务未返回内容，请稍后重试',

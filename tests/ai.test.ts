@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../functions/lib/env';
 import {
   CLOUDFLARE_FALLBACK_MODELS,
+  TEXT_GENERATION_TIMEOUT_MS,
   aiBindingAvailable,
   aiChatComplete,
   aiProviderReady,
+  chatComplete,
   cloudflareModelId,
   extractAiText,
   extractReasoning,
@@ -387,5 +389,80 @@ describe('listAiModels (cloudflare)', () => {
       { id: '@cf/meta/llama-3.2-3b-instruct', label: 'meta/llama-3.2-3b-instruct' },
       { id: '@cf/openai/gpt-oss-120b', label: 'openai/gpt-oss-120b' },
     ]);
+  });
+});
+
+/** 判定一个 Promise 在给定时刻是否仍未 settle(配合假定时器使用)。 */
+async function stillPending(outcome: Promise<string>): Promise<boolean> {
+  return (await Promise.race([outcome, Promise.resolve('pending')])) === 'pending';
+}
+
+describe('请求超时', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('长文生成上限为 240s,给定时发文留出余量', () => {
+    expect(TEXT_GENERATION_TIMEOUT_MS).toBe(240_000);
+  });
+
+  it('默认超时是 120s:60s 不再误杀正常生成', async () => {
+    vi.useFakeTimers();
+    const env = fakeEnv({ model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' }, {
+      run: () => new Promise(() => {}),
+    });
+    const promise = aiChatComplete(env, [{ role: 'user', content: '写一段摘要' }]);
+    const outcome = promise.then(() => 'resolved', () => 'rejected');
+
+    // 实测一篇早报要约 115s,旧的 60s 上限会在这里就把请求判死。
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await stillPending(outcome)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await expect(promise).rejects.toThrow('Workers AI 请求超时');
+  });
+
+  it('调用方传入的超时会覆盖默认值', async () => {
+    vi.useFakeTimers();
+    const env = fakeEnv({ model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' }, {
+      run: () => new Promise(() => {}),
+    });
+    const promise = aiChatComplete(env, [{ role: 'user', content: '写正文' }], undefined, 300_000);
+    const outcome = promise.then(() => 'resolved', () => 'rejected');
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(await stillPending(outcome)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(180_000);
+    await expect(promise).rejects.toThrow('Workers AI 请求超时');
+  });
+
+  it('OpenAI 兼容分支同样按传入的超时中止请求', async () => {
+    vi.useFakeTimers();
+    const originalFetch = globalThis.fetch;
+    // 永不完成的请求,只在收到 abort 信号时失败,以此验证超时被透传。
+    globalThis.fetch = ((_input: unknown, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        });
+      })) as unknown as typeof fetch;
+
+    try {
+      const env = fakeEnv(
+        { provider: 'custom', baseUrl: 'https://ai.example.com/v1', apiKey: 'test-key' },
+        null,
+      );
+      const promise = chatComplete(env, [{ role: 'user', content: '你好' }], 5_000);
+      const outcome = promise.then(() => 'resolved', () => 'rejected');
+
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(await stillPending(outcome)).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(promise).rejects.toThrow('AI 请求超时');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

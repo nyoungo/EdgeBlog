@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AutomationTask } from '../shared/types';
+import type { Env } from '../functions/lib/env';
+import { AI_DEFAULTS } from '../shared/settings-defaults';
 import {
   computeNextRun,
   describeSchedule,
@@ -7,7 +10,14 @@ import {
   validateSchedule,
   type ScheduleInput,
 } from '../shared/schedule';
-import { splitTitleAndBody, parseTagsJson, buildCoverPrompt, resolveAutomationStatus } from '../functions/lib/automation';
+import {
+  generateArticle,
+  splitTitleAndBody,
+  parseTagsJson,
+  buildCoverPrompt,
+  resolveAutomationStatus,
+} from '../functions/lib/automation';
+import { TEXT_GENERATION_TIMEOUT_MS } from '../functions/lib/ai';
 import { isLocalCoverSource } from '../functions/lib/cover';
 
 const BASE: ScheduleInput = {
@@ -198,5 +208,37 @@ describe('isLocalCoverSource', () => {
     expect(isLocalCoverSource('http://example.com/a.jpg')).toBe(false);
     expect(isLocalCoverSource('//cdn.example.com/a.jpg')).toBe(false);
     expect(isLocalCoverSource('')).toBe(false);
+  });
+});
+
+describe('generateArticle 超时', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('正文生成使用 240s 上限,而不是默认的 120s', async () => {
+    vi.useFakeTimers();
+    const env = {
+      DB: {
+        prepare: () => ({
+          bind: () => ({
+            first: async () => ({
+              value_json: JSON.stringify({ ...AI_DEFAULTS, enabled: true, provider: 'cloudflare' }),
+            }),
+          }),
+        }),
+      },
+      AI: { run: () => new Promise(() => {}) },
+    } as unknown as Env;
+
+    const task = { id: 1, name: '每日早报', prompt: '写一篇早报' } as AutomationTask;
+    const promise = generateArticle(env, task);
+    const outcome = promise.then(() => 'settled', () => 'settled');
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(await Promise.race([outcome, Promise.resolve('pending')])).toBe('pending');
+
+    await vi.advanceTimersByTimeAsync(TEXT_GENERATION_TIMEOUT_MS - 120_000);
+    await expect(promise).rejects.toThrow('Workers AI 请求超时');
   });
 });

@@ -9,6 +9,7 @@ import {
   listAiModels,
   readAiSettings,
   resolveCloudflareModel,
+  TEXT_GENERATION_TIMEOUT_MS,
   writeAiSettings,
   type ChatMessage,
 } from '../lib/ai';
@@ -139,7 +140,9 @@ aiRoutes.post('/generate', async (c) => {
     { role: 'user', content: parts.join('\n\n') },
   ];
 
-  const text = await chatComplete(c.env, messages);
+  // 生成整篇正文通常要一两分钟,摘要很快;两者用不同的超时上限。
+  const timeoutMs = body.mode === 'content' ? TEXT_GENERATION_TIMEOUT_MS : undefined;
+  const text = await chatComplete(c.env, messages, timeoutMs);
   return ok(c, { text, mode: body.mode });
 });
 

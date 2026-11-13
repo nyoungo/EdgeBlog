@@ -14,7 +14,7 @@
  */
 import type { AutomationPublishMode, AutomationTask, PostStatus } from '@shared/types';
 import { computeNextRun, type ScheduleInput } from '@shared/schedule';
-import { chatComplete, readAiSettings } from './ai';
+import { chatComplete, readAiSettings, TEXT_GENERATION_TIMEOUT_MS } from './ai';
 import { runToolAgent } from './ai-agent';
 import { recordAudit, type AuditActor } from './audit';
 import { buildCoverPrompt, generateCoverImage, resolveFallbackCover } from './cover';
@@ -32,7 +32,9 @@ export { buildCoverPrompt, generateCoverImage } from './cover';
 export const DUE_TASK_BATCH = 3;
 
 /** 认领任务后写入的租约时长（分钟）；崩溃后据此自动重试。 */
-const LEASE_MINUTES = 10;
+// 15 分钟 = Cron Trigger 墙钟上限:正文生成上限 240s 再加封面工具循环,
+// 10 分钟租约会让 5 分钟一轮的定时器在任务跑完前重复认领、重复发文。
+const LEASE_MINUTES = 15;
 
 /* ------------------------------------------------------- 排期字段适配 */
 
@@ -126,10 +128,14 @@ export async function generateArticle(env: Env, task: AutomationTask): Promise<G
     '从第二行开始输出文章正文（Markdown），不要任何额外的说明文字。',
   ].join('\n');
 
-  const text = await chatComplete(env, [
-    { role: 'system', content: ai.contentPrompt },
-    { role: 'user', content: instruction },
-  ]);
+  const text = await chatComplete(
+    env,
+    [
+      { role: 'system', content: ai.contentPrompt },
+      { role: 'user', content: instruction },
+    ],
+    TEXT_GENERATION_TIMEOUT_MS,
+  );
   const fallbackTitle = deriveExcerpt(task.prompt, 40) || task.name;
   const article = splitTitleAndBody(text, fallbackTitle);
   if (!article.contentMd.trim()) {
@@ -409,7 +415,7 @@ export async function executeAutomationTask(
  * 定时器入口：挑出到期任务并执行。
  *
  * 用条件 UPDATE 认领（`next_run_at` 必须仍到期）避免定时器重叠触发同一任务；
- * 认领成功后 `next_run_at` 被推进 10 分钟，执行完再写入真正的下次时间。
+ * 认领成功后 `next_run_at` 被推进 `LEASE_MINUTES` 分钟，执行完再写入真正的下次时间。
  */
 export async function runDueAutomationTasks(env: Env): Promise<{ picked: number; succeeded: number; failed: number }> {
   const due = await all<{ id: number }>(
