@@ -8,6 +8,7 @@ import { fail } from '../lib/response';
 import { authRoutes } from './auth';
 import { aiRoutes } from './ai';
 import { auditRoutes } from './audit';
+import { columnRoutes } from './columns';
 import { commentRoutes } from './comments';
 import { exportRoutes } from './export';
 import { mediaRoutes } from './media';
@@ -81,6 +82,7 @@ api.get('/health', async (c) => {
 
 api.route('/auth', authRoutes);
 api.route('/posts', postRoutes);
+api.route('/columns', columnRoutes);
 api.route('/tags', tagRoutes);
 api.route('/comments', commentRoutes);
 api.route('/settings', settingRoutes);

@@ -41,6 +41,7 @@ const MODULE_INFO: Record<string, { label: string; description?: string }> = {
 const SIDEBAR_MODULE_INFO: Record<string, { label: string; description?: string }> = {
   about: { label: '关于', description: '站点简介与头像' },
   latest: { label: '最新文章' },
+  columns: { label: '专栏', description: '在「专栏管理」里勾选「显示在侧栏」的专栏' },
   tags: { label: '标签云' },
   subscribe: { label: '订阅', description: 'RSS 订阅入口' },
 };

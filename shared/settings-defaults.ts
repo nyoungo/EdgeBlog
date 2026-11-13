@@ -71,6 +71,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
     sidebarModules: [
       { id: 'about', enabled: true },
       { id: 'latest', enabled: true },
+      { id: 'columns', enabled: true },
       { id: 'tags', enabled: true },
       { id: 'subscribe', enabled: true },
     ],
@@ -112,6 +113,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
   navigation: [
     { id: 'nav-home', label: '首页', href: '/', external: false, newTab: false },
     { id: 'nav-posts', label: '文章', href: '/posts', external: false, newTab: false },
+    { id: 'nav-columns', label: '专栏', href: '/columns', external: false, newTab: false },
     { id: 'nav-archive', label: '归档', href: '/archive', external: false, newTab: false },
     { id: 'nav-tags', label: '标签', href: '/tags', external: false, newTab: false },
     { id: 'nav-about', label: '关于', href: '/about', external: false, newTab: false },

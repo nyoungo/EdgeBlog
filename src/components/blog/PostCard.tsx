@@ -103,6 +103,13 @@ function Meta({ post, className }: { post: PostSummary; className?: string }) {
           {formatNumber(post.views)}
         </span>
       )}
+      {/* 卡片整体是链接，专栏标识只能用 span（嵌套 a 不合法）。 */}
+      {post.column && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-brand">
+          <Icon name="columns" size={11} />
+          {post.column.name}
+        </span>
+      )}
     </div>
   );
 }

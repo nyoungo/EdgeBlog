@@ -18,6 +18,7 @@ import {
   type ListPostsOptions,
 } from '../lib/posts-repo';
 import { created, ok } from '../lib/response';
+import { PUBLIC_POST_SQL } from '../lib/post-scope';
 import { deriveExcerpt, countWords } from '../lib/sanitize';
 import { getSettings } from '../lib/settings';
 import { parseJson } from '../lib/validate';
@@ -33,7 +34,6 @@ import {
 export const postRoutes = new Hono<AppEnv>();
 
 /* --------------------------------------------------------------- schemas */
-
 const statusEnum = z.enum(['draft', 'published', 'scheduled']);
 
 const postBody = z.object({
@@ -48,6 +48,8 @@ const postBody = z.object({
   metaDescription: z.string().trim().max(400).nullable().optional(),
   ogImage: z.string().trim().max(1000).nullable().optional(),
   featured: z.boolean().optional(),
+  /** 归属专栏：null/省略 = 博客，数字 = 该专栏。 */
+  columnId: z.number().int().positive().nullable().optional(),
   tags: z.array(z.string().trim().min(1).max(50)).max(20).optional(),
 });
 
@@ -60,10 +62,16 @@ const listQuery = z.object({
   q: z.string().trim().max(100).optional(),
   sort: z.enum(['newest', 'oldest', 'popular', 'title']).default('newest'),
   featured: z.literal('1').optional(),
+  /** 专栏 slug：公开列表用它过滤某一栏，省略则只看博客。 */
+  column: z.string().trim().max(120).optional(),
+  /** `all` 让全站搜索同时返回博客与专栏文章。 */
+  scope: z.enum(['blog', 'all']).optional(),
 });
 
 const adminListQuery = listQuery.extend({
   status: statusEnum.optional(),
+  /** 归属筛选：省略 = 全部，0 = 仅博客，正数 = 该专栏。 */
+  columnId: z.coerce.number().int().min(0).optional(),
 });
 
 /* --------------------------------------------------------------- helpers */
@@ -78,6 +86,12 @@ function buildListOptions(data: z.infer<typeof adminListQuery>, admin: boolean):
     status: data.status,
     featured: data.featured === '1',
     admin,
+    // 公开列表：默认只看博客；指定专栏 slug 则只看该栏；scope=all 供全站搜索。
+    ...(admin
+      ? { columnId: data.columnId }
+      : data.column
+        ? { scope: 'column' as const, columnSlug: data.column }
+        : { scope: data.scope === 'all' ? ('all' as const) : ('blog' as const) }),
   };
 }
 
@@ -89,6 +103,14 @@ async function authorName(env: Env, authorId: number | null): Promise<string | n
     authorId,
   );
   return row?.name ?? null;
+}
+
+/** 校验归属专栏存在且可见性无关（后台可发到隐藏专栏）。 */
+async function resolveColumnId(env: Env, columnId: number | null | undefined): Promise<number | null> {
+  if (columnId == null) return null;
+  const row = await first<{ id: number }>(env, 'SELECT id FROM columns WHERE id = ?', columnId);
+  if (!row) throw AppError.badRequest('指定的专栏不存在');
+  return row.id;
 }
 
 /* ---------------------------------------------------------------- routes */
@@ -150,13 +172,14 @@ postRoutes.post('/', requireAuth, async (c) => {
   const words = countWords(body.contentMd);
   const excerpt = body.excerpt?.trim() || deriveExcerpt(body.contentMd);
   const publishedAt = resolvePublishedAt(body.status, body.publishedAt);
+  const columnId = await resolveColumnId(c.env, body.columnId);
 
   const result = await run(
     c.env,
     `INSERT INTO posts
        (slug, title, excerpt, content_md, cover_url, status, published_at,
-        meta_title, meta_description, og_image, word_count, featured, author_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        meta_title, meta_description, og_image, word_count, featured, author_id, column_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     slug,
     body.title,
     excerpt,
@@ -170,12 +193,20 @@ postRoutes.post('/', requireAuth, async (c) => {
     words,
     body.featured ? 1 : 0,
     user.id,
+    columnId,
   );
 
   const id = Number(result.meta.last_row_id);
-  if (body.tags) await setPostTags(c.env, id, await resolveTagIds(c.env, body.tags));
+  // 专栏文章不参与标签体系（标签只服务博客内容），避免标签计数与筛选被污染。
+  if (columnId == null && body.tags) {
+    await setPostTags(c.env, id, await resolveTagIds(c.env, body.tags));
+  }
 
-  await recordAudit(c.env, user, 'post.create', 'post', id, { title: body.title, status: body.status });
+  await recordAudit(c.env, user, 'post.create', 'post', id, {
+    title: body.title,
+    status: body.status,
+    columnId,
+  });
 
   const post = await getPostById(c.env, id);
   return created(c, post);
@@ -203,13 +234,15 @@ postRoutes.put('/:id', requireAuth, async (c) => {
     status,
     body.publishedAt !== undefined ? body.publishedAt : existing.published_at,
   );
+  const columnId =
+    body.columnId === undefined ? existing.column_id : await resolveColumnId(c.env, body.columnId);
 
   await run(
     c.env,
     `UPDATE posts SET
         slug = ?, title = ?, excerpt = ?, content_md = ?, cover_url = ?, status = ?,
         published_at = ?, meta_title = ?, meta_description = ?, og_image = ?,
-        word_count = ?, featured = ?, updated_at = datetime('now')
+        word_count = ?, featured = ?, column_id = ?, updated_at = datetime('now')
       WHERE id = ?`,
     slug,
     body.title ?? existing.title,
@@ -223,13 +256,23 @@ postRoutes.put('/:id', requireAuth, async (c) => {
     body.ogImage !== undefined ? body.ogImage : existing.og_image,
     words,
     body.featured === undefined ? existing.featured : body.featured ? 1 : 0,
+    columnId,
     id,
   );
 
-  if (body.tags) await setPostTags(c.env, id, await resolveTagIds(c.env, body.tags));
+  // 从博客移到专栏时清空标签：专栏文章不进标签体系，残留关联会让标签计数虚高。
+  if (columnId == null && body.tags) {
+    await setPostTags(c.env, id, await resolveTagIds(c.env, body.tags));
+  } else if (columnId != null && existing.column_id == null) {
+    await run(c.env, 'DELETE FROM post_tags WHERE post_id = ?', id);
+  }
 
   const actor = c.get('user');
-  await recordAudit(c.env, actor, 'post.update', 'post', id, { title: body.title ?? existing.title, status });
+  await recordAudit(c.env, actor, 'post.update', 'post', id, {
+    title: body.title ?? existing.title,
+    status,
+    columnId,
+  });
 
   return ok(c, await getPostById(c.env, id));
 });
@@ -283,12 +326,10 @@ postRoutes.delete('/:id/purge', requireAuth, async (c) => {
 postRoutes.post('/:slug/view', async (c) => {
   const settings = await getSettings(c.env);
   const slug = c.req.param('slug');
+  // 隐藏专栏里的文章对外等于不存在，浏览计数也不该继续增长。
   const post = await first<{ id: number; views: number }>(
     c.env,
-    `SELECT id, views FROM posts
-      WHERE slug = ?
-        AND published_at IS NOT NULL AND published_at <= datetime('now')
-        AND status IN ('published', 'scheduled')`,
+    `SELECT p.id, p.views FROM posts p WHERE p.slug = ? AND (${PUBLIC_POST_SQL})`,
     slug,
   );
   if (!post) throw AppError.notFound('文章不存在');
@@ -322,10 +363,23 @@ postRoutes.get('/:slug', async (c) => {
     settings.features.relatedPosts ? getRelated(c.env, post, 3) : Promise.resolve([]),
   ]);
 
+  // 归属专栏：后台预览时隐藏专栏也要能显示名称。
+  const column =
+    post.column_id == null
+      ? null
+      : await first<{ id: number; slug: string; name: string }>(
+          c.env,
+          admin
+            ? 'SELECT id, slug, name FROM columns WHERE id = ?'
+            : 'SELECT id, slug, name FROM columns WHERE id = ? AND visible = 1',
+          post.column_id,
+        );
+
   const detail: PostDetail = {
     ...post,
     tags,
     author_name: author,
+    column,
     prev: neighbours.prev,
     next: neighbours.next,
     related,

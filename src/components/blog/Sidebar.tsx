@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
-import type { PostSummary, SidebarModule, SidebarModuleId } from '@shared/types';
+import type { PostSummary, SidebarColumn, SidebarModule, SidebarModuleId } from '@shared/types';
 import { DEFAULT_SETTINGS } from '@shared/settings-defaults';
 import { Icon } from '../ui/icons';
 import { api } from '../../lib/api';
@@ -12,11 +12,19 @@ import { useSettings } from '../../providers/SettingsProvider';
 /**
  * 读取侧栏卡片开关。旧数据或缓存里没有这个字段时回退到默认（全部开启），
  * 避免升级后侧栏整块消失。
+ *
+ * 新增的 `columns` 卡片对旧数据是「未知项」：默认配置里它存在，但已保存的
+ * 设置数组里没有它。这里把默认值里缺失的卡片补到末尾（沿用默认的启用状态），
+ * 这样老站升级后也能看到专栏入口，而不会因为少一项就永远打不开。
  */
 export function resolveSidebarModules(modules?: SidebarModule[]): SidebarModule[] {
-  return Array.isArray(modules) && modules.length > 0
-    ? modules
-    : DEFAULT_SETTINGS.layout.sidebarModules;
+  const saved = Array.isArray(modules) && modules.length > 0 ? modules : DEFAULT_SETTINGS.layout.sidebarModules;
+  const known = new Set(saved.map((module) => module.id));
+  const missing = DEFAULT_SETTINGS.layout.sidebarModules.filter((module) => !known.has(module.id));
+  if (missing.length === 0) return saved;
+  // 用户把卡片全关掉（侧栏整体隐藏）时，新补的卡片也保持关闭，不擅自恢复侧栏。
+  const anyEnabled = saved.some((module) => module.enabled);
+  return [...saved, ...missing.map((module) => ({ ...module, enabled: module.enabled && anyEnabled }))];
 }
 
 /** 侧栏是否有任何卡片处于开启状态；全关时上层不渲染侧栏列。 */
@@ -60,6 +68,17 @@ export function Sidebar() {
 
   const modules = resolveSidebarModules(layout.sidebarModules);
   const enabled = (id: SidebarModuleId) => modules.some((m) => m.id === id && m.enabled);
+
+  // 没有绑定任何专栏时接口返回空数组，卡片自然不渲染。
+  const columnsEnabled = enabled('columns');
+  const columnCard = useAsync(
+    () =>
+      columnsEnabled
+        ? api.get<SidebarColumn[]>('/columns/sidebar').then((r) => r.data)
+        : Promise.resolve([] as SidebarColumn[]),
+    [columnsEnabled],
+  );
+  const sidebarColumns = (columnCard.data ?? []).filter((column) => column.latest.length > 0);
 
   return (
     <div className="flex flex-col gap-5">
@@ -130,6 +149,50 @@ export function Sidebar() {
               <li className="py-2 text-sm text-faint">暂无文章</li>
             )}
           </ol>
+        </RailSection>
+      )}
+
+      {enabled('columns') && sidebarColumns.length > 0 && (
+        <RailSection
+          label="专栏"
+          action={
+            <Link
+              to="/columns"
+              viewTransition={vt}
+              className="eb-kicker inline-flex items-center gap-1 no-underline hover:text-brand"
+            >
+              全部
+              <Icon name="arrowRight" size={12} />
+            </Link>
+          }
+        >
+          <div className="space-y-4">
+            {sidebarColumns.map((column) => (
+              <div key={column.id}>
+                <Link
+                  to={`/columns/${column.slug}`}
+                  viewTransition={vt}
+                  className="group inline-flex items-center gap-1 text-sm font-medium text-fg no-underline transition-colors hover:text-brand"
+                >
+                  {column.name}
+                  <Icon name="chevronRight" size={12} className="text-faint" />
+                </Link>
+                <ol className="mt-1.5">
+                  {column.latest.map((post) => (
+                    <li key={post.id}>
+                      <Link
+                        to={`/posts/${post.slug}`}
+                        viewTransition={vt}
+                        className="line-clamp-2 block rounded-md py-1 text-sm leading-snug text-muted no-underline transition-colors hover:text-brand"
+                      >
+                        {post.title}
+                      </Link>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ))}
+          </div>
         </RailSection>
       )}
 

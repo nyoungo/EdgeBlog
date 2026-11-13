@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { MediaItem, Post, Tag } from '@shared/types';
+import type { Column, MediaItem, Post, Tag } from '@shared/types';
 import { requireAdmin } from '../lib/auth';
 import { all } from '../lib/db';
 import type { AppEnv } from '../lib/env';
@@ -19,12 +19,13 @@ exportRoutes.get('/', async (c) => {
   c.header('Cache-Control', 'no-store');
   c.header('Content-Disposition', 'attachment; filename="edge-blog-export.json"');
 
-  const [posts, tags, media, settings] = await Promise.all([
+  const [posts, tags, columns, media, settings] = await Promise.all([
     all<Post>(
       c.env,
       `SELECT * FROM posts WHERE deleted_at IS NULL ORDER BY id ASC`,
     ),
     all<Tag>(c.env, 'SELECT id, name, slug, created_at FROM tags ORDER BY id ASC'),
+    all<Column>(c.env, 'SELECT * FROM columns ORDER BY sort_order ASC, id ASC'),
     all<MediaItem>(c.env, 'SELECT * FROM media ORDER BY id ASC'),
     getSettings(c.env),
   ]);
@@ -34,6 +35,7 @@ exportRoutes.get('/', async (c) => {
     version: 1,
     posts,
     tags,
+    columns,
     media,
     settings,
   });

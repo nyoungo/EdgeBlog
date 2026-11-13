@@ -9,6 +9,7 @@ import { ToastProvider } from './providers/ToastProvider';
 
 import { HomePage } from './pages/HomePage';
 import { PostListPage } from './pages/PostListPage';
+import { ColumnsPage } from './pages/ColumnsPage';
 import { TagsPage } from './pages/TagsPage';
 import { ArchivePage } from './pages/ArchivePage';
 import { SearchPage } from './pages/SearchPage';
@@ -19,6 +20,9 @@ import { SearchPage } from './pages/SearchPage';
  * for it. Only article-style pages trigger the download.
  */
 const PostDetailPage = lazy(() => import('./pages/PostDetailPage').then((m) => ({ default: m.PostDetailPage })));
+const ColumnDetailPage = lazy(() =>
+  import('./pages/ColumnDetailPage').then((m) => ({ default: m.ColumnDetailPage })),
+);
 const AboutPage = lazy(() => import('./pages/AboutPage').then((m) => ({ default: m.AboutPage })));
 const NotFoundPage = lazy(() => import('./pages/AboutPage').then((m) => ({ default: m.NotFoundPage })));
 
@@ -34,6 +38,9 @@ const AppearancePage = lazy(() => import('./pages/admin/AppearancePage').then((m
 const AiSettingsPage = lazy(() => import('./pages/admin/AiSettingsPage').then((m) => ({ default: m.AiSettingsPage })));
 const AccountPage = lazy(() => import('./pages/admin/AccountPage').then((m) => ({ default: m.AccountPage })));
 const TagsAdminPage = lazy(() => import('./pages/admin/TagsAdminPage').then((m) => ({ default: m.TagsAdminPage })));
+const ColumnsAdminPage = lazy(() =>
+  import('./pages/admin/ColumnsAdminPage').then((m) => ({ default: m.ColumnsAdminPage })),
+);
 const AuditLogPage = lazy(() => import('./pages/admin/AuditLogPage').then((m) => ({ default: m.AuditLogPage })));
 
 function FullPageSpinner() {
@@ -74,6 +81,15 @@ export function App() {
                   <Route index element={<HomePage />} />
                   <Route path="posts" element={<PostListPage />} />
                   <Route path="posts/:slug" element={<PublicRoute><PostDetailPage /></PublicRoute>} />
+                  <Route path="columns" element={<ColumnsPage />} />
+                  <Route
+                    path="columns/:slug"
+                    element={
+                      <PublicRoute>
+                        <ColumnDetailPage />
+                      </PublicRoute>
+                    }
+                  />
                   <Route path="tags" element={<TagsPage />} />
                   <Route path="archive" element={<ArchivePage />} />
                   <Route path="search" element={<SearchPage />} />
@@ -104,6 +120,7 @@ export function App() {
                   <Route path="comments" element={<CommentsAdminPage />} />
                   <Route path="media" element={<MediaAdminPage />} />
                   <Route path="tags" element={<TagsAdminPage />} />
+                  <Route path="columns" element={<ColumnsAdminPage />} />
                   <Route path="appearance" element={<AppearancePage />} />
                   <Route path="ai" element={<AiSettingsPage />} />
                   <Route path="audit" element={<AuditLogPage />} />

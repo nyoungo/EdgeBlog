@@ -25,7 +25,8 @@ tagRoutes.get('/', async (c) => {
     `SELECT t.id, t.name, t.slug, COUNT(p.id) AS post_count
        FROM tags t
        LEFT JOIN post_tags pt ON pt.tag_id = t.id
-       LEFT JOIN posts p ON p.id = pt.post_id AND (${PUBLIC_VISIBLE_SQL})
+       LEFT JOIN posts p ON p.id = pt.post_id
+            AND p.column_id IS NULL AND (${PUBLIC_VISIBLE_SQL})
       GROUP BY t.id, t.name, t.slug
       ${includeEmpty ? '' : 'HAVING post_count > 0'}
       ORDER BY post_count DESC, t.name ASC`,

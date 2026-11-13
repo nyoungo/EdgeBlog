@@ -10,6 +10,7 @@ import { hit } from '../lib/rate-limit';
 import { created, ok } from '../lib/response';
 import { looksLikeSpam } from '../lib/sanitize';
 import { getSettings } from '../lib/settings';
+import { PUBLIC_POST_SQL } from '../lib/posts-repo';
 import { httpUrlSchema, paginationSchema, parseJson } from '../lib/validate';
 import { recordAudit } from '../lib/audit';
 
@@ -38,13 +39,10 @@ export function buildTree(rows: FlatComment[]): Comment[] {
 /** Public: approved comments for a post, threaded. */
 commentRoutes.get('/post/:slug', async (c) => {
   const slug = c.req.param('slug');
+  // PUBLIC_POST_SQL 同时排除了回收站、未发布和隐藏专栏里的文章。
   const post = await first<{ id: number }>(
     c.env,
-    `SELECT id FROM posts
-      WHERE slug = ?
-        AND deleted_at IS NULL
-        AND published_at IS NOT NULL AND published_at <= datetime('now')
-        AND status IN ('published', 'scheduled')`,
+    `SELECT p.id FROM posts p WHERE p.slug = ? AND (${PUBLIC_POST_SQL})`,
     slug,
   );
   if (!post) throw AppError.notFound('文章不存在');
@@ -98,11 +96,7 @@ commentRoutes.post('/', async (c) => {
 
   const post = await first<{ id: number }>(
     c.env,
-    `SELECT id FROM posts
-      WHERE slug = ?
-        AND deleted_at IS NULL
-        AND published_at IS NOT NULL AND published_at <= datetime('now')
-        AND status IN ('published', 'scheduled')`,
+    `SELECT p.id FROM posts p WHERE p.slug = ? AND (${PUBLIC_POST_SQL})`,
     body.postSlug,
   );
   if (!post) throw AppError.notFound('文章不存在');

@@ -119,13 +119,38 @@ export function PostDetailPage() {
           首页
         </Link>
         <Icon name="chevronRight" size={12} />
-        <Link to="/posts" className="no-underline transition-colors hover:text-fg">
-          文章
-        </Link>
+        {detail.column ? (
+          <>
+            <Link to="/columns" className="no-underline transition-colors hover:text-fg">
+              专栏
+            </Link>
+            <Icon name="chevronRight" size={12} />
+            <Link
+              to={`/columns/${detail.column.slug}`}
+              className="truncate no-underline transition-colors hover:text-fg"
+            >
+              {detail.column.name}
+            </Link>
+          </>
+        ) : (
+          <Link to="/posts" className="no-underline transition-colors hover:text-fg">
+            文章
+          </Link>
+        )}
       </nav>
 
       <header>
-        <span className="eb-kicker">文章</span>
+        {detail.column ? (
+          <Link
+            to={`/columns/${detail.column.slug}`}
+            className="eb-kicker inline-flex items-center gap-1 no-underline hover:text-brand"
+          >
+            <Icon name="columns" size={12} />
+            专栏 · {detail.column.name}
+          </Link>
+        ) : (
+          <span className="eb-kicker">文章</span>
+        )}
         <h1 className="mt-3 font-heading text-3xl leading-tight tracking-tight text-fg text-balance sm:text-4xl lg:text-5xl">
           {detail.title}
         </h1>

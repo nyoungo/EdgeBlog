@@ -11,6 +11,7 @@ import { useSettings } from '../../providers/SettingsProvider';
 const NAV: Array<{ to: string; label: string; icon: IconName; end?: boolean }> = [
   { to: '/admin', label: '概览', icon: 'dashboard', end: true },
   { to: '/admin/posts', label: '文章', icon: 'fileText' },
+  { to: '/admin/columns', label: '专栏', icon: 'columns' },
   { to: '/admin/comments', label: '评论', icon: 'message' },
   { to: '/admin/media', label: '媒体', icon: 'image' },
   { to: '/admin/tags', label: '标签', icon: 'tag' },

@@ -22,7 +22,8 @@ searchRoutes.get('/', async (c) => {
     return ok(c, [], { page: 1, perPage: 10, total: 0, totalPages: 1 });
   }
   const { q, page, perPage } = parsed.data;
-  const result = await listPosts(c.env, { page, perPage, q, sort: 'newest' });
+  // 全站搜索同时覆盖博客与专栏文章，结果里带 column 标识供前端区分。
+  const result = await listPosts(c.env, { page, perPage, q, sort: 'newest', scope: 'all' });
   return ok(c, result.items, {
     page: result.page,
     perPage: result.perPage,

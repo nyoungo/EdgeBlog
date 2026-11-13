@@ -27,6 +27,13 @@ export type PublicUser = Omit<User, 'password_hash'>;
 
 export type PostStatus = 'draft' | 'published' | 'scheduled';
 
+/** 文章归属：博客（NULL）或某一个专栏。 */
+export interface ColumnRef {
+  id: number;
+  slug: string;
+  name: string;
+}
+
 export interface Post {
   id: number;
   slug: string;
@@ -43,6 +50,8 @@ export interface Post {
   featured: 0 | 1;
   views: number;
   author_id: number | null;
+  /** NULL = 博客文章；有值 = 该专栏的文章。 */
+  column_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -51,15 +60,58 @@ export interface Post {
 export type PostSummary = Omit<Post, 'content_md'> & {
   tags: Tag[];
   author_name: string | null;
+  /** 归属专栏（仅专栏文章返回），用于列表与搜索结果的标注。 */
+  column?: ColumnRef | null;
 };
 
 /** Full post payload for the detail page. */
 export interface PostDetail extends Post {
   tags: Tag[];
   author_name: string | null;
+  /** 所属专栏；博客文章为 null。 */
+  column: ColumnRef | null;
   prev: PostNeighbour | null;
   next: PostNeighbour | null;
   related: PostSummary[];
+}
+
+/* ---------------------------------------------------------------- columns */
+
+/** 一篇文章条目的精简形态，用于专栏卡片里展示「最新文章」。 */
+export interface ColumnPostRef {
+  id: number;
+  slug: string;
+  title: string;
+  published_at: string | null;
+  created_at: string;
+}
+
+export interface Column {
+  id: number;
+  slug: string;
+  name: string;
+  description: string;
+  cover_url: string | null;
+  sort_order: number;
+  /** 0/1：是否对访客可见。隐藏的专栏及其文章不出现在任何公开入口。 */
+  visible: 0 | 1;
+  /** 0/1：是否出现在首页侧栏的「专栏」卡片里。 */
+  show_in_sidebar: 0 | 1;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 公开专栏列表项：卡片所需的统计与最新文章。 */
+export interface ColumnSummary extends Column {
+  post_count: number;
+  /** 最近一次发文时间（用于「x 天前更新」）。 */
+  last_published_at: string | null;
+  latest: ColumnPostRef[];
+}
+
+/** 侧栏卡片分组：绑定的专栏 + 该栏最新几篇。 */
+export interface SidebarColumn extends ColumnRef {
+  latest: ColumnPostRef[];
 }
 
 export interface PostNeighbour {
@@ -243,7 +295,7 @@ export interface HomeModule {
   enabled: boolean;
 }
 
-export type SidebarModuleId = 'about' | 'latest' | 'tags' | 'subscribe';
+export type SidebarModuleId = 'about' | 'latest' | 'columns' | 'tags' | 'subscribe';
 
 /** 侧栏卡片开关；数组顺序即渲染顺序。 */
 export interface SidebarModule {

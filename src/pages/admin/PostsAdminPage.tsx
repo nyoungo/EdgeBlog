@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import type { ApiMeta, PostSummary } from '@shared/types';
+import type { ApiMeta, ColumnSummary, PostSummary } from '@shared/types';
 import { Button } from '../../components/ui/Button';
 import { Input, Select } from '../../components/ui/Field';
 import { Card, EmptyState, Skeleton } from '../../components/ui/Feedback';
@@ -43,6 +43,7 @@ export function PostsAdminPage() {
   const status = params.get('status') ?? '';
   const sort = params.get('sort') ?? 'newest';
   const q = params.get('q') ?? '';
+  const columnId = params.get('columnId') ?? '';
   const trash = params.get('trash') === '1';
 
   // Debounce the search box: typing used to fire a request per keystroke.
@@ -67,12 +68,26 @@ export function PostsAdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
+  const columns = useAsync(
+    () => api.get<ColumnSummary[]>('/columns/admin').then((r) => r.data).catch(() => [] as ColumnSummary[]),
+    [],
+  );
+
   const { data, loading, reload } = useAsync(
     () =>
       trash
         ? api.get<Row[]>(`/posts/trash${qs({ page, perPage: 15 })}`)
-        : api.get<Row[]>(`/posts/admin${qs({ page, perPage: 15, status: status || undefined, q: q || undefined, sort })}`),
-    [page, status, q, sort, trash],
+        : api.get<Row[]>(
+            `/posts/admin${qs({
+              page,
+              perPage: 15,
+              status: status || undefined,
+              q: q || undefined,
+              sort,
+              columnId: columnId || undefined,
+            })}`,
+          ),
+    [page, status, q, sort, columnId, trash],
   );
 
   const posts = data?.data ?? [];
@@ -197,6 +212,20 @@ export function PostsAdminPage() {
               </option>
             ))}
           </Select>
+          <Select
+            value={columnId}
+            onChange={(e) => update({ columnId: e.target.value })}
+            wrapperClassName="w-44"
+            aria-label="按专栏筛选"
+          >
+            <option value="">全部归属</option>
+            <option value="0">仅博客</option>
+            {(columns.data ?? []).map((column) => (
+              <option key={column.id} value={String(column.id)}>
+                {column.name}
+              </option>
+            ))}
+          </Select>
           <Select value={sort} onChange={(e) => update({ sort: e.target.value })} wrapperClassName="w-36">
             {SORTS.map((s) => (
               <option key={s.value} value={s.value}>
@@ -296,6 +325,17 @@ export function PostsAdminPage() {
                       )}
                       {post.tags.length > 0 && (
                         <p className="mt-0.5 text-xs text-faint">{post.tags.map((t) => t.name).join(' · ')}</p>
+                      )}
+                      {post.column && (
+                        <Link
+                          to={`/columns/${post.column.slug}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-0.5 inline-flex items-center gap-1 text-xs text-brand no-underline hover:underline"
+                        >
+                          <Icon name="columns" size={11} />
+                          {post.column.name}
+                        </Link>
                       )}
                     </td>
                     <td className="px-4 py-3">

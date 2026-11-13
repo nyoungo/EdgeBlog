@@ -55,7 +55,7 @@ const homeModule = z.object({
 });
 
 const sidebarModule = z.object({
-  id: z.enum(['about', 'latest', 'tags', 'subscribe']),
+  id: z.enum(['about', 'latest', 'columns', 'tags', 'subscribe']),
   enabled: z.boolean(),
 });
 

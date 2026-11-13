@@ -1,6 +1,7 @@
 import type { EventContext } from '@cloudflare/workers-types';
 import type { Env } from './lib/env';
 import { listArchive } from './lib/posts-repo';
+import { listColumns } from './lib/columns-repo';
 import { escapeXml } from './lib/seo';
 
 type Ctx = EventContext<Env, string, Record<string, unknown>>;
@@ -8,6 +9,7 @@ type Ctx = EventContext<Env, string, Record<string, unknown>>;
 const STATIC_PAGES: Array<{ path: string; changefreq: string; priority: string }> = [
   { path: '/', changefreq: 'daily', priority: '1.0' },
   { path: '/posts', changefreq: 'daily', priority: '0.9' },
+  { path: '/columns', changefreq: 'weekly', priority: '0.8' },
   { path: '/tags', changefreq: 'weekly', priority: '0.6' },
   { path: '/archive', changefreq: 'weekly', priority: '0.5' },
   { path: '/about', changefreq: 'monthly', priority: '0.4' },
@@ -23,12 +25,21 @@ export const onRequest = async (context: Ctx): Promise<Response> => {
   const origin = (env.SITE_URL || url.origin).replace(/\/+$/, '');
   // `listArchive` is unbounded (up to 20k) — the old 500-row list page silently
   // dropped every older article from the sitemap.
-  const posts = await listArchive(env);
+  // `all` 让专栏文章也进站点地图（它们有独立详情页），但专栏详情页本身也要收录。
+  const posts = await listArchive(env, 20_000, 'all');
+  const columns = await listColumns(env);
 
   const staticUrls = STATIC_PAGES.map(
     ({ path, changefreq, priority }) =>
       `  <url><loc>${escapeXml(`${origin}${path}`)}</loc><changefreq>${changefreq}</changefreq><priority>${priority}</priority></url>`,
   );
+
+  const columnUrls = columns.map((column) => {
+    const loc = `${origin}/columns/${encodeURIComponent(column.slug)}`;
+    const lastmod = (column.last_published_at || column.updated_at || '').slice(0, 10);
+    const lastmodTag = lastmod ? `<lastmod>${lastmod}</lastmod>` : '';
+    return `  <url><loc>${escapeXml(loc)}</loc>${lastmodTag}<changefreq>weekly</changefreq><priority>0.7</priority></url>`;
+  });
 
   const postUrls = posts.map((post) => {
     // Slugs may contain non-ASCII characters: percent-encode so the URL is a
@@ -41,7 +52,7 @@ export const onRequest = async (context: Ctx): Promise<Response> => {
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${[...staticUrls, ...postUrls].join('\n')}
+${[...staticUrls, ...columnUrls, ...postUrls].join('\n')}
 </urlset>
 `;
 

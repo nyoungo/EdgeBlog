@@ -61,6 +61,13 @@ function Meta({ post, className }: { post: PostSummary; className?: string }) {
           {formatNumber(post.views)}
         </span>
       )}
+      {post.column && (
+        // 整行卡片本身就是链接，这里只能用非交互的标识，避免嵌套 <a>。
+        <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-brand">
+          <Icon name="columns" size={11} />
+          {post.column.name}
+        </span>
+      )}
       {post.tags.length > 0 && (
         <span className="truncate text-muted">{post.tags.slice(0, 2).map((tag) => tag.name).join(' / ')}</span>
       )}

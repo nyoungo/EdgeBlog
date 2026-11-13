@@ -25,6 +25,7 @@ const SOURCES = [
   'migrations/0004_write_amplification.sql',
   'migrations/0005_audit_and_soft_delete.sql',
   'migrations/0006_media_thumbnail.sql',
+  'migrations/0007_columns.sql',
   'seed/seed.sql',
 ];
 
@@ -37,7 +38,7 @@ ${SOURCES.map((file) => `--   * ${file}`).join('\n')}
 -- Regenerate with: npm run db:bundle
 --
 -- If the database has already been initialized, do not run this file again:
--- the ALTER TABLE statements in 0003/0005/0006 will fail with
+-- the ALTER TABLE statements in 0003/0005/0006/0007 will fail with
 -- "duplicate column name". See README.md -> 初始化远程数据库.
 -- ============================================================================
 `;

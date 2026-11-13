@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import type { AiSettingsView, MediaItem, PostDetail, PostStatus } from '@shared/types';
+import type { AiSettingsView, ColumnSummary, MediaItem, PostDetail, PostStatus } from '@shared/types';
 import { ApiError, api } from '../../lib/api';
 import { parseSqlDate } from '../../lib/format';
 import { useAsync, useDocumentTitle, useUnsavedChangesGuard } from '../../hooks';
@@ -27,6 +27,8 @@ interface FormState {
   ogImage: string;
   featured: boolean;
   tags: string;
+  /** 归属专栏：'' = 博客，其余为专栏 id 的字符串形式。 */
+  columnId: string;
 }
 
 const EMPTY: FormState = {
@@ -42,6 +44,7 @@ const EMPTY: FormState = {
   ogImage: '',
   featured: false,
   tags: '',
+  columnId: '',
 };
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -79,6 +82,7 @@ function toForm(post: PostDetail): FormState {
     ogImage: post.og_image ?? '',
     featured: post.featured === 1,
     tags: post.tags.map((t) => t.name).join(', '),
+    columnId: post.column_id != null ? String(post.column_id) : '',
   };
 }
 
@@ -168,6 +172,14 @@ export function PostEditorPage() {
     };
   }, []);
 
+  // 专栏列表（含隐藏专栏）：文章可以发到隐藏专栏，编辑时也要能选回原专栏。
+  const columns = useAsync(
+    () => api.get<ColumnSummary[]>('/columns/admin').then((r) => r.data).catch(() => [] as ColumnSummary[]),
+    [],
+  );
+  const columnOptions = columns.data ?? [];
+  const inColumn = form.columnId !== '';
+
   useAsync(async () => {
     if (!editing || !routeSlug) return null;
     try {
@@ -248,6 +260,8 @@ export function PostEditorPage() {
           .split(',')
           .map((t) => t.trim())
           .filter(Boolean),
+        // '' 表示博客文章，后端把它当成 null。
+        columnId: form.columnId ? Number(form.columnId) : null,
       };
 
       if (editing && postId) {
@@ -372,6 +386,24 @@ export function PostEditorPage() {
 
         <aside className="space-y-4">
           <Card className="space-y-4 p-4">
+            <Select
+              label="发布到"
+              value={form.columnId}
+              onChange={(e) => set('columnId', e.target.value)}
+              hint={
+                inColumn
+                  ? '专栏文章只出现在该专栏页与全站搜索，不进入博客列表、标签、归档和 RSS。'
+                  : '博客文章进入首页、文章列表、标签与归档。'
+              }
+            >
+              <option value="">博客</option>
+              {columnOptions.map((column) => (
+                <option key={column.id} value={String(column.id)}>
+                  {column.name}
+                  {column.visible === 1 ? '' : '（隐藏）'}
+                </option>
+              ))}
+            </Select>
             <Select label="状态" value={form.status} onChange={(e) => set('status', e.target.value as PostStatus)}>
               <option value="draft">草稿</option>
               <option value="published">发布</option>
@@ -384,12 +416,14 @@ export function PostEditorPage() {
               onChange={(e) => set('publishedAt', e.target.value)}
               hint={form.status === 'published' && !form.publishedAt ? '留空则立即发布' : undefined}
             />
-            <Switch
-              checked={form.featured}
-              onChange={(v) => set('featured', v)}
-              label="设为精选"
-              description="显示在首页精选模块"
-            />
+            {!inColumn && (
+              <Switch
+                checked={form.featured}
+                onChange={(v) => set('featured', v)}
+                label="设为精选"
+                description="显示在首页精选模块"
+              />
+            )}
           </Card>
 
           <Card className="space-y-4 p-4">
@@ -423,12 +457,17 @@ export function PostEditorPage() {
                 placeholder="留空自动摘取正文"
               />
             </div>
-            <Input
-              label="标签"
-              value={form.tags}
-              onChange={(e) => set('tags', e.target.value)}
-              placeholder="用逗号分隔，如：React, 教程"
-            />
+            {!inColumn && (
+              <Input
+                label="标签"
+                value={form.tags}
+                onChange={(e) => set('tags', e.target.value)}
+                placeholder="用逗号分隔，如：React, 教程"
+              />
+            )}
+            {inColumn && (
+              <p className="text-xs text-faint">专栏文章不参与标签体系；发布到博客后才可以加标签。</p>
+            )}
           </Card>
 
           <Card className="space-y-4 p-4">

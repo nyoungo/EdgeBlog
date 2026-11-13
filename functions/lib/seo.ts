@@ -10,6 +10,7 @@ import type { Env } from './env';
 import type { PublicSettings } from '@shared/types';
 import { renderFaviconSvg } from './favicon';
 import { getPostSeoBySlug } from './posts-repo';
+import { getColumnBySlug } from './columns-repo';
 import { getSettings } from './settings';
 
 /**
@@ -67,13 +68,14 @@ export function absoluteUrl(value: string | null | undefined, origin: string): s
 
 const TITLES: Record<string, string> = {
   '/posts': '文章',
+  '/columns': '专栏',
   '/tags': '标签',
   '/archive': '归档',
   '/search': '搜索',
 };
 
 /** Static SPA routes that legitimately render the shell (not a 404). */
-const STATIC_PATHS = new Set(['/', '/posts', '/tags', '/archive', '/search', '/about', '/admin']);
+const STATIC_PATHS = new Set(['/', '/posts', '/columns', '/tags', '/archive', '/search', '/about', '/admin']);
 
 /**
  * Resolve the metadata for a given request URL.
@@ -156,6 +158,7 @@ export async function buildSeo(
         author: { '@type': 'Person', name: settings.site.name },
         publisher: { '@type': 'Organization', name: siteName },
         wordCount: post.word_count,
+        ...(post.column_name ? { articleSection: post.column_name } : {}),
       },
     };
   }
@@ -176,6 +179,41 @@ export async function buildSeo(
 
   if (path === '/about') {
     return { ...base, title: `${settings.pages.about.title} · ${siteName}` };
+  }
+
+  // 专栏详情页：标题与描述来自专栏自身，未知/隐藏专栏按 404 处理。
+  const columnMatch = path.match(/^\/columns\/([^/]+)$/);
+  if (columnMatch?.[1]) {
+    let slug = columnMatch[1];
+    try {
+      slug = decodeURIComponent(slug);
+    } catch {
+      /* keep raw */
+    }
+    const column = await getColumnBySlug(env, slug);
+    if (!column) {
+      return {
+        ...base,
+        status: 404,
+        noindex: true,
+        title: `专栏不存在 · ${siteName}`,
+        description: '这个专栏可能已被删除，或者从未公开。',
+      };
+    }
+    return {
+      ...base,
+      title: `${column.name} · ${siteName}`,
+      description: column.description || settings.site.description,
+      image: absoluteUrl(column.cover_url, origin) ?? fallbackImage,
+      jsonLd: {
+        '@context': 'https://schema.org',
+        '@type': 'CollectionPage',
+        name: column.name,
+        description: column.description || settings.site.description,
+        url: canonical,
+        isPartOf: { '@type': 'Blog', name: siteName, url: `${origin}/` },
+      },
+    };
   }
 
   // Search results are per-request and must never be indexed.

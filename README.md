@@ -38,6 +38,7 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 ### 内容
 
 - Markdown 文章，支持草稿、定时发布、回收站（软删除）与彻底删除
+- 专栏：可配置多个专栏，文章只能属于博客或某一个专栏，两类内容的列表、标签、归档、RSS 互不干扰
 - 标签管理、归档页、相关文章、上一篇 / 下一篇
 - 全文搜索：D1 FTS5 + trigram 分词，中文子串与英文大小写不敏感
 - 嵌套评论、审核队列、访客评论开关、频率与长度限制
@@ -127,7 +128,7 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 3. 回到 D1 数据库 → **Console**，把内容粘贴进 SQL 输入框，点击 **Execute**。
 4. 确认每条语句都执行成功、没有红色错误。
 
-`db/init.sql` 已按 `0001 → 0006 → seed` 的顺序合并好，**只适用于空库**。
+`db/init.sql` 已按 `0001 → 0007 → seed` 的顺序合并好，**只适用于空库**。
 重复执行会在 `ALTER TABLE ... ADD COLUMN` 处报 `duplicate column name`。
 它由 `npm run db:bundle` 从下面的原始文件生成，CI 会校验两者是否一致。
 
@@ -143,14 +144,15 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 | 4 | [`migrations/0004_write_amplification.sql`](migrations/0004_write_amplification.sql) | 触发器改写、登录记录索引 |
 | 5 | [`migrations/0005_audit_and_soft_delete.sql`](migrations/0005_audit_and_soft_delete.sql) | 审计日志、文章软删除 |
 | 6 | [`migrations/0006_media_thumbnail.sql`](migrations/0006_media_thumbnail.sql) | 视频封面字段 |
-| 7 | [`seed/seed.sql`](seed/seed.sql) | 默认管理员、示例文章与默认配置 |
+| 7 | [`migrations/0007_columns.sql`](migrations/0007_columns.sql) | 专栏表、文章归属字段 |
+| 8 | [`seed/seed.sql`](seed/seed.sql) | 默认管理员、示例文章与默认配置 |
 
 #### 报错了怎么办
 
 | 报错 | 原因 | 处理 |
 | --- | --- | --- |
 | `near "migrations": syntax error at offset 0` | 粘贴的是文件路径 | 改为粘贴文件内容 |
-| `duplicate column name: token_version` / `deleted_at` / `thumbnail_url` | 该列已存在，库不是空的 | 跳过这条 `ALTER TABLE`，继续执行其余语句 |
+| `duplicate column name: token_version` / `deleted_at` / `thumbnail_url` / `column_id` | 该列已存在，库不是空的 | 跳过这条 `ALTER TABLE`，继续执行其余语句 |
 | `not authorized: SQLITE_AUTH` | 脚本里有 D1 不允许的 PRAGMA | 使用本仓库当前版本（已移除 `PRAGMA foreign_keys`） |
 | 页面 500，或 `/api/health` 返回 `data.db` 为 `uninitialized` | 迁移没有执行完 | 按上表顺序补齐，或执行 `db/init.sql` |
 | `no such table` / `no such column` | 库结构与代码版本不一致 | 用 `db/init.sql` 初始化，或检查是否漏了某个迁移 |

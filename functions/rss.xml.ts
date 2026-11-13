@@ -23,7 +23,8 @@ export const onRequest = async (context: Ctx): Promise<Response> => {
 
   const url = new URL(context.request.url);
   const origin = (env.SITE_URL || url.origin).replace(/\/+$/, '');
-  const { items } = await listPosts(env, { page: 1, perPage: 20, sort: 'newest' });
+  // 博客 RSS 只发博客文章：专栏有自己的更新节奏，混进主 feed 会打乱订阅预期。
+  const { items } = await listPosts(env, { page: 1, perPage: 20, sort: 'newest', scope: 'blog' });
 
   const entries = items
     .map((post) => {
