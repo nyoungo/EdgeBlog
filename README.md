@@ -7,7 +7,7 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
-- 在线演示：<https://www.068800.xyz>
+- 在线演示：<https://edge-blog.nyoungo.workers.dev>
 - 非静态生成：页面是 SPA，数据通过 Worker 提供的 API 实时读取
 - 无需服务器：D1 存数据，R2 存媒体，KV 做缓存与限流
 - 定时写作：按排期自动生成整篇文章与封面图，并保存为草稿或直接发布
@@ -201,7 +201,9 @@ npx wrangler d1 execute edge-blog --remote --file=./migrations/0006_media_thumbn
 | Deploy command | `npx wrangler deploy` |
 | Root directory | 留空 |
 
-保存后 Cloudflare 会自动开始第一次构建和部署。仓库里已经带了 GitHub Actions 的部署流程（见 `.github/workflows/ci.yml`），也可以不连接 Dashboard 的 Git 集成、只靠 Actions 部署；两条路径二选一即可，避免同一版本被部署两次。
+保存后 Cloudflare 会自动开始第一次构建和部署。**部署统一走 Workers Builds**：push 到 `main` 后由 Cloudflare 拉取代码、构建并部署，不需要在本仓库保存 Cloudflare API Token。
+
+仓库里的 GitHub Actions（`.github/workflows/ci.yml`）只做校验（SQL 打包一致性、lint、类型检查、测试、构建），不再负责部署，两条路径职责不重叠。
 
 ### 6. 设置密钥
 
@@ -213,7 +215,7 @@ Worker → **Settings → Variables and Secrets → Add**：
 
 填写后点击 **Encrypt** 保存。
 
-> 若改用 GitHub Actions 部署，则需要在仓库 **Settings → Secrets and variables → Actions** 里配置 `CLOUDFLARE_API_TOKEN`（含 Workers 编辑权限），`JWT_SECRET` 仍通过 Worker 的 Secret 设置。
+> 部署用的凭据由 Workers Builds 在连接仓库时自动创建，无需手动配置；`JWT_SECRET` 通过 Worker 的 Secret 设置，两处互不影响。
 
 其余变量（`ENVIRONMENT`、`SITE_URL`、`SESSION_COOKIE`、`ALLOWED_ORIGINS` 等）已经写在 `wrangler.toml` 的 `[vars]` 中，修改文件即可；`JWT_SECRET` 必须通过 Secret 设置，不能写进仓库。
 
@@ -228,9 +230,11 @@ Worker → **Settings → Variables and Secrets → Add**：
 
 > Cron Trigger 会随 Worker 一起部署，无需额外配置；在 Worker → **Settings → Triggers** 可以看到 `*/5 * * * *`。
 
-### 8. 绑定域名与首次登录
+### 8. 自定义域名（可选）与首次登录
 
-在 Worker → **Settings → Domains & Routes → Add → Custom Domain** 绑定域名，然后修改 `wrangler.toml` 中的 `SITE_URL` 并提交，触发一次重新部署。媒体使用相对路径 `/media/<key>` 保存，换域名无需迁移数据。
+默认已可用 Worker 自带域名 `https://<Worker 名称>.<子域>.workers.dev`。要绑定自己的域名，需先让该域名成为**当前 Cloudflare 账户下的 active zone**（即在注册商处把 NS 指向 Cloudflare，完成接入），再在 Worker → **Settings → Domains & Routes → Add → Custom Domain** 添加域名，最后把 `wrangler.toml` 的 `SITE_URL` 改成该域名并提交一次部署。
+
+> **注意**：Workers 的 Custom Domain 要求域名是账户内的 zone，**不支持外部 DNS 的 CNAME 接入**，这点与 Pages 不同。若域名托管在其他服务商（域名无法/不便迁入 Cloudflare），继续使用 `workers.dev` 域名即可，功能完全不受影响。媒体以相对路径 `/media/<key>` 保存，换域名无需迁移数据。
 
 打开 `/admin`，使用下方默认账号登录并立即修改密码。
 

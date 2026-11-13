@@ -11,7 +11,7 @@ const MIN_SECRET_LENGTH = 32;
 export function assertSecrets(env: Env): void {
   if (typeof env.JWT_SECRET !== 'string' || env.JWT_SECRET.trim().length < MIN_SECRET_LENGTH) {
     throw AppError.internal(
-      `JWT_SECRET 未配置或长度不足 ${MIN_SECRET_LENGTH} 字符，请执行 wrangler pages secret put JWT_SECRET 后重试`,
+      `JWT_SECRET 未配置或长度不足 ${MIN_SECRET_LENGTH} 字符，请执行 wrangler secret put JWT_SECRET 后重试`,
     );
   }
 }
