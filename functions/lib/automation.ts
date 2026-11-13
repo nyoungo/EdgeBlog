@@ -1,14 +1,15 @@
 /**
  * 定时自动写文：内容生成 + 封面生成 + 建草稿 + 到期执行。
  *
- * 复用后台既有的 AI 配置（`chatComplete`），不引入新的密钥通道；封面用
+ * 复用后台既有的 AI 配置（`readAiSettings`），不引入新的密钥通道；正文走
+ * `ai-agent` 的只读取数工具循环 + 流式成文，封面用
  * Workers AI 的 `@cf/black-forest-labs/flux-1-schnell`（返回 base64 JPEG），
  * 落到 R2 并写入 `media` 表，与手动上传的图片同等对待。
  *
  * 执行 -> 记录：
- *   * 每次执行先写 `automation_tasks.last_status='running'` 并给
- *     `next_run_at` 一个 10 分钟的「租约」，避免定时器重叠触发同一任务；
- *     崩溃后最多 10 分钟自动重试。
+ *   * 每次执行先写 `automation_tasks.last_status='running'` 并给 `next_run_at`
+ *     一个租约（见 `LEASE_MINUTES`），避免定时器重叠触发同一任务；崩溃后最多
+ *     一个租约时长自动重试。
  *   * 结束后写一条 `automation_runs`（成功/失败 + 产出文章 + 错误信息），
  *     并回填任务的 last_* 与下一个 `next_run_at`。
  */
