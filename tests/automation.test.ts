@@ -8,6 +8,7 @@ import {
   type ScheduleInput,
 } from '../shared/schedule';
 import { splitTitleAndBody, parseTagsJson, buildCoverPrompt, resolveAutomationStatus } from '../functions/lib/automation';
+import { isLocalCoverSource } from '../functions/lib/cover';
 
 const BASE: ScheduleInput = {
   recurrence: 'daily',
@@ -183,5 +184,19 @@ describe('resolveAutomationStatus', () => {
 
   it('saves a draft by default', () => {
     expect(resolveAutomationStatus('draft')).toEqual({ status: 'draft', publish: false });
+  });
+});
+
+describe('isLocalCoverSource', () => {
+  it('treats site-relative media paths as local', () => {
+    expect(isLocalCoverSource('/media/2026/01/cover.jpg')).toBe(true);
+    expect(isLocalCoverSource('  /media/x.png  ')).toBe(true);
+  });
+
+  it('treats external and protocol-relative URLs as remote', () => {
+    expect(isLocalCoverSource('https://example.com/a.jpg')).toBe(false);
+    expect(isLocalCoverSource('http://example.com/a.jpg')).toBe(false);
+    expect(isLocalCoverSource('//cdn.example.com/a.jpg')).toBe(false);
+    expect(isLocalCoverSource('')).toBe(false);
   });
 });

@@ -59,7 +59,7 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 - 每个任务可选「保存为草稿」或「直接发布上线」：前者生成后等你审核，后者到点即在前台可见
 - 排期支持「仅一次 / 每天 / 每周 / 每月」+ 执行时刻（北京时间），可选首次执行日期与结束日期
 - Worker 的 Cron Trigger 每 5 分钟唤醒一次，到期任务自动生成文章与封面图
-- 封面优先用 Workers AI 生成并存入 R2；生成失败时回退到任务里配置的固定封面地址
+- 封面可选「AI 生成 / AI 联网找图 / 指定图片 / 不设封面」:AI 生成与 AI 找图都会把图片存入 R2;「指定图片」支持媒体库图片或图片直链,外链在执行时下载入库(失败则保留原链接)
 - 任务列表展示下次运行时间、上次结果与最近运行记录，可随时启用 / 停用或立即手动执行一次
 
 ### 站点定制
@@ -159,7 +159,8 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 | 6 | [`migrations/0006_media_thumbnail.sql`](migrations/0006_media_thumbnail.sql) | 视频封面字段 |
 | 7 | [`migrations/0007_columns.sql`](migrations/0007_columns.sql) | 专栏表、文章归属字段 |
 | 8 | [`migrations/0008_automation.sql`](migrations/0008_automation.sql) | 定时写作任务与运行记录 |
-| 9 | [`seed/seed.sql`](seed/seed.sql) | 默认管理员、示例文章与默认配置 |
+| 9 | [`migrations/0009_automation_cover_agent.sql`](migrations/0009_automation_cover_agent.sql) | 定时写作封面模式扩展(agent) |
+| 10 | [`seed/seed.sql`](seed/seed.sql) | 默认管理员、示例文章与默认配置 |
 
 #### 报错了怎么办
 

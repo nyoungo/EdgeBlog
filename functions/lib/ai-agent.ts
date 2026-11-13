@@ -37,23 +37,15 @@ import {
   describeMonidError,
   parseMonidSearchOutput,
 } from './monid';
-import {
-  EXT_BY_MIME,
-  IMAGE_MAX_SIZE,
-  THUMBNAIL_MAX_SIZE,
-  VIDEO_MAX_SIZE,
-  isVideoMime,
-  sniffImageMime,
-  sniffMediaMime,
-  thumbnailKey,
-} from './media-file';
+import { IMAGE_MAX_SIZE, VIDEO_MAX_SIZE, isVideoMime, thumbnailKey } from './media-file';
 import { mediaObjectKey, mediaPublicUrl } from './media-store';
+import { assertRemoteUrl, downloadRemote, filenameFromUrl, isPrivateHost } from './media-ingest';
+import { generateCoverImage } from './cover';
 
 const MAX_ROUNDS = 6;
 const MAX_HISTORY = 20;
 const MAX_MESSAGE_CHARS = 8000;
 const MAX_TOOL_RESULT_CHARS = 12_000;
-const REMOTE_FETCH_TIMEOUT_MS = 30_000;
 /** 读取网页单独设超时：页面抓取比下载媒体更容易卡住。 */
 const PAGE_FETCH_TIMEOUT_MS = 20_000;
 const PAGE_MAX_BYTES = 2 * 1024 * 1024;
@@ -137,124 +129,6 @@ function tagListSql(): string {
             LEFT JOIN posts p ON p.id = pt.post_id AND p.deleted_at IS NULL
            GROUP BY t.id, t.name, t.slug
            ORDER BY post_count DESC, t.name ASC`;
-}
-
-function isPrivateHost(hostname: string): boolean {
-  const host = hostname.toLowerCase();
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
-
-  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) {
-    const a = Number(v4[1]);
-    const b = Number(v4[2]);
-    if (a === 0 || a === 10 || a === 127) return true;
-    if (a === 169 && b === 254) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-  }
-
-  if (host.startsWith('[') || host.includes(':')) {
-    if (host === '[::1]' || host === '::1') return true;
-    if (host.startsWith('[fc') || host.startsWith('[fd')) return true;
-    if (host.startsWith('[fe80')) return true;
-  }
-  return false;
-}
-
-/**
- * Validate an admin-supplied URL before fetching it server-side (SSRF guard).
- *
- * http 与 https 都放行：很多中文站点仍是纯 http，抓正文时会被直接跳过。
- * 抓取只发生在本站服务器，不涉及浏览器混合内容；内容本身按不可信数据处理。
- */
-function assertRemoteUrl(raw: string, label = '媒体地址'): URL {
-  let url: URL;
-  try {
-    url = new URL(raw.trim());
-  } catch {
-    throw AppError.badRequest(`${label}不是合法的 URL`);
-  }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw AppError.badRequest(`${label}必须以 https:// 或 http:// 开头`);
-  }
-  if (url.username || url.password) throw AppError.badRequest(`${label}不能包含用户名或密码`);
-  if (isPrivateHost(url.hostname)) throw AppError.badRequest(`不允许访问内网地址（${label}）`);
-  return url;
-}
-
-interface DownloadedMedia {
-  bytes: Uint8Array;
-  mime: string;
-}
-
-async function downloadRemote(
-  rawUrl: string,
-  opts: { imageOnly?: boolean } = {},
-): Promise<DownloadedMedia> {
-  const url = assertRemoteUrl(rawUrl);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REMOTE_FETCH_TIMEOUT_MS);
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: { 'user-agent': 'EdgeBlog-AI/1.0' },
-    });
-  } catch (err) {
-    throw AppError.upstream(
-      err instanceof Error && err.name === 'AbortError'
-        ? '下载媒体超时，请稍后重试'
-        : '无法下载媒体，请检查地址是否可访问',
-    );
-  } finally {
-    clearTimeout(timer);
-  }
-  if (!response.ok) throw AppError.upstream(`下载媒体失败（HTTP ${response.status}）`);
-  // `fetch` follows redirects; re-check the final host so a public URL cannot
-  // bounce the request into the private network.
-  if (response.url) {
-    try {
-      if (isPrivateHost(new URL(response.url).hostname)) {
-        throw AppError.badRequest('不允许从内网地址下载媒体');
-      }
-    } catch (err) {
-      if (err instanceof AppError) throw err;
-    }
-  }
-
-  const maxSize = opts.imageOnly ? THUMBNAIL_MAX_SIZE : VIDEO_MAX_SIZE;
-  const declared = Number(response.headers.get('content-length') ?? '0');
-  if (Number.isFinite(declared) && declared > maxSize) {
-    throw AppError.payloadTooLarge(opts.imageOnly ? '封面图超过 2MB 限制' : '媒体文件超过 25MB 限制');
-  }
-
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength === 0) throw AppError.badRequest('下载到的文件为空');
-  if (bytes.byteLength > maxSize) {
-    throw AppError.payloadTooLarge(opts.imageOnly ? '封面图超过 2MB 限制' : '媒体文件超过 25MB 限制');
-  }
-
-  const mime = opts.imageOnly ? sniffImageMime(bytes.slice(0, 32)) : sniffMediaMime(bytes.slice(0, 32));
-  if (!mime || !(mime in EXT_BY_MIME)) {
-    throw AppError.unsupportedMedia(
-      opts.imageOnly
-        ? '封面仅支持 JPG / PNG / GIF / WebP / AVIF / BMP 图片'
-        : '仅支持 JPG / PNG / GIF / WebP / AVIF / BMP 图片及 MP4 / WebM 视频',
-    );
-  }
-  if (opts.imageOnly && isVideoMime(mime)) throw AppError.unsupportedMedia('封面必须是图片');
-  return { bytes, mime };
-}
-
-function filenameFromUrl(url: string): string {
-  try {
-    const pathname = new URL(url).pathname;
-    const name = pathname.split('/').filter(Boolean).pop() ?? '';
-    return decodeURIComponent(name);
-  } catch {
-    return '';
-  }
 }
 
 /** 分块读取响应体，超过上限就停止，避免把超大页面整个读进内存。 */
@@ -600,6 +474,10 @@ const setThumbnailSchema = z.object({
   mediaId: z.coerce.number().int().positive(),
   imageMediaId: z.coerce.number().int().positive().optional(),
   imageUrl: z.string().trim().max(2000).optional(),
+});
+
+const generateCoverSchema = z.object({
+  prompt: z.string().trim().min(1).max(2000),
 });
 
 const fetchPageSchema = z.object({
@@ -1136,6 +1014,35 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
     },
   ),
 
+  generate_cover: makeTool(
+    {
+      type: 'function',
+      function: {
+        name: 'generate_cover',
+        description:
+          '用 Workers AI 根据文字描述生成一张封面插图并存入媒体库,返回图片地址。适合文章缺封面时快速配图。',
+        parameters: {
+          type: 'object',
+          properties: {
+            prompt: {
+              type: 'string',
+              description: '画面描述,例如「蓝色科技感渐变,简约,横版构图」。',
+            },
+          },
+          required: ['prompt'],
+        },
+      },
+    },
+    generateCoverSchema,
+    async ({ env }, args) => {
+      const url = await generateCoverImage(env, args.prompt);
+      if (!url) {
+        throw AppError.upstream('封面生成失败,请确认已绑定 Workers AI,或换一个描述再试');
+      }
+      return { summary: `已生成封面 ${url}`, data: { url } };
+    },
+  ),
+
   list_comments: makeTool(
     {
       type: 'function',
@@ -1424,7 +1331,7 @@ function buildSystemPrompt(context?: AiChatContext): string {
   if (context?.postId) lines.push(`当前正在编辑的文章 id：${context.postId}`);
   lines.push(
     '',
-    '你可以调用工具：查询/创建/修改/删除文章，查询标签，查询媒体库，从 URL 上传图片或视频，给视频设置封面，查询和审核评论，查看统计和站点信息，联网搜索，读取指定网页的正文。',
+    '你可以调用工具:查询/创建/修改/删除文章,查询标签,查询媒体库,从 URL 上传图片或视频,给视频设置封面,用 Workers AI 生成封面图,查询和审核评论,查看统计和站点信息,联网搜索,读取指定网页的正文。',
     '',
     '规则：',
     '1. 需要执行操作时优先调用工具，不要只在回复里描述操作。',
@@ -1533,6 +1440,81 @@ function fallbackReply(actions: AiChatAction[]): string {
 }
 
 /** Run the agent loop for one admin chat turn. */
+/** 工具循环的返回:除常规回复/动作外,记录本轮入库的图片地址(供封面模式取用)。 */
+export interface AgentLoopResult extends AiChatResult {
+  /** 工具执行过程中写入媒体库的图片地址(按调用顺序)。 */
+  uploadedImageUrls: string[];
+}
+
+/** 能产出「已入库图片」的工具:从它们的结果里收集封面候选。 */
+const COVER_IMAGE_TOOLS = new Set(['upload_media_from_url', 'generate_cover']);
+
+function collectCoverImage(tool: string, result: unknown, sink: string[]): void {
+  if (!COVER_IMAGE_TOOLS.has(tool)) return;
+  const rec = asRecord(result);
+  if (rec.ok === false) return;
+  const data = asRecord(rec.data);
+  if (typeof data.url === 'string' && data.url.trim()) sink.push(data.url.trim());
+}
+
+/**
+ * 跑工具循环,直到模型不再调用工具或轮数耗尽。
+ * 后台聊天与内部子任务(如定时发文挑封面)共用这一套执行逻辑。
+ */
+async function runToolLoop(
+  ctx: ToolContext,
+  messages: ChatMessage[],
+  tools: AiToolDefinition[],
+  maxRounds: number,
+): Promise<AgentLoopResult> {
+  const actions: AiChatAction[] = [];
+  const uploadedImageUrls: string[] = [];
+
+  for (let round = 0; round < maxRounds; round++) {
+    const completion = await aiChatComplete(ctx.env, messages, tools);
+    const toolCalls =
+      completion.toolCalls.length > 0 ? completion.toolCalls : parseTextToolCalls(completion.text);
+
+    if (toolCalls.length === 0) {
+      return {
+        reply: completion.text.trim() || fallbackReply(actions),
+        actions,
+        uploadedImageUrls,
+      };
+    }
+
+    messages.push({
+      role: 'assistant',
+      content: completion.text,
+      tool_calls: toolCalls.map((call) => ({
+        id: call.id,
+        type: 'function' as const,
+        function: { name: call.name, arguments: call.arguments },
+      })),
+    });
+
+    for (const call of toolCalls) {
+      const result = await executeTool(ctx, call, actions);
+      collectCoverImage(call.name, result, uploadedImageUrls);
+      messages.push({
+        role: 'tool',
+        name: call.name,
+        tool_call_id: call.id,
+        content: JSON.stringify(result).slice(0, MAX_TOOL_RESULT_CHARS),
+      });
+    }
+  }
+
+  // Tool budget exhausted: ask for a plain summary without offering tools.
+  const final = await aiChatComplete(ctx.env, messages);
+  return {
+    reply: final.text.trim() || fallbackReply(actions),
+    actions,
+    uploadedImageUrls,
+  };
+}
+
+/** Run the agent loop for one admin chat turn. */
 export async function runAiAgent(
   env: Env,
   user: SessionUser,
@@ -1551,7 +1533,6 @@ export async function runAiAgent(
     throw AppError.badRequest('请先输入要交给 AI 处理的内容');
   }
 
-  const actions: AiChatAction[] = [];
   const lastUserMessage = [...clean].reverse().find((message) => message.role === 'user')?.content;
   const ctx: ToolContext = { env, user, lastUserMessage };
   const messages: ChatMessage[] = [
@@ -1559,46 +1540,28 @@ export async function runAiAgent(
     ...clean,
   ];
   const tools = Object.values(TOOL_ENTRIES).map((entry) => entry.definition);
+  const { reply, actions } = await runToolLoop(ctx, messages, tools, MAX_ROUNDS);
+  return { reply, actions };
+}
 
-  for (let round = 0; round < MAX_ROUNDS; round++) {
-    const completion = await aiChatComplete(env, messages, tools);
-    const toolCalls =
-      completion.toolCalls.length > 0
-        ? completion.toolCalls
-        : parseTextToolCalls(completion.text);
-
-    if (toolCalls.length === 0) {
-      return {
-        reply: completion.text.trim() || fallbackReply(actions),
-        actions,
-      };
-    }
-
-    messages.push({
-      role: 'assistant',
-      content: completion.text,
-      tool_calls: toolCalls.map((call) => ({
-        id: call.id,
-        type: 'function' as const,
-        function: { name: call.name, arguments: call.arguments },
-      })),
-    });
-
-    for (const call of toolCalls) {
-      const result = await executeTool(ctx, call, actions);
-      messages.push({
-        role: 'tool',
-        name: call.name,
-        tool_call_id: call.id,
-        content: JSON.stringify(result).slice(0, MAX_TOOL_RESULT_CHARS),
-      });
-    }
-  }
-
-  // Tool budget exhausted: ask for a plain summary without offering tools.
-  const final = await aiChatComplete(env, messages);
-  return {
-    reply: final.text.trim() || fallbackReply(actions),
-    actions,
-  };
+/**
+ * 内部流程用的工具循环:给定系统提示与一条用户消息,开放后台助手的全部工具。
+ *
+ * 与聊天入口的区别只在于提示词与轮数,便于定时发文「联网找图」这类子任务复用
+ * 已有的搜索/抓取/上传能力,同时把入库的图片地址带回给调用方。
+ */
+export async function runToolAgent(
+  env: Env,
+  user: SessionUser,
+  systemPrompt: string,
+  userMessage: string,
+  options: { maxRounds?: number } = {},
+): Promise<AgentLoopResult> {
+  const ctx: ToolContext = { env, user, lastUserMessage: userMessage };
+  const messages: ChatMessage[] = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userMessage },
+  ];
+  const tools = Object.values(TOOL_ENTRIES).map((entry) => entry.definition);
+  return runToolLoop(ctx, messages, tools, options.maxRounds ?? 4);
 }

@@ -45,7 +45,7 @@ export const automationRoutes = new Hono<AppEnv>();
 automationRoutes.use('*', requireAuth);
 
 const RECURRENCE = z.enum(['once', 'daily', 'weekly', 'monthly']);
-const COVER_MODE = z.enum(['ai', 'fallback', 'none']);
+const COVER_MODE = z.enum(['ai', 'agent', 'fallback', 'none']);
 const PUBLISH_MODE = z.enum(['draft', 'publish']);
 const DATE = z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式应为 YYYY-MM-DD');
 const TIME = z.string().trim().regex(/^\d{1,2}:\d{2}$/, '时间格式应为 HH:MM');
@@ -69,6 +69,15 @@ const taskBody = z.object({
 });
 
 const taskUpdateBody = taskBody.partial();
+
+/** 封面地址:本站媒体地址(/media/...)或公网 http(s) 直链。 */
+function isUsableCoverSource(value: string | null | undefined): boolean {
+  const v = (value ?? '').trim();
+  if (!v) return false;
+  // 站内相对路径(媒体库选择的结果);`//host` 属于协议相对外链,不算站内。
+  if (v.startsWith('/')) return !v.startsWith('//');
+  return isHttpUrl(v);
+}
 
 /** 校验专栏存在（后台可发到隐藏专栏，与文章接口一致）。 */
 async function resolveColumnId(env: Env, columnId: number | null | undefined): Promise<number | null> {
@@ -160,8 +169,8 @@ automationRoutes.post('/', async (c) => {
   const scheduleError = validateSchedule(schedule);
   if (scheduleError) throw AppError.badRequest(scheduleError);
 
-  if (body.coverMode === 'fallback' && (!body.coverUrl || !isHttpUrl(body.coverUrl))) {
-    throw AppError.badRequest('固定封面需要填写合法的图片地址');
+  if (body.coverMode === 'fallback' && !isUsableCoverSource(body.coverUrl)) {
+    throw AppError.badRequest('指定封面需要填写图片地址:http(s) 直链,或从媒体库选择一张图片');
   }
 
   const columnId = await resolveColumnId(c.env, body.columnId);
@@ -233,8 +242,8 @@ automationRoutes.put('/:id', async (c) => {
     body.columnId === undefined ? existing.column_id : await resolveColumnId(c.env, body.columnId);
   const coverMode = body.coverMode ?? existing.cover_mode;
   const coverUrl = body.coverUrl !== undefined ? body.coverUrl : existing.cover_url;
-  if (coverMode === 'fallback' && (!coverUrl || !isHttpUrl(coverUrl))) {
-    throw AppError.badRequest('固定封面需要填写合法的图片地址');
+  if (coverMode === 'fallback' && !isUsableCoverSource(coverUrl)) {
+    throw AppError.badRequest('指定封面需要填写图片地址:http(s) 直链,或从媒体库选择一张图片');
   }
 
   const enabled = body.enabled === undefined ? existing.enabled === 1 : body.enabled;

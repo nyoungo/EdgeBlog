@@ -15,23 +15,24 @@
 import type { AutomationPublishMode, AutomationTask, PostStatus } from '@shared/types';
 import { computeNextRun, type ScheduleInput } from '@shared/schedule';
 import { chatComplete, readAiSettings } from './ai';
+import { runToolAgent } from './ai-agent';
 import { recordAudit, type AuditActor } from './audit';
+import { buildCoverPrompt, generateCoverImage, resolveFallbackCover } from './cover';
 import { all, first, placeholders, run } from './db';
 import { nowSql } from './datetime';
-import type { Env, SessionUser } from './env';
+import type { Env, Role, SessionUser } from './env';
 import { AppError } from './errors';
-import { IMAGE_MAX_SIZE, EXT_BY_MIME, sniffImageMime } from './media-file';
-import { mediaObjectKey, mediaPublicUrl } from './media-store';
 import { countWords, deriveExcerpt } from './sanitize';
 import { resolveTagIds, setPostTags, uniqueSlug } from './posts-write';
+
+// 封面相关工具函数对外保持从本模块可导入(既有测试与调用方依赖)。
+export { buildCoverPrompt, generateCoverImage } from './cover';
 
 /** 定时器单次最多处理的任务数，避免一次事件耗尽 CPU 预算。 */
 export const DUE_TASK_BATCH = 3;
 
 /** 认领任务后写入的租约时长（分钟）；崩溃后据此自动重试。 */
 const LEASE_MINUTES = 10;
-
-const COVER_MODEL = '@cf/black-forest-labs/flux-1-schnell';
 
 /* ------------------------------------------------------- 排期字段适配 */
 
@@ -137,93 +138,79 @@ export async function generateArticle(env: Env, task: AutomationTask): Promise<G
   return article;
 }
 
-/* --------------------------------------------------------- 封面生成 */
+/* --------------------------------------------------------- 封面 */
 
-function base64ToBytes(base64: string): Uint8Array {
-  const clean = base64.replace(/\s+/g, '');
-  const binary = atob(clean);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
+/** 配图助手专用系统提示:只找/生成一张图,不碰文章与评论。 */
+const COVER_AGENT_SYSTEM_PROMPT = [
+  '你是 Edge Blog 定时发文流程里的配图助手,唯一任务是为给定文章配一张封面图,并存入本站媒体库。',
+  '',
+  '可用手段:',
+  '1. 用 web_search 搜索合适的配图(例如「<主题> 高清大图 / 壁纸 / 摄影作品」),必要时用 fetch_web_page 打开候选页面确认图片直链;',
+  '2. 用 upload_media_from_url 把选中的图片下载入库(必须是图片的 http/https 直链);',
+  '3. 也可以用 generate_cover 直接生成一张封面。',
+  '',
+  '约束:',
+  '- 只需产出 1 张横版封面;不要创建、修改或删除任何文章、评论或其他数据;',
+  '- 除了联网搜索、读取网页、上传图片、生成封面这几件事,不要调用别的工具;',
+  '- 完成后用一句话说明选用了什么图。',
+].join('\n');
+
+/** 取任务创建者作为工具调用的身份;取不到就跳过并记录原因。 */
+async function taskSessionUser(env: Env, task: AutomationTask): Promise<SessionUser | null> {
+  if (task.created_by == null) return null;
+  const row = await first<{ username: string; role: Role }>(
+    env,
+    'SELECT username, role FROM users WHERE id = ?',
+    task.created_by,
+  );
+  if (!row) return null;
+  return { id: task.created_by, username: row.username, role: row.role, tokenVersion: 0 };
 }
 
-/** 把生成的图片写入 R2 与 media 表，返回公开地址。 */
-async function storeGeneratedImage(
-  env: Env,
-  bytes: Uint8Array,
-  mime: string,
-  filename: string,
-): Promise<string> {
-  const key = mediaObjectKey(filename, mime);
-  await env.MEDIA.put(key, bytes, {
-    httpMetadata: { contentType: mime, cacheControl: 'public, max-age=31536000, immutable' },
-  });
-  const url = mediaPublicUrl(env.MEDIA_PUBLIC_BASE, key);
-  try {
-    await run(
-      env,
-      'INSERT INTO media (key, url, filename, size, mime, thumbnail_url) VALUES (?, ?, ?, ?, ?, ?)',
-      key,
-      url,
-      filename,
-      bytes.byteLength,
-      mime,
-      null,
-    );
-  } catch (err) {
-    // 索引写失败就把对象删掉，避免 R2 里留下没有记录的孤儿文件。
-    await env.MEDIA.delete(key).catch(() => undefined);
-    throw err;
+/** AI 联网找图封面:跑一轮受限的工具循环,取入库的图片地址。 */
+async function generateAgentCover(env: Env, task: AutomationTask, title: string): Promise<string | null> {
+  const actor = await taskSessionUser(env, task);
+  if (!actor) {
+    console.error('[automation] agent 封面跳过:任务创建者已不存在', task.id);
+    return null;
   }
-  return url;
+  const hint = task.cover_prompt.trim();
+  const message = [
+    `文章标题:${title}`,
+    `写作主题:${task.prompt.trim()}`,
+    hint ? `封面要求:${hint}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  try {
+    const result = await runToolAgent(env, actor, COVER_AGENT_SYSTEM_PROMPT, message, { maxRounds: 3 });
+    const urls = result.uploadedImageUrls;
+    return urls[urls.length - 1] ?? null;
+  } catch (err) {
+    console.error('[automation] agent 封面失败', err);
+    return null;
+  }
 }
 
 /**
- * 用 Workers AI 生成封面并入库。未配置 AI 绑定、生成失败或返回非法图片时
- * 返回 null（封面是可选产物，不应因此让整篇文章生成失败）。
+ * 按任务配置解析封面地址:
+ *   ai       → Workers AI 生成并入库
+ *   agent    → AI 联网找图并入库
+ *   fallback → 指定图片(本站地址直接引用,外链下载入库)
+ *   none     → 无封面
  */
-export async function generateCoverImage(
-  env: Env,
-  prompt: string,
-): Promise<string | null> {
-  if (!env.AI || typeof env.AI.run !== 'function') return null;
-  const clean = prompt.trim().slice(0, 2048);
-  if (!clean) return null;
-
-  let imageBase64 = '';
-  try {
-    const result = await env.AI.run(COVER_MODEL, { prompt: clean, steps: 4 });
-    imageBase64 = typeof result?.image === 'string' ? result.image : '';
-  } catch (err) {
-    console.error('[automation] cover generation failed', err);
-    return null;
+async function resolveCover(env: Env, task: AutomationTask, title: string): Promise<string | null> {
+  switch (task.cover_mode) {
+    case 'ai':
+      return generateCoverImage(env, buildCoverPrompt(task, title));
+    case 'agent':
+      return generateAgentCover(env, task, title);
+    case 'fallback':
+      return resolveFallbackCover(env, task.cover_url);
+    default:
+      return null;
   }
-  if (!imageBase64) return null;
-
-  let bytes: Uint8Array;
-  try {
-    bytes = base64ToBytes(imageBase64);
-  } catch {
-    return null;
-  }
-  if (bytes.byteLength === 0 || bytes.byteLength > IMAGE_MAX_SIZE) return null;
-
-  // 用魔数判定真实类型，不盲信模型声明的格式。
-  const mime = sniffImageMime(bytes) ?? 'image/jpeg';
-  const ext = EXT_BY_MIME[mime] ?? 'jpg';
-  try {
-    return await storeGeneratedImage(env, bytes, mime, `cover.${ext}`);
-  } catch (err) {
-    console.error('[automation] cover store failed', err);
-    return null;
-  }
-}
-
-/** 组装封面提示词：任务自定义提示优先，否则用文章标题兜底。 */
-export function buildCoverPrompt(task: AutomationTask, title: string): string {
-  const hint = task.cover_prompt.trim();
-  const base = hint || title;
-  return `${base}，简约现代的博客封面插图，构图干净，适合作为文章头图`.slice(0, 2000);
 }
 
 /* --------------------------------------------------------- 建草稿 */
@@ -309,12 +296,8 @@ async function performGeneration(env: Env, task: AutomationTask): Promise<Automa
 
   const article = await generateArticle(env, task);
 
-  let coverUrl: string | null = null;
-  if (task.cover_mode === 'fallback') {
-    coverUrl = task.cover_url?.trim() || null;
-  } else if (task.cover_mode === 'ai') {
-    coverUrl = await generateCoverImage(env, buildCoverPrompt(task, article.title));
-  }
+  // 封面是可选产物:生成/下载失败时按 null 处理,不影响正文落库。
+  const coverUrl = await resolveCover(env, task, article.title);
 
   const { id, slug } = await createDraftPost(env, {
     title: article.title,

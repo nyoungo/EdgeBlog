@@ -156,7 +156,7 @@ export function AutomationPage() {
     if (!form.name.trim()) return error('任务名称不能为空');
     if (!form.prompt.trim()) return error('写作要求不能为空');
     if (form.coverMode === 'fallback' && !form.coverUrl.trim()) {
-      return error('固定封面需要填写图片地址');
+      return error('指定封面需要填写图片地址');
     }
 
     const payload = {
@@ -430,10 +430,16 @@ export function AutomationPage() {
             onChange={(e) => set('coverMode', e.target.value as AutomationCoverMode)}
           >
             <option value="ai">AI 生成封面</option>
-            <option value="fallback">使用固定封面</option>
+            <option value="agent">AI 联网找图</option>
+            <option value="fallback">指定图片</option>
             <option value="none">不设封面</option>
           </Select>
-          {form.coverMode === 'ai' && (
+          {form.coverMode === 'agent' && (
+            <p className="text-xs text-faint sm:col-span-2">
+              AI 会联网搜索图片并存入媒体库;失败时不带封面,文章照常生成。
+            </p>
+          )}
+          {(form.coverMode === 'ai' || form.coverMode === 'agent') && (
             <Input
               label="封面提示（选填）"
               value={form.coverPrompt}
@@ -445,6 +451,9 @@ export function AutomationPage() {
           {form.coverMode === 'fallback' && (
             <div className="flex flex-col gap-2 sm:col-span-2">
               <span className="text-sm font-medium text-fg">封面地址</span>
+              <p className="text-xs text-faint">
+                从媒体库选择,或粘贴图片直链;执行时会自动下载到本站媒体库。
+              </p>
               <div className="flex gap-2">
                 <Input
                   value={form.coverUrl}

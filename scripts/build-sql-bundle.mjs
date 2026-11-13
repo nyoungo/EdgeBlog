@@ -27,6 +27,7 @@ const SOURCES = [
   'migrations/0006_media_thumbnail.sql',
   'migrations/0007_columns.sql',
   'migrations/0008_automation.sql',
+  'migrations/0009_automation_cover_agent.sql',
   'seed/seed.sql',
 ];
 

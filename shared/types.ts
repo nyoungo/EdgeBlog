@@ -192,8 +192,14 @@ export interface MediaUsage {
 
 export type AutomationRecurrence = 'once' | 'daily' | 'weekly' | 'monthly';
 
-/** 封面策略：ai = Workers AI 生成；fallback = 固定封面；none = 不设封面。 */
-export type AutomationCoverMode = 'ai' | 'fallback' | 'none';
+/**
+ * 封面策略:
+ *   ai       = Workers AI 生成;
+ *   agent    = AI 联网找图并入库;
+ *   fallback = 指定图片(本站地址直接引用,外网直链执行时下载入库);
+ *   none     = 不设封面。
+ */
+export type AutomationCoverMode = 'ai' | 'agent' | 'fallback' | 'none';
 
 /** 生成后的处理方式：draft = 保存为草稿；publish = 直接发布上线。 */
 export type AutomationPublishMode = 'draft' | 'publish';

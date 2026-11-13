@@ -46,6 +46,20 @@ DNS record or on a zone you do not own."* 域名只能挂在 `workers.dev` 或�
 所需 token。`.github/workflows/ci.yml` 只保留校验（bundle/lint/typecheck/test/build），
 不再部署，避免同一版本被部署两次。
 
+## 数据层 / SQLite(D1)
+
+### 改 / 扩充列上的 CHECK 约束只能重建表,而 DROP TABLE 会级联删除子表行
+
+SQLite 不支持 `ALTER TABLE ... ALTER COLUMN`,要改 `CHECK`(例如给
+`automation_tasks.cover_mode` 增加 `'agent'`)只能「建新表 → 复制数据 → 删旧表 →
+改名」。**坑点**:开启外键时 `DROP TABLE` 会先做隐式 `DELETE FROM`,如果别的表以
+`ON DELETE CASCADE` 引用它(本项目的 `automation_runs.task_id`),子表的历史行会被
+一起删掉;`PRAGMA defer_foreign_keys` 只能延后校验、**拦不住级联动作**。
+
+**解决**(见 `migrations/0009_automation_cover_agent.sql`):先把子表备份到临时表
+(`CREATE TABLE ... AS SELECT *`),重建父表后再原样恢复(恢复前先 `DELETE`,兼容
+「级联未生效」的环境);`DROP TABLE` 会连索引 / 触发器一起删掉,重建后要一并补回。
+
 ## 前端
 
 ### `cn()` 必须做冲突消解，否则「组件默认值 + 调用方覆盖」会随机失效
