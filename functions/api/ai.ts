@@ -8,6 +8,7 @@ import {
   chatComplete,
   listAiModels,
   readAiSettings,
+  resolveCloudflareModel,
   writeAiSettings,
   type ChatMessage,
 } from '../lib/ai';
@@ -43,6 +44,16 @@ function view(env: AppEnv['Bindings'], settings: AiSettings): AiSettingsView {
   };
 }
 
+/**
+ * 早期版本把 Workers AI 目录里的 UUID 当模型名保存了下来。读取与保存时都换成
+ * 可调用的名字，避免设置页显示一串看不懂的 id、调用时又必然失败。
+ */
+async function resolveStoredModel(env: AppEnv['Bindings'], settings: AiSettings): Promise<AiSettings> {
+  if (settings.provider !== 'cloudflare' || !env.AI) return settings;
+  const model = await resolveCloudflareModel(env.AI, settings.model);
+  return model === settings.model ? settings : { ...settings, model };
+}
+
 const patchSchema = z
   .object({
     enabled: z.boolean(),
@@ -63,7 +74,8 @@ const patchSchema = z
 /** Admin: current AI config (API key replaced by a `hasApiKey` flag). */
 aiRoutes.get('/settings', async (c) => {
   c.header('Cache-Control', 'no-store');
-  return ok(c, view(c.env, await readAiSettings(c.env)));
+  const settings = await resolveStoredModel(c.env, await readAiSettings(c.env));
+  return ok(c, view(c.env, settings));
 });
 
 /** Admin: patch the AI config. An empty `apiKey` keeps the stored one. */
@@ -74,7 +86,11 @@ aiRoutes.patch('/settings', async (c) => {
   else if (apiKey !== undefined && apiKey.trim() !== '') patch.apiKey = apiKey.trim();
   if (clearMonidApiKey) patch.monidApiKey = '';
   else if (monidApiKey !== undefined && monidApiKey.trim() !== '') patch.monidApiKey = monidApiKey.trim();
-  return ok(c, view(c.env, await writeAiSettings(c.env, patch)));
+  const saved = await writeAiSettings(c.env, patch);
+  const resolved = await resolveStoredModel(c.env, saved);
+  // 保存时纠正历史 UUID 值，避免坏数据一直留在设置里。
+  if (resolved.model !== saved.model) await writeAiSettings(c.env, { model: resolved.model });
+  return ok(c, view(c.env, resolved));
 });
 
 const modelsSchema = z.object({

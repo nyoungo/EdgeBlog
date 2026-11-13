@@ -65,6 +65,11 @@ Domain 绑定到本 Worker（apex `068800.xyz` 302 跳 `www`），`wrangler.toml
 - 默认模型用 `@cf/meta/llama-3.3-70b-instruct-fp8-fast`（快、支持工具调用），推理模型
   速度快慢差异极大，同一条摘要 14s～65s 都可能。
 
+`env.AI.models()` 的字段含义容易搞反:`id` 是**目录内部 UUID**
+(`fd81c856-07a9-…`),真正能传给 `env.AI.run()` 的是 `name`(`@cf/作者/模型`)。
+直接把 `id` 当模型名,设置页会显示一串乱码 UUID,保存后调用必然失败。取模型名一律走
+`cloudflareModelId()`;历史遗留的 UUID 值由 `resolveCloudflareModel()` 回查目录纠正。
+
 ## 数据层 / SQLite(D1)
 
 ### 改 / 扩充列上的 CHECK 约束只能重建表,而 DROP TABLE 会级联删除子表行

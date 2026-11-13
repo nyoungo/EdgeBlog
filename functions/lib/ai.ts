@@ -436,6 +436,8 @@ export async function aiChatComplete(
     }
 
     const aiBinding = env.AI;
+    // 兼容早期版本误存进设置的 UUID 模型名。
+    const model = await resolveCloudflareModel(aiBinding, ai.model);
 
     const inputs: Record<string, unknown> = {
       // The binding requires a string content (it rejects null).
@@ -451,7 +453,7 @@ export async function aiChatComplete(
     const run = async (maxTokens: number): Promise<unknown> => {
       try {
         return await withTimeout(
-          aiBinding.run(ai.model, { ...inputs, max_tokens: maxTokens }),
+          aiBinding.run(model, { ...inputs, max_tokens: maxTokens }),
           REQUEST_TIMEOUT_MS,
           'Workers AI 请求超时，请稍后重试',
         );
@@ -489,7 +491,7 @@ export async function aiChatComplete(
         const reasoning = extractReasoning(payload);
         if (reasoning) return { text: reasoning, toolCalls };
       }
-      throw AppError.upstream(emptyCompletionMessage(ai.model, payload));
+      throw AppError.upstream(emptyCompletionMessage(model, payload));
     }
     return { text, toolCalls };
   }
@@ -572,12 +574,48 @@ export interface AiModelOption {
   label: string;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Workers AI 模型目录里 `id` 是内部 UUID（`fd81c856-07a9-…`），真正可调用的名字是
+ * `name`（`@cf/meta/llama-3.3-…`）。误把 UUID 当模型名保存下来，调用时必然失败，
+ * 所以这里统一取可调用的名字：`id` 是 UUID 时用 `name`，否则优先用 `id`。
+ */
+export function cloudflareModelId(entry: { id?: unknown; name?: unknown }): string {
+  const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+  const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+  if (UUID_RE.test(id)) return name || id;
+  return id || name;
+}
+
+/**
+ * 早期版本把目录里的 UUID 存进了 `settings.ai.model`，这类值无法直接调用。
+ * 保存的模型名是 UUID 时，回查目录换成可调用的名字；查不到就原样返回，
+ * 让后续调用按原值报错，而不是悄悄换成别的模型。
+ */
+export async function resolveCloudflareModel(ai: Ai, model: string): Promise<string> {
+  const value = model.trim();
+  if (!UUID_RE.test(value)) return value;
+  try {
+    const list = await withTimeout(
+      ai.models({ task: 'Text Generation' }),
+      MODELS_TIMEOUT_MS,
+      '获取模型列表超时，请稍后重试',
+    );
+    for (const entry of list) {
+      if (typeof entry.id === 'string' && entry.id === value) return cloudflareModelId(entry);
+    }
+  } catch {
+    // 目录不可用时保留原值，让调用侧给出真实报错。
+  }
+  return value;
+}
+
 /**
  * 模型的可读名称。
  *
- * Workers AI 的 `models()` 同时返回 `id`(`@cf/作者/模型`)和 `name`(短名),
- * 但不同运行时偶尔会把 `name` 回填成完整 id,所以两种情况都要兼容:
- * `name` 已是短名时直接使用,否则从 id 去掉 `@cf/` 前缀。
+ * 传进来的 `id` 已经过 `cloudflareModelId()` 归一化为可调用的模型名；
+ * `name` 若已是短名就直接展示，否则从 id 去掉 `@cf/` 前缀。
  */
 export function modelLabel(id: string, name?: string): string {
   const short = name?.trim();
@@ -605,7 +643,8 @@ export async function listAiModels(
       );
       const byId = new Map<string, AiModelOption>();
       for (const entry of list) {
-        const id = typeof entry.id === 'string' ? entry.id : '';
+        // 目录里的 id 是内部 UUID，可调用的模型名在 name 上。
+        const id = cloudflareModelId(entry);
         if (!id || byId.has(id)) continue;
         byId.set(id, { id, label: modelLabel(id, entry.name) });
       }

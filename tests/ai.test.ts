@@ -5,11 +5,13 @@ import {
   aiBindingAvailable,
   aiChatComplete,
   aiProviderReady,
+  cloudflareModelId,
   extractAiText,
   extractReasoning,
   extractToolCalls,
   listAiModels,
   modelLabel,
+  resolveCloudflareModel,
   type AiSettings,
 } from '../functions/lib/ai';
 import { AI_DEFAULTS } from '../shared/settings-defaults';
@@ -149,6 +151,25 @@ describe('aiChatComplete (cloudflare)', () => {
     expect(result.toolCalls.map((call) => call.name)).toEqual(['list_posts']);
   });
 
+  it('resolves a legacy UUID model before calling the binding', async () => {
+    const seen: string[] = [];
+    const env = fakeEnv({ model: 'f9f2250b-1048-4a52-9910-d0bf976616a1' }, {
+      run: async (model: string) => {
+        seen.push(model);
+        return { choices: [{ finish_reason: 'stop', message: { content: 'ok' } }] };
+      },
+      models: async () => [
+        { id: 'f9f2250b-1048-4a52-9910-d0bf976616a1', name: '@cf/openai/gpt-oss-120b' },
+      ],
+    });
+
+    await expect(aiChatComplete(env, [{ role: 'user', content: '你好' }])).resolves.toEqual({
+      text: 'ok',
+      toolCalls: [],
+    });
+    expect(seen).toEqual(['@cf/openai/gpt-oss-120b']);
+  });
+
   it('explains a truncated reasoning-only completion instead of a generic error', async () => {
     const env = fakeEnv({ model: '@cf/zai-org/glm-4.7-flash', maxTokens: 8192 }, {
       run: async () => ({
@@ -235,6 +256,63 @@ describe('modelLabel', () => {
   });
 });
 
+describe('cloudflareModelId', () => {
+  it('prefers the callable `name` when the catalogue id is an internal UUID', () => {
+    expect(
+      cloudflareModelId({
+        id: 'f9f2250b-1048-4a52-9910-d0bf976616a1',
+        name: '@cf/openai/gpt-oss-120b',
+      }),
+    ).toBe('@cf/openai/gpt-oss-120b');
+  });
+
+  it('keeps the id when it already is a callable model name', () => {
+    expect(cloudflareModelId({ id: '@cf/meta/llama-3.2-3b-instruct' })).toBe(
+      '@cf/meta/llama-3.2-3b-instruct',
+    );
+  });
+
+  it('tolerates a UUID-only entry instead of returning an empty string', () => {
+    expect(cloudflareModelId({ id: 'f9f2250b-1048-4a52-9910-d0bf976616a1' })).toBe(
+      'f9f2250b-1048-4a52-9910-d0bf976616a1',
+    );
+  });
+});
+
+describe('resolveCloudflareModel', () => {
+  const uuid = 'f9f2250b-1048-4a52-9910-d0bf976616a1';
+
+  it('maps a legacy UUID back to the callable model name', async () => {
+    const ai = {
+      models: async () => [{ id: uuid, name: '@cf/openai/gpt-oss-120b' }],
+    } as unknown as Ai;
+    await expect(resolveCloudflareModel(ai, uuid)).resolves.toBe('@cf/openai/gpt-oss-120b');
+  });
+
+  it('passes a normal model name through without querying the catalogue', async () => {
+    let called = false;
+    const ai = {
+      models: async () => {
+        called = true;
+        return [];
+      },
+    } as unknown as Ai;
+    await expect(resolveCloudflareModel(ai, '@cf/meta/llama-3.3-70b-instruct-fp8-fast')).resolves.toBe(
+      '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    );
+    expect(called).toBe(false);
+  });
+
+  it('keeps the stored value when the catalogue cannot be read', async () => {
+    const ai = {
+      models: async () => {
+        throw new Error('not supported');
+      },
+    } as unknown as Ai;
+    await expect(resolveCloudflareModel(ai, uuid)).resolves.toBe(uuid);
+  });
+});
+
 describe('Workers AI readiness', () => {
   it('detects a usable binding', () => {
     expect(aiBindingAvailable({ AI: { run: () => undefined } } as unknown as Env)).toBe(true);
@@ -294,6 +372,20 @@ describe('listAiModels (cloudflare)', () => {
     });
     await expect(listAiModels(env)).resolves.toEqual([
       { id: '@cf/zai-org/glm-4.7-flash', label: 'glm-4.7-flash' },
+    ]);
+  });
+
+  it('turns internal UUID catalogue ids into callable model names', async () => {
+    const env = fakeEnv({}, {
+      run: () => undefined,
+      models: async () => [
+        { id: 'f9f2250b-1048-4a52-9910-d0bf976616a1', name: '@cf/openai/gpt-oss-120b' },
+        { id: 'd9dc8363-66f4-4bb0-8641-464ee7bfc131', name: '@cf/meta/llama-3.2-3b-instruct' },
+      ],
+    });
+    await expect(listAiModels(env)).resolves.toEqual([
+      { id: '@cf/meta/llama-3.2-3b-instruct', label: 'meta/llama-3.2-3b-instruct' },
+      { id: '@cf/openai/gpt-oss-120b', label: 'openai/gpt-oss-120b' },
     ]);
   });
 });
