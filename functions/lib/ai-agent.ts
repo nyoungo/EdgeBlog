@@ -12,7 +12,10 @@ import type { Env, SessionUser } from './env';
 import { AppError } from './errors';
 import {
   aiChatComplete,
+  aiChatStream,
   readAiSettings,
+  REQUEST_TIMEOUT_MS,
+  STREAM_TEXT_TIMEOUT_MS,
   type AiToolCall,
   type AiToolDefinition,
   type ChatMessage,
@@ -57,9 +60,12 @@ const DEFAULT_SEARCH_LIMIT = 5;
 
 interface ToolContext {
   env: Env;
-  user: SessionUser;
+  /** 调用工具的身份;定时发文这类内部流程可能没有对应用户,需要用户身份的工具会拒绝执行。 */
+  user: SessionUser | null;
   /** 用户本轮/最近一条发言,用于纠正被上游截断的工具参数。 */
   lastUserMessage?: string;
+  /** 允许调用的工具白名单;省略表示不限制。 */
+  allowedTools?: Set<string>;
 }
 
 interface ToolOutcome {
@@ -641,6 +647,7 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
     },
     createPostSchema,
     async ({ env, user }, args) => {
+      if (!user) throw AppError.badRequest('该操作需要登录用户身份,当前流程没有可用账号');
       const slug = args.slug
         ? await uniqueSlug(env, args.slug, null)
         : await uniqueSlug(env, args.title, null);
@@ -1411,6 +1418,12 @@ async function executeTool(
     actions.push({ tool: call.name, summary: message, ok: false });
     return { ok: false, error: message };
   }
+  // 模型也可能把工具调用写成正文(parseTextToolCalls),白名单必须在这里再拦一次。
+  if (ctx.allowedTools && !ctx.allowedTools.has(call.name)) {
+    const message = `当前流程不允许调用工具:${call.name}`;
+    actions.push({ tool: call.name, summary: message, ok: false });
+    return { ok: false, error: message };
+  }
 
   let args: unknown;
   try {
@@ -1439,7 +1452,6 @@ function fallbackReply(actions: AiChatAction[]): string {
   return `已执行 ${ok} 项操作${failed > 0 ? `，${failed} 项失败` : ''}。`;
 }
 
-/** Run the agent loop for one admin chat turn. */
 /** 工具循环的返回:除常规回复/动作外,记录本轮入库的图片地址(供封面模式取用)。 */
 export interface AgentLoopResult extends AiChatResult {
   /** 工具执行过程中写入媒体库的图片地址(按调用顺序)。 */
@@ -1457,30 +1469,110 @@ function collectCoverImage(tool: string, result: unknown, sink: string[]): void 
   if (typeof data.url === 'string' && data.url.trim()) sink.push(data.url.trim());
 }
 
+/** 工具循环的可调项。 */
+interface ToolLoopOptions {
+  /** 最多几轮模型调用(取数轮 + 成文轮)。 */
+  maxRounds: number;
+  /** 单次取数调用的超时;省略用 `ai.ts` 的默认值。 */
+  timeoutMs?: number;
+  /** 整体预算(毫秒):耗尽后停止取数、直接成文,避免占满 Cron 墙钟。 */
+  budgetMs?: number;
+  /** 允许调用工具的轮数;之后的轮次收回工具。省略 = 每轮都可以调用。 */
+  toolRounds?: number;
+  /** 成文轮是否走流式(`aiChatStream`)。长文必须开启。 */
+  streamFinal?: boolean;
+  /** 成文轮的超时;省略用 `ai.ts` 的 `STREAM_TEXT_TIMEOUT_MS`。 */
+  streamTimeoutMs?: number;
+  /**
+   * 单条工具结果的截断长度;省略用默认的 12000。
+   *
+   * 取数型长文代理要压住上下文:上下文越大,成文轮的思考和输出越慢,
+   * 实测 4 页 × 3000 字约 3.5 分钟,继续放大就会顶到流式上限。
+   */
+  maxToolResultChars?: number;
+}
+
+/** 取数结束、要求模型直接成文时插入的一句提示。 */
+const FINAL_ANSWER_HINT =
+  '工具调用阶段已经结束，资料足够。请立即基于上面的结果输出最终成品（完整文章），不要再调用任何工具，也不要解释你的取数过程。';
+
 /**
  * 跑工具循环,直到模型不再调用工具或轮数耗尽。
- * 后台聊天与内部子任务(如定时发文挑封面)共用这一套执行逻辑。
+ * 后台聊天与内部子任务(如定时发文)共用这一套执行逻辑。
+ *
+ * 两种收尾方式:
+ *   * 默认 —— 每轮都下发工具,模型不再调用即视为成文;
+ *   * `streamFinal` —— 只在前 `toolRounds` 轮取数,之后收回工具并要求模型直接成文,
+ *     成文那一轮走流式。长文(几千字、几万 token 上下文)在 Workers AI 上
+ *     非流式必撞约 120s 的 `3046 Request timeout`,只能这样写。
  */
 async function runToolLoop(
   ctx: ToolContext,
   messages: ChatMessage[],
   tools: AiToolDefinition[],
-  maxRounds: number,
+  options: ToolLoopOptions,
 ): Promise<AgentLoopResult> {
   const actions: AiChatAction[] = [];
   const uploadedImageUrls: string[] = [];
+  const startedAt = Date.now();
+  const maxRounds = options.maxRounds;
+  const toolRounds = Math.min(options.toolRounds ?? maxRounds, maxRounds);
+  const streamFinal = options.streamFinal === true;
+  const toolResultChars = options.maxToolResultChars ?? MAX_TOOL_RESULT_CHARS;
+
+  /** 预算剩余时间;预算耗尽时返回 0,用于让模型停止取数、直接成文。 */
+  const remainingBudget = (): number | undefined => {
+    if (options.budgetMs === undefined) return undefined;
+    return Math.max(0, options.budgetMs - (Date.now() - startedAt));
+  };
+
+  /** 按剩余预算收紧本次调用的上限;预算不够时宁可提前失败也不拖过 Cron 墙钟。 */
+  const callTimeout = (limit: number): number => {
+    const remaining = remainingBudget();
+    return remaining === undefined ? limit : Math.min(limit, remaining);
+  };
+  const toolCallTimeout = (): number => callTimeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS);
+  const finalCallTimeout = (): number =>
+    callTimeout(
+      streamFinal
+        ? (options.streamTimeoutMs ?? STREAM_TEXT_TIMEOUT_MS)
+        : (options.timeoutMs ?? REQUEST_TIMEOUT_MS),
+    );
+
+  const finalize = (reply: string): AgentLoopResult => ({
+    reply: reply.trim() || fallbackReply(actions),
+    actions,
+    uploadedImageUrls,
+  });
+
+  /** 成文轮:收回工具,按需插入「资料已取完」的提示。 */
+  let hinted = false;
+  const write = async (): Promise<AgentLoopResult> => {
+    if (!hinted) {
+      messages.push({ role: 'user', content: FINAL_ANSWER_HINT });
+      hinted = true;
+    }
+    const text = streamFinal
+      ? await aiChatStream(ctx.env, messages, { timeoutMs: finalCallTimeout() })
+      : (await aiChatComplete(ctx.env, messages, undefined, finalCallTimeout())).text;
+    return finalize(text);
+  };
 
   for (let round = 0; round < maxRounds; round++) {
-    const completion = await aiChatComplete(ctx.env, messages, tools);
+    const remaining = remainingBudget();
+    if (remaining !== undefined && remaining <= 0) break;
+    if (round >= toolRounds) return write();
+
+    const completion = await aiChatComplete(ctx.env, messages, tools, toolCallTimeout());
     const toolCalls =
       completion.toolCalls.length > 0 ? completion.toolCalls : parseTextToolCalls(completion.text);
 
     if (toolCalls.length === 0) {
-      return {
-        reply: completion.text.trim() || fallbackReply(actions),
-        actions,
-        uploadedImageUrls,
-      };
+      // 取数阶段就写出正文,说明它没先去读资料(多半是全凭记忆编)。
+      // 这段正文丢掉,下一轮在「资料已取完」的前提下正式成文 —— 只有成文轮
+      // 走流式,才绕得开长文写作的 ~120s 非流式上限。
+      if (streamFinal) continue;
+      return finalize(completion.text);
     }
 
     messages.push({
@@ -1500,18 +1592,13 @@ async function runToolLoop(
         role: 'tool',
         name: call.name,
         tool_call_id: call.id,
-        content: JSON.stringify(result).slice(0, MAX_TOOL_RESULT_CHARS),
+        content: JSON.stringify(result).slice(0, toolResultChars),
       });
     }
   }
 
-  // Tool budget exhausted: ask for a plain summary without offering tools.
-  const final = await aiChatComplete(ctx.env, messages);
-  return {
-    reply: final.text.trim() || fallbackReply(actions),
-    actions,
-    uploadedImageUrls,
-  };
+  // 轮数/预算耗尽:不再提供工具,直接收尾成文。
+  return write();
 }
 
 /** Run the agent loop for one admin chat turn. */
@@ -1540,28 +1627,64 @@ export async function runAiAgent(
     ...clean,
   ];
   const tools = Object.values(TOOL_ENTRIES).map((entry) => entry.definition);
-  const { reply, actions } = await runToolLoop(ctx, messages, tools, MAX_ROUNDS);
+  const { reply, actions } = await runToolLoop(ctx, messages, tools, { maxRounds: MAX_ROUNDS });
   return { reply, actions };
 }
 
+/** `runToolAgent` 的选项。 */
+export interface ToolAgentOptions {
+  maxRounds?: number;
+  /** 允许调用的工具名;省略则开放全部工具。 */
+  tools?: string[];
+  /** 单次模型调用的超时;省略用 `ai.ts` 的默认值。 */
+  timeoutMs?: number;
+  /** 整体预算(毫秒),超时后停止调用工具、直接成文。 */
+  budgetMs?: number;
+  /** 允许调用工具的轮数;之后的轮次收回工具。省略 = 每轮都可以调用。 */
+  toolRounds?: number;
+  /** 成文轮改用流式:长文写作绕开 Workers AI 非流式请求的 ~120s 上限。 */
+  streamFinal?: boolean;
+  /** 流式成文轮的超时;省略用 `ai.ts` 的 `STREAM_TEXT_TIMEOUT_MS`。 */
+  streamTimeoutMs?: number;
+  /**
+   * 单条工具结果的截断长度;省略用默认的 12000。
+   *
+   * 取数型长文代理要压住上下文:上下文越大,成文轮的思考和输出越慢,
+   * 实测 4 页 × 3000 字约 3.5 分钟,继续放大就会顶到流式上限。
+   */
+  maxToolResultChars?: number;
+}
+
 /**
- * 内部流程用的工具循环:给定系统提示与一条用户消息,开放后台助手的全部工具。
+ * 内部流程用的工具循环:给定系统提示与一条用户消息,默认开放后台助手的全部工具。
  *
- * 与聊天入口的区别只在于提示词与轮数,便于定时发文「联网找图」这类子任务复用
- * 已有的搜索/抓取/上传能力,同时把入库的图片地址带回给调用方。
+ * 与聊天入口的区别只在于提示词与轮数,便于定时发文「联网找图」「联网取材写文」
+ * 这类子任务复用已有的搜索/抓取/上传能力,同时把入库的图片地址带回给调用方。
+ * 需要控制权限时用 `tools` 传工具白名单;没有账号身份时 `user` 传 null。
  */
 export async function runToolAgent(
   env: Env,
-  user: SessionUser,
+  user: SessionUser | null,
   systemPrompt: string,
   userMessage: string,
-  options: { maxRounds?: number } = {},
+  options: ToolAgentOptions = {},
 ): Promise<AgentLoopResult> {
-  const ctx: ToolContext = { env, user, lastUserMessage: userMessage };
+  const allowed = options.tools ? new Set(options.tools) : undefined;
+  const ctx: ToolContext = { env, user, lastUserMessage: userMessage, allowedTools: allowed };
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userMessage },
   ];
-  const tools = Object.values(TOOL_ENTRIES).map((entry) => entry.definition);
-  return runToolLoop(ctx, messages, tools, options.maxRounds ?? 4);
+  const tools = Object.values(TOOL_ENTRIES)
+    .filter((entry) => !allowed || allowed.has(entry.definition.function.name))
+    .map((entry) => entry.definition);
+  return runToolLoop(ctx, messages, tools, {
+    maxRounds: options.maxRounds ?? 4,
+    timeoutMs: options.timeoutMs,
+    budgetMs: options.budgetMs,
+    toolRounds: options.toolRounds,
+    streamFinal: options.streamFinal,
+    streamTimeoutMs: options.streamTimeoutMs,
+    maxToolResultChars: options.maxToolResultChars,
+  });
 }

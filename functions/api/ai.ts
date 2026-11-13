@@ -4,6 +4,7 @@ import type { AiChatContext, AiChatMessage, AiSettings, AiSettingsView } from '@
 import { requireAdmin } from '../lib/auth';
 import {
   aiBindingAvailable,
+  aiChatStream,
   aiProviderReady,
   chatComplete,
   listAiModels,
@@ -140,9 +141,12 @@ aiRoutes.post('/generate', async (c) => {
     { role: 'user', content: parts.join('\n\n') },
   ];
 
-  // 生成整篇正文通常要一两分钟,摘要很快;两者用不同的超时上限。
-  const timeoutMs = body.mode === 'content' ? TEXT_GENERATION_TIMEOUT_MS : undefined;
-  const text = await chatComplete(c.env, messages, timeoutMs);
+  // 整篇正文动辄两三分钟，非流式会撞 Workers AI 的 ~120s 请求上限（3046），
+  // 长文改走流式聚合；摘要很快，保持普通调用即可。
+  const text =
+    body.mode === 'content'
+      ? await aiChatStream(c.env, messages, { timeoutMs: TEXT_GENERATION_TIMEOUT_MS })
+      : await chatComplete(c.env, messages);
   return ok(c, { text, mode: body.mode });
 });
 

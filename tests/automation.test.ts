@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { AutomationTask } from '../shared/types';
 import type { Env } from '../functions/lib/env';
 import { AI_DEFAULTS } from '../shared/settings-defaults';
@@ -17,7 +17,6 @@ import {
   buildCoverPrompt,
   resolveAutomationStatus,
 } from '../functions/lib/automation';
-import { TEXT_GENERATION_TIMEOUT_MS } from '../functions/lib/ai';
 import { isLocalCoverSource } from '../functions/lib/cover';
 
 const BASE: ScheduleInput = {
@@ -211,13 +210,29 @@ describe('isLocalCoverSource', () => {
   });
 });
 
-describe('generateArticle 超时', () => {
-  afterEach(() => {
-    vi.useRealTimers();
+/** 把若干文本分片包装成 Workers AI 的 SSE 流式响应。 */
+function articleSseStream(chunks: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const payloads = chunks.map(
+    (text) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`,
+  );
+  payloads.push('data: [DONE]\n\n');
+  let index = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (index >= payloads.length) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(encoder.encode(payloads[index]));
+      index += 1;
+    },
   });
+}
 
-  it('正文生成使用 240s 上限,而不是默认的 120s', async () => {
-    vi.useFakeTimers();
+describe('generateArticle 流式成文', () => {
+  it('取数轮写出的正文被丢弃,成文轮收回工具并走流式', async () => {
+    const calls: Array<Record<string, unknown>> = [];
     const env = {
       DB: {
         prepare: () => ({
@@ -228,17 +243,29 @@ describe('generateArticle 超时', () => {
           }),
         }),
       },
-      AI: { run: () => new Promise(() => {}) },
+      AI: {
+        run: async (_model: string, inputs: Record<string, unknown>) => {
+          calls.push(inputs);
+          // 第 1 轮没去读链接就"写"了正文:这段必须被丢弃,否则就是凭记忆编的。
+          if (calls.length === 1) {
+            return { choices: [{ message: { content: '# 凭记忆编的\n\n旧正文' } }] };
+          }
+          return articleSseStream(['# 真实标题\n\n', '真实正文']);
+        },
+      },
     } as unknown as Env;
 
     const task = { id: 1, name: '每日早报', prompt: '写一篇早报' } as AutomationTask;
-    const promise = generateArticle(env, task);
-    const outcome = promise.then(() => 'settled', () => 'settled');
+    const article = await generateArticle(env, task);
 
-    await vi.advanceTimersByTimeAsync(120_000);
-    expect(await Promise.race([outcome, Promise.resolve('pending')])).toBe('pending');
-
-    await vi.advanceTimersByTimeAsync(TEXT_GENERATION_TIMEOUT_MS - 120_000);
-    await expect(promise).rejects.toThrow('Workers AI 请求超时');
+    expect(article.title).toBe('真实标题');
+    expect(article.contentMd).toContain('真实正文');
+    // 成文轮必须是非流式之外的另一种请求:stream:true 且不再下发工具
+    expect(calls[0].stream).toBeUndefined();
+    expect(calls[1].stream).toBe(true);
+    expect(calls[1].tools).toBeUndefined();
+    // 并明确告知资料已取完、立即成文
+    const messages = calls[1].messages as Array<{ role: string; content?: string }>;
+    expect(messages[messages.length - 1]?.content).toContain('立即');
   });
 });

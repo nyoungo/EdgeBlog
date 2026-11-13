@@ -2,9 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../functions/lib/env';
 import {
   CLOUDFLARE_FALLBACK_MODELS,
+  STREAM_IDLE_TIMEOUT_MS,
+  STREAM_TEXT_TIMEOUT_MS,
   TEXT_GENERATION_TIMEOUT_MS,
   aiBindingAvailable,
   aiChatComplete,
+  aiChatStream,
   aiProviderReady,
   chatComplete,
   cloudflareModelId,
@@ -461,6 +464,163 @@ describe('请求超时', () => {
 
       await vi.advanceTimersByTimeAsync(1);
       await expect(promise).rejects.toThrow('AI 请求超时');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+/** 构造一条 SSE 响应流:分片依次输出,最后带 finish_reason 与 [DONE]。 */
+function sseStream(chunks: string[], finish = 'stop'): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const payloads = chunks.map(
+    (text) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`,
+  );
+  payloads.push(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: finish }] })}\n\n`);
+  payloads.push('data: [DONE]\n\n');
+  let index = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (index >= payloads.length) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(encoder.encode(payloads[index]));
+      index += 1;
+    },
+  });
+}
+
+/** 永不结束、但每隔 `everyMs` 吐一个分片的流,用于验证整体上限。 */
+function endlessStream(everyMs: number): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  let closed = false;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      setTimeout(() => {
+        // 消费方取消后不能再 enqueue,否则会抛「Controller is already closed」。
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"x"}}]}\n\n'));
+        } catch {
+          closed = true;
+        }
+      }, everyMs);
+    },
+    cancel() {
+      closed = true;
+    },
+  });
+}
+
+describe('aiChatStream (cloudflare)', () => {
+  const encoderText = (value: string): Uint8Array => new TextEncoder().encode(value);
+
+  it('把流式分片聚合成完整正文', async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const env = fakeEnv({ model: '@cf/qwen/qwen3.8-27b' }, {
+      run: async (_model: string, inputs: Record<string, unknown>) => {
+        seen.push(inputs);
+        return sseStream(['# 标题\n\n', '第一段', '第二段']);
+      },
+    });
+
+    await expect(aiChatStream(env, [{ role: 'user', content: '写正文' }])).resolves.toBe(
+      '# 标题\n\n第一段第二段',
+    );
+    // 成文必须显式要求流式,否则又会撞上非流式请求的时间上限。
+    expect(seen[0].stream).toBe(true);
+  });
+
+  it('兼容旧版顶层 `response` 增量分片', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoderText('data: {"response":"你"}\n\n'));
+        controller.enqueue(encoderText('data: {"response":"好"}\n\n'));
+        controller.enqueue(encoderText('data: [DONE]\n\n'));
+        controller.close();
+      },
+    });
+    const env = fakeEnv({}, { run: async () => stream });
+
+    await expect(aiChatStream(env, [{ role: 'user', content: '你好' }])).resolves.toBe('你好');
+  });
+
+  it('分片之外的完整对象响应退化成一次性解析', async () => {
+    const env = fakeEnv({}, {
+      run: async () => ({ choices: [{ message: { content: '不支持流式的模型' } }] }),
+    });
+
+    await expect(aiChatStream(env, [{ role: 'user', content: '你好' }])).resolves.toBe(
+      '不支持流式的模型',
+    );
+  });
+
+  it('分片长时间不到达时报中断,而不是无限等待', async () => {
+    vi.useFakeTimers();
+    try {
+      // 只有 start、永不 enqueue/close 的流:read() 会一直挂起。
+      const env = fakeEnv({}, { run: async () => new ReadableStream<Uint8Array>({ start: () => {} }) });
+      const promise = aiChatStream(env, [{ role: 'user', content: '你好' }]);
+      const outcome = promise.then(() => 'resolved', () => 'rejected');
+
+      await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);
+      await expect(promise).rejects.toThrow('流式输出中断');
+      expect(await outcome).toBe('rejected');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('默认上限:整体 300s、分片静默 90s', () => {
+    expect(STREAM_TEXT_TIMEOUT_MS).toBe(300_000);
+    expect(STREAM_IDLE_TIMEOUT_MS).toBe(90_000);
+  });
+
+  it('持续有分片也会在整体上限处停止', async () => {
+    // 用真实定时器 + 极小上限:分片一直有,但总时长到顶就必须停,不能无限跑。
+    const env = fakeEnv({}, {
+      run: async () => endlessStream(20),
+    });
+    await expect(
+      aiChatStream(env, [{ role: 'user', content: '你好' }], { timeoutMs: 300, idleTimeoutMs: 150 }),
+    ).rejects.toThrow('流式输出超时');
+  });
+});
+
+describe('aiChatStream (OpenAI 兼容)', () => {
+  it('解析 chat/completions 的 SSE 流', async () => {
+    const originalFetch = globalThis.fetch;
+    let sentBody: Record<string, unknown> = {};
+    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+      sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(sseStream(['来自', '兼容层的正文']), {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    }) as unknown as typeof fetch;
+
+    try {
+      const env = fakeEnv({ provider: 'custom', baseUrl: 'https://ai.example.com/v1', apiKey: 'k' }, null);
+      await expect(aiChatStream(env, [{ role: 'user', content: '你好' }])).resolves.toBe(
+        '来自兼容层的正文',
+      );
+      expect(sentBody.stream).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('HTTP 错误按服务端返回的错误信息抛出', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: { message: '额度不足' } }), {
+        status: 402,
+      })) as unknown as typeof fetch;
+
+    try {
+      const env = fakeEnv({ provider: 'custom', baseUrl: 'https://ai.example.com/v1', apiKey: 'k' }, null);
+      await expect(aiChatStream(env, [{ role: 'user', content: '你好' }])).rejects.toThrow('额度不足');
     } finally {
       globalThis.fetch = originalFetch;
     }

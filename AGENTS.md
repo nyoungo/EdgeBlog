@@ -85,10 +85,39 @@ Domain 绑定到本 Worker（apex `068800.xyz` 302 跳 `www`），`wrangler.toml
 
 - 默认聊天超时提到 `REQUEST_TIMEOUT_MS = 120_000`;
 - 长文生成单独给 `TEXT_GENERATION_TIMEOUT_MS = 240_000`,`aiChatComplete` /
-  `chatComplete` 支持透传;`generateArticle` 与后台 `/ai/generate` 的「正文」模式
-  用长超时,「摘要」模式用默认值;
+  `chatComplete` 支持透传;后台 `/ai/generate` 的「摘要」模式仍用默认值;
 - 租约 `LEASE_MINUTES` 由 10 提到 **15**(= Cron Trigger 墙钟上限):定时器每 5 分钟
-  一轮,若租约短于单次执行(正文 240s + 封面工具循环),任务没跑完就会被重复认领、重复发文。
+  一轮,若租约短于单次执行(正文 6 分钟 + 封面 3 分钟预算),任务没跑完就会被重复认领、重复发文。
+
+### 长文写作必须走流式:非流式请求有约 120s 硬上限(`3046`)
+
+调大超时不等于能写长文。Workers AI 对单次**非流式** `env.AI.run` 有约 120s 上限,
+超时直接返回 `3046: Request timeout`(与本项目的 `REQUEST_TIMEOUT_MS` 无关,调多大都没用)。
+实测源头「每日早报」4 个链接 × 3000 字资料,成文轮要 **222s**,非流式必失败。
+
+**解决**(`functions/lib/ai.ts` 的 `aiChatStream`):
+
+- `stream: true` 拿 `ReadableStream`,按 SSE 分片聚合成完整文本;流式只要分片持续到达
+  就不受 120s 限制;
+- 仍保留两层上限:`STREAM_TEXT_TIMEOUT_MS = 300_000`(整体)与
+  `STREAM_IDLE_TIMEOUT_MS = 90_000`(分片静默)。推理模型的 reasoning 分片也算「有内容」,
+  不会把「想得久」误判成卡死;
+- 兼容三种分片形态:`choices[].delta`、`choices[].message`、旧版顶层 `{ response }`;
+  模型不支持流式直接返回完整对象时退化成一次普通解析。
+
+### 定时发文必须两阶段:先取数、再流式成文
+
+`generateArticle` 原来只有一次 `chatComplete`,没给 `tools`,模型只能凭记忆编内容。
+改走 `runToolAgent` 后要注意两点,否则会从「编内容」变成「超时」:
+
+- **取数轮只给 1 轮**(`ARTICLE_AGENT_TOOL_ROUNDS = 1`)。不设限时实测 6 轮全在抓详情页,
+  0 字正文、245s 白跑;系统提示要求「第一轮一次性读完所有链接,不要抓二级页面」;
+- **成文轮必须收回工具 + 走流式**。`streamFinal: true` 时前 `toolRounds` 轮用
+  `aiChatComplete`(要结构化的 `tool_calls`),之后插入「资料已取完,立即成文」提示,
+  改用 `aiChatStream`;
+- 取数轮就写出正文的**丢弃重写**:那时还没读资料,这段正文必然是凭记忆编的;
+- 上下文要确定性压制:`ARTICLE_AGENT_TOOL_RESULT_CHARS = 3500` 截断单条工具结果,
+  并让模型 `maxChars: 3000`。实测 4 页 × 3000 字 ≈ 225s,放大到 6000 字会逼近 300s 上限。
 
 ## 数据层 / SQLite(D1)
 

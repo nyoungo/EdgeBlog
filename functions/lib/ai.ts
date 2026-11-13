@@ -24,7 +24,8 @@ const PROVIDER_BASE: Record<AiSettings['provider'], string> = {
   custom: '',
 };
 
-const REQUEST_TIMEOUT_MS = 120_000;
+/** 单次普通聊天/取数调用的超时(毫秒);长文生成用 `STREAM_TEXT_TIMEOUT_MS`。 */
+export const REQUEST_TIMEOUT_MS = 120_000;
 const MODELS_TIMEOUT_MS = 20_000;
 /**
  * 长文生成(定时发文、后台生成正文)允许更长的等待时间。
@@ -572,7 +573,349 @@ export async function chatComplete(
   return text.trim();
 }
 
-/* ----------------------------------------------------------------- models */
+/* --------------------------------------------------------------- streaming */
+
+/**
+ * 流式成文的整体上限与分片静默上限(毫秒)。
+ *
+ * Workers AI 对单次**非流式**请求有约 120s 的时间上限,超时直接返回
+ * `3046: Request timeout`。带取数结果的长文(几万 token 上下文、几千字正文)
+ * 实测要 2~3 分钟,非流式必失败;改成流式后只要分片持续到达就不会被掐断。
+ * 整体上限仍然保留:它约束「一次写作最多占多久」,避免拖过 Cron Trigger
+ * 的 15 分钟墙钟,也避免上游卡死后调用方无限等待。
+ */
+export const STREAM_TEXT_TIMEOUT_MS = 300_000;
+export const STREAM_IDLE_TIMEOUT_MS = 90_000;
+
+export interface AiStreamOptions {
+  /** 整体上限;默认 `STREAM_TEXT_TIMEOUT_MS`。 */
+  timeoutMs?: number;
+  /** 两个分片之间允许的最长静默;默认 `STREAM_IDLE_TIMEOUT_MS`。 */
+  idleTimeoutMs?: number;
+}
+
+/** 分片里的文本不能 trim:拆 token 时首尾空格属于正文。 */
+function chunkText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        const text = asRecord(part).text;
+        return typeof text === 'string' ? text : '';
+      })
+      .join('');
+  }
+  const rec = asRecord(value);
+  return typeof rec.text === 'string' ? rec.text : '';
+}
+
+interface StreamDelta {
+  text: string;
+  finish?: string;
+  error?: string;
+  /** 这个分片用的是 `delta` 形态(而不是整段 `message`),用于判断后续该不该忽略 message。 */
+  viaDelta: boolean;
+}
+
+/**
+ * 解析一个 SSE 分片。
+ *
+ * 兼容三种形态:OpenAI 的 `choices[].delta`、部分兼容层的 `choices[].message`、
+ * 以及 Workers AI 老模型的顶层 `{ response }`(增量 token)。
+ */
+function readStreamDelta(payload: unknown, sawDelta: boolean): StreamDelta {
+  const obj = asRecord(payload);
+  const choice = asRecord(asArray(obj.choices)[0]);
+  const delta = asRecord(choice.delta);
+  const message = asRecord(choice.message);
+
+  const fromDelta = chunkText(delta.content);
+  let text = fromDelta;
+  if (!text) text = chunkText(obj.response) || chunkText(choice.text);
+  // 有的兼容层每个分片都重复整段 message.content,只在从未出现 delta 时才采信它。
+  if (!text && !sawDelta) text = chunkText(message.content);
+
+  const finishRaw = choice.finish_reason ?? obj.finish_reason;
+  const errObj = asRecord(obj.error);
+  const error =
+    typeof obj.error === 'string'
+      ? obj.error
+      : typeof errObj.message === 'string'
+        ? errObj.message
+        : typeof obj.detail === 'string'
+          ? obj.detail
+          : '';
+
+  return {
+    text,
+    finish: typeof finishRaw === 'string' && finishRaw ? finishRaw : undefined,
+    error: error || undefined,
+    // 推理模型会先流 reasoning_content 再流正文;这些分片同样算「有内容」,
+    // 否则会把它思考较久误判成卡死。
+    viaDelta: Boolean(
+      fromDelta || chunkText(delta.reasoning_content) || chunkText(delta.reasoning),
+    ),
+  };
+}
+
+function isReadableStream(value: unknown): value is ReadableStream {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { getReader?: unknown }).getReader === 'function'
+  );
+}
+
+interface StreamOutcome {
+  text: string;
+  finish: string;
+}
+
+/**
+ * 读完一整条 SSE 文本流并拼成字符串。
+ *
+ * `timeoutMs` 是整体上限,`idleMs` 是分片静默上限:推理模型在输出正文前会先流
+ * reasoning 分片,那些分片同样会刷新静默计时,所以不会把「想得久」误判成卡死。
+ */
+async function readTextStream(
+  stream: ReadableStream,
+  options: { timeoutMs: number; idleMs: number; label: string },
+): Promise<StreamOutcome> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  const startedAt = Date.now();
+  const waitBudget = (): number => {
+    const elapsed = Date.now() - startedAt;
+    if (elapsed >= options.timeoutMs) {
+      const seconds = Math.round(options.timeoutMs / 1000);
+      throw AppError.upstream(`${options.label} 流式输出超时（已等待 ${seconds}s），请稍后重试`);
+    }
+    return Math.min(options.idleMs, options.timeoutMs - elapsed);
+  };
+
+  let buffer = '';
+  let text = '';
+  let finish = '';
+  let sawDelta = false;
+
+  const handleLine = (rawLine: string): void => {
+    const line = rawLine.trim();
+    if (!line || line.startsWith(':') || line.startsWith('event:')) return;
+    const data = line.startsWith('data:') ? line.slice(5).trim() : line;
+    if (!data || data === '[DONE]') return;
+    // 心跳、注释或分片边界处的半截 JSON 直接忽略,不当作错误。
+    let payload: unknown;
+    try {
+      payload = JSON.parse(data);
+    } catch {
+      return;
+    }
+    const delta = readStreamDelta(payload, sawDelta);
+    if (delta.error) {
+      throw AppError.upstream(`AI 服务返回错误：${delta.error}`);
+    }
+    if (delta.viaDelta) sawDelta = true;
+    text += delta.text;
+    if (delta.finish) finish = delta.finish;
+  };
+
+  try {
+    for (;;) {
+      const wait = waitBudget();
+      let chunk: { done: boolean; value?: Uint8Array };
+      try {
+        chunk = await new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () =>
+              reject(
+                AppError.upstream(
+                  `${options.label} 流式输出中断（${Math.round(wait / 1000)}s 没有新内容），请稍后重试`,
+                ),
+              ),
+            wait,
+          );
+          reader.read().then(
+            (value) => {
+              clearTimeout(timer);
+              resolve(value as { done: boolean; value?: Uint8Array });
+            },
+            (err: unknown) => {
+              clearTimeout(timer);
+              reject(err);
+            },
+          );
+        });
+      } catch (err) {
+        if (err instanceof AppError) throw err;
+        throw AppError.upstream(
+          `${options.label} 流式输出失败：${err instanceof Error ? err.message : '未知错误'}`,
+        );
+      }
+
+      if (chunk.done) break;
+      if (chunk.value) buffer += decoder.decode(chunk.value, { stream: true });
+
+      for (;;) {
+        const index = buffer.indexOf('\n');
+        if (index < 0) break;
+        const line = buffer.slice(0, index);
+        buffer = buffer.slice(index + 1);
+        handleLine(line);
+      }
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) handleLine(buffer);
+  } catch (err) {
+    // 单方面取消上游读取,避免连接悬挂到 Workers AI 自己的超时。
+    try {
+      await reader.cancel();
+    } catch {
+      // 已经关闭时 cancel 会抛错,忽略。
+    }
+    throw err;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // 已 cancel 的流不能再 releaseLock,忽略。
+    }
+  }
+
+  return { text: text.trim(), finish };
+}
+
+/**
+ * 流式生成一段正文(不带工具调用),聚合后一次性返回。
+ *
+ * 用途:长文写作。工具循环里的取数轮仍走 `aiChatComplete`(需要结构化的
+ * tool_calls),最后一轮成文改用这里,绕开 Workers AI 非流式请求约 120s 的
+ * `3046 Request timeout`。
+ */
+export async function aiChatStream(
+  env: Env,
+  messages: ChatMessage[],
+  options: AiStreamOptions = {},
+): Promise<string> {
+  const ai = await readAiSettings(env);
+  if (!ai.enabled) throw AppError.badRequest('AI 功能尚未启用，请先在「AI 设置」中开启');
+  if (!ai.model) throw AppError.badRequest('尚未配置 AI 模型名称');
+
+  const timeoutMs = options.timeoutMs ?? STREAM_TEXT_TIMEOUT_MS;
+  const idleMs = options.idleTimeoutMs ?? STREAM_IDLE_TIMEOUT_MS;
+  const safeMessages = messages.map((message) => ({ ...message, content: message.content ?? '' }));
+
+  if (ai.provider === 'cloudflare') {
+    if (!aiBindingAvailable(env) || !env.AI) {
+      throw AppError.badRequest('未检测到 Workers AI 绑定，请检查 wrangler.toml 或 Pages 控制台的 AI 绑定');
+    }
+
+    const aiBinding = env.AI;
+    const model = await resolveCloudflareModel(aiBinding, ai.model);
+    const runModel = aiBinding.run.bind(aiBinding) as unknown as (
+      name: string,
+      inputs: Record<string, unknown>,
+    ) => Promise<unknown>;
+
+    let stream: unknown;
+    try {
+      stream = await withTimeout(
+        runModel(model, {
+          messages: safeMessages,
+          temperature: ai.temperature,
+          max_tokens: ai.maxTokens,
+          stream: true,
+        }),
+        idleMs,
+        'Workers AI 长时间未开始输出，请稍后重试',
+      );
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+      throw AppError.upstream(
+        `Workers AI 请求失败：${err instanceof Error ? err.message : '未知错误'}`,
+      );
+    }
+
+    // 个别模型不支持流式,会直接返回完整对象:退化成一次普通解析。
+    if (!isReadableStream(stream)) {
+      const text = extractAiText(stream);
+      if (!text.trim()) throw AppError.upstream(emptyCompletionMessage(model, stream));
+      return text.trim();
+    }
+
+    const outcome = await readTextStream(stream, {
+      timeoutMs,
+      idleMs,
+      label: `Workers AI（${model}）`,
+    });
+    if (outcome.text) return outcome.text;
+    throw AppError.upstream(
+      outcome.finish === 'length'
+        ? `Workers AI（${model}）流式输出被截断：token 预算用尽但没有正文，请调大「最大 token」或改用非推理模型`
+        : `Workers AI（${model}）流式输出没有正文，请稍后重试或更换模型`,
+    );
+  }
+
+  if (!ai.apiKey) throw AppError.badRequest('尚未配置 AI API Key，请先在「AI 设置」中填写');
+
+  const base = normalizeAiBaseUrl(env, ai.baseUrl || PROVIDER_BASE[ai.provider]);
+  if (!base) throw AppError.badRequest('尚未配置 AI 接口地址（Base URL）');
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    let response: Response;
+    try {
+      response = await fetch(endpoint(base), {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${ai.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: ai.model,
+          messages: safeMessages,
+          temperature: ai.temperature,
+          max_tokens: ai.maxTokens,
+          stream: true,
+        }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      throw AppError.upstream(
+        err instanceof Error && err.name === 'AbortError'
+          ? 'AI 请求超时，请稍后重试'
+          : '无法连接 AI 服务，请检查接口地址',
+      );
+    }
+
+    if (!response.ok) {
+      const raw = await response.text().catch(() => '');
+      let payload: unknown = {};
+      try {
+        payload = JSON.parse(raw);
+      } catch {
+        payload = { error: { message: raw.slice(0, 200) } };
+      }
+      throw AppError.upstream(extractError(payload, response.status));
+    }
+    if (!response.body) throw AppError.upstream('AI 服务未返回可读的流式内容');
+
+    const outcome = await readTextStream(response.body, {
+      timeoutMs,
+      idleMs,
+      label: ai.model || 'AI 服务',
+    });
+    if (outcome.text) return outcome.text;
+    throw AppError.upstream(
+      outcome.finish === 'length'
+        ? 'AI 服务流式输出被截断：token 预算用尽但没有正文，请调大「最大 token」或改用非推理模型'
+        : 'AI 服务未返回内容，请稍后重试',
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 interface ModelsResponse {
   data?: Array<{ id?: string }>;
