@@ -96,11 +96,11 @@ export function Modal({
         aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
         className={cn(
-          'relative z-10 w-full max-w-md animate-fade-up rounded-3xl bg-surface p-5 shadow-pop ring-1 ring-fg/5',
+          'relative z-10 flex max-h-full w-full max-w-md animate-fade-up flex-col rounded-3xl bg-surface p-5 shadow-pop ring-1 ring-fg/5',
           className,
         )}
       >
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex shrink-0 items-start justify-between gap-4">
           <div>
             {title && (
               <h2 id={titleId} className="text-base font-semibold text-fg">
@@ -118,8 +118,8 @@ export function Modal({
             <Icon name="close" size={18} />
           </button>
         </div>
-        {children && <div className="mt-4">{children}</div>}
-        {footer && <div className="mt-6 flex justify-end gap-2">{footer}</div>}
+        {children && <div className="mt-4 min-h-0 flex-1 overflow-y-auto">{children}</div>}
+        {footer && <div className="mt-6 flex shrink-0 justify-end gap-2">{footer}</div>}
       </div>
     </div>
   );

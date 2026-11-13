@@ -46,6 +46,27 @@ DNS record or on a zone you do not own."* 域名只能挂在 `workers.dev` 或�
 所需 token。`.github/workflows/ci.yml` 只保留校验（bundle/lint/typecheck/test/build），
 不再部署，避免同一版本被部署两次。
 
+## 前端
+
+### `cn()` 必须做冲突消解，否则「组件默认值 + 调用方覆盖」会随机失效
+
+`cn()` 若只用 `clsx` 拼接，`'max-w-md'` 与调用方的 `'max-w-3xl'` 会同时保留，谁生效
+取决于 Tailwind 生成 CSS 的先后顺序（实测 `.max-w-md` 排在 `.max-w-3xl` 之后，调用方
+覆盖失效）。表现为「弹窗永远 448px 宽」。**解决**：`cn()` 用
+`twMerge(clsx(inputs))`，后写的同类工具类获胜。
+
+本项目的自定义 scale（`maxWidth` / `boxShadow` / `zIndex` / `fontFamily` / `fontSize`
+等，见 `tailwind.config.ts`）tailwind-merge 并不认识，覆盖自定义 token 时同样不会消解，
+因此在 `src/lib/utils.ts` 里用 `extendTailwindMerge` 登记这些 token；**新增自定义
+工具类时要同步登记**，否则那一个 token 的覆盖会静默失效。
+
+### Modal 面板必须能约束高度并内部滚动
+
+面板加了 `max-h-full` + `flex flex-col`，内容区 `min-h-0 flex-1 overflow-y-auto`，
+头部与页脚 `shrink-0`。否则内容超过视口时会被居中裁切、看不见也滚不到。
+注意：`overflow-y-auto` 会裁掉内部 `absolute` 定位的下拉浮层，所以 **Modal 内不要放
+`ComboBox`（或任何 absolute 弹层）**；原生 `Select` / `Input` 不受影响。
+
 ### 本地验证
 
 `wrangler dev` 才会加载 D1/R2/KV/AI 绑定与定时器；`vite dev` 不会，AI 与定时接口
