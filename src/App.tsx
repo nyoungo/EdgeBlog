@@ -36,6 +36,9 @@ const CommentsAdminPage = lazy(() => import('./pages/admin/CommentsAdminPage').t
 const MediaAdminPage = lazy(() => import('./pages/admin/MediaAdminPage').then((m) => ({ default: m.MediaAdminPage })));
 const AppearancePage = lazy(() => import('./pages/admin/AppearancePage').then((m) => ({ default: m.AppearancePage })));
 const AiSettingsPage = lazy(() => import('./pages/admin/AiSettingsPage').then((m) => ({ default: m.AiSettingsPage })));
+const AutomationPage = lazy(() =>
+  import('./pages/admin/AutomationPage').then((m) => ({ default: m.AutomationPage })),
+);
 const AccountPage = lazy(() => import('./pages/admin/AccountPage').then((m) => ({ default: m.AccountPage })));
 const TagsAdminPage = lazy(() => import('./pages/admin/TagsAdminPage').then((m) => ({ default: m.TagsAdminPage })));
 const ColumnsAdminPage = lazy(() =>
@@ -123,6 +126,7 @@ export function App() {
                   <Route path="columns" element={<ColumnsAdminPage />} />
                   <Route path="appearance" element={<AppearancePage />} />
                   <Route path="ai" element={<AiSettingsPage />} />
+                  <Route path="automation" element={<AutomationPage />} />
                   <Route path="audit" element={<AuditLogPage />} />
                   <Route path="account" element={<AccountPage />} />
                 </Route>

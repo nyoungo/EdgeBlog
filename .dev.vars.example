@@ -1,4 +1,4 @@
-# Local Pages Functions secrets. Copy to `.dev.vars` and fill in real values.
+# Local Worker secrets. Copy to `.dev.vars` and fill in real values.
 # THIS FILE IS A TEMPLATE — `.dev.vars` itself is git-ignored.
 
 # 32+ char random string used to sign JWTs. Generate: openssl rand -base64 48

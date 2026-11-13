@@ -4,7 +4,7 @@
  *
  * Why bundle at all? The documented install path is the browser-only D1
  * Console, which has no way to run a file: users have to copy SQL *content*.
- * One file is far harder to get wrong than seven (and pasting a file *path*
+ * One file is far harder to get wrong than eight (and pasting a file *path*
  * into the console is exactly what produced the
  * `near "migrations": syntax error at offset 0` reports).
  *
@@ -26,6 +26,7 @@ const SOURCES = [
   'migrations/0005_audit_and_soft_delete.sql',
   'migrations/0006_media_thumbnail.sql',
   'migrations/0007_columns.sql',
+  'migrations/0008_automation.sql',
   'seed/seed.sql',
 ];
 
@@ -39,7 +40,8 @@ ${SOURCES.map((file) => `--   * ${file}`).join('\n')}
 --
 -- If the database has already been initialized, do not run this file again:
 -- the ALTER TABLE statements in 0003/0005/0006/0007 will fail with
--- "duplicate column name". See README.md -> 初始化远程数据库.
+-- "duplicate column name". Use the per-file migration path instead:
+-- npm run db:migrate / npm run db:migrate:local.
 -- ============================================================================
 `;
 

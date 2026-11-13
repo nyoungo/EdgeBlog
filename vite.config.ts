@@ -28,7 +28,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // During `vite dev`, proxy API calls to a running `wrangler pages dev` instance.
+    // During `vite dev`, proxy API calls to a running `wrangler dev` instance.
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8788',

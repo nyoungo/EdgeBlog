@@ -23,12 +23,12 @@ export interface Env {
   MEDIA: R2Bucket;
   /** KV namespace used for settings cache + rate-limit counters. */
   CACHE: KVNamespace;
-  /** Pages static asset fetcher (present in Pages Functions). */
+  /** Static asset fetcher (the `[assets]` binding in wrangler.toml). */
   ASSETS: Fetcher;
   /** Workers AI binding. Optional so local Vite dev / unbound envs still boot. */
   AI?: Ai;
 
-  /** Secret: HMAC key for JWTs. Set via `wrangler pages secret put`. */
+  /** Secret: HMAC key for JWTs. Set via `wrangler secret put`. */
   JWT_SECRET: string;
 
   ENVIRONMENT?: string;

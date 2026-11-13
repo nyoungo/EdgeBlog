@@ -153,7 +153,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
     about: {
       title: '关于本站',
       contentMd:
-        '## 你好，世界 👋\n\n这里是一个运行在 Cloudflare 边缘网络上的动态博客。\n\n- **前端**：React + TypeScript + Vite + TailwindCSS\n- **后端**：Cloudflare Pages Functions（Hono）\n- **数据**：D1（SQLite）+ R2（对象存储）+ KV（缓存）\n\n全站外观、布局、导航与功能开关都可以在后台的「站点设置」中可视化调整，无需改动代码。\n\n### 联系方式\n\n欢迎通过页脚的社交链接与我联系。',
+        '## 你好，世界 👋\n\n这里是一个运行在 Cloudflare 边缘网络上的动态博客。\n\n- **前端**：React + TypeScript + Vite + TailwindCSS\n- **后端**：Cloudflare Workers（Hono）\n- **数据**：D1（SQLite）+ R2（对象存储）+ KV（缓存）\n\n全站外观、布局、导航与功能开关都可以在后台的「站点设置」中可视化调整，无需改动代码。\n\n### 联系方式\n\n欢迎通过页脚的社交链接与我联系。',
       updatedAt: '2026-01-01T00:00:00.000Z',
     },
   },

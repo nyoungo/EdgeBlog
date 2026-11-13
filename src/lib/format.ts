@@ -63,3 +63,17 @@ export function formatNumber(value: number | null | undefined): string {
 export function mediaKeyFromUrl(url: string): string {
   return url.replace(/^https?:\/\/[^/]+/, '').replace(/^\/media\//, '');
 }
+
+/**
+ * 把 UTC 存储时间渲染成 UTC+8（北京时间）的 `YYYY-MM-DD HH:MM`。
+ *
+ * 定时任务的排期与展示都按北京时间，存储是 UTC；这里统一换算，
+ * 避免同一时间在不同页面出现两种时区口径。
+ */
+export function formatUtc8(value: string | null | undefined): string {
+  const date = parseSqlDate(value);
+  if (!date) return '';
+  const shifted = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${shifted.getUTCFullYear()}-${p(shifted.getUTCMonth() + 1)}-${p(shifted.getUTCDate())} ${p(shifted.getUTCHours())}:${p(shifted.getUTCMinutes())}`;
+}

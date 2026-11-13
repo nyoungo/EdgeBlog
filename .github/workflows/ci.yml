@@ -76,9 +76,9 @@ jobs:
           name: dist
           path: dist
 
-      - name: Deploy to Cloudflare Pages
+      - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ab9b493264836c9ea9b3cc8b201b37d7
-          command: pages deploy ./dist --project-name=edge-blog --branch=main
+          command: deploy

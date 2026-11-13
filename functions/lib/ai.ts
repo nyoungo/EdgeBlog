@@ -6,7 +6,7 @@
  * happen server-side; the browser only ever sees generated text.
  *
  * Two transports are supported:
- *   * `cloudflare` — the Pages Functions `AI` binding (`env.AI.run`), no key.
+ *   * `cloudflare` — the Workers AI binding (`env.AI.run`), no key.
  *   * everything else — any OpenAI-compatible `/chat/completions` endpoint.
  *
  * Both transports speak the same OpenAI-style message/tool schema, which keeps

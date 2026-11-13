@@ -1,11 +1,33 @@
-# Cloudflare Pages project configuration.
-# Docs: https://developers.cloudflare.com/pages/functions/wrangler-configuration/
+# Cloudflare Worker project configuration.
+# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
 name = "edge-blog"
 compatibility_date = "2026-11-10"
 compatibility_flags = ["nodejs_compat"]
 
-# Where Vite emits the static build. Pages serves this directory.
-pages_build_output_dir = "dist"
+# Worker 入口：API、R2 媒体代理、SEO 外壳、RSS / sitemap / robots，
+# 以及「定时自动写文」的 scheduled 定时器。
+main = "functions/worker.ts"
+
+# ---------------------------------------------------------------------------
+# Static assets
+# Vite 把前端产物输出到 dist/，通过 assets binding 提供。
+# `run_worker_first` 让所有请求先进入 Worker，由 worker.ts 决定是走 API、
+# 媒体、feed、SEO 外壳还是静态资源（顺序与旧的 Pages Functions 入口一致）。
+# ---------------------------------------------------------------------------
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+run_worker_first = true
+not_found_handling = "none"
+
+# ---------------------------------------------------------------------------
+# Cron Trigger — 定时轮询自动化任务。
+# 任务的实际执行时间由 automation_tasks.next_run_at 决定，这里只负责以固定
+# 频率唤醒 Worker（Pages 不支持 Cron Trigger，这也是迁移到 Worker 的原因）。
+# 5 分钟一次足以覆盖到分钟的排期精度。
+# ---------------------------------------------------------------------------
+[triggers]
+crons = ["*/5 * * * *"]
 
 # ---------------------------------------------------------------------------
 # Bindings
@@ -28,13 +50,13 @@ bucket_name = "edge-blog-media"
 binding = "CACHE"
 id = "17f2c666debb4590be75cfa7d8879ede"
 
-# Workers AI — default AI provider (no API key required inside Pages Functions)
+# Workers AI — default AI provider (no API key required inside the Worker)
 [ai]
 binding = "AI"
 
 # ---------------------------------------------------------------------------
 # Non-secret variables. SECRETS (JWT_SECRET, ...) must be set via
-# `wrangler pages secret put` or the dashboard, never committed.
+# `wrangler secret put` or the dashboard, never committed.
 # ---------------------------------------------------------------------------
 [vars]
 ENVIRONMENT = "production"

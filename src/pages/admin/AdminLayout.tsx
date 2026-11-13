@@ -17,6 +17,7 @@ const NAV: Array<{ to: string; label: string; icon: IconName; end?: boolean }> =
   { to: '/admin/tags', label: '标签', icon: 'tag' },
   { to: '/admin/appearance', label: '站点设置', icon: 'palette' },
   { to: '/admin/ai', label: 'AI 设置', icon: 'sparkles' },
+  { to: '/admin/automation', label: '定时发文', icon: 'wand' },
   { to: '/admin/audit', label: '审计日志', icon: 'clock' },
   { to: '/admin/account', label: '账号安全', icon: 'lock' },
 ];
