@@ -33,9 +33,13 @@ DNS record or on a zone you do not own."* 域名只能挂在 `workers.dev` 或�
 上，否则 `wrangler deploy` / Dashboard 添加自定义域都会失败。
 
 **解决**：要么把域名 NS 迁到 Cloudflare（成为本账户 zone）后再加 Custom Domain；要么
-接受用 `<name>.<子域>.workers.dev` 对外（`SITE_URL` 指向它即可）。本项目当前域名
-`www.068800.xyz` 托管在华为云 DNS、且仍被旧的 Pages 项目占用，因此对外先用
-`https://edge-blog.nyoungo.workers.dev`。
+接受用 `<name>.<子域>.workers.dev` 对外（`SITE_URL` 指向它即可）。本项目最终走的是
+前一条：把 `068800.xyz` 的 DNS 迁到 Cloudflare 后，`www.068800.xyz` 作为 Custom
+Domain 绑定到本 Worker（apex `068800.xyz` 302 跳 `www`），`wrangler.toml` 的
+`SITE_URL` 相应改为 `https://www.068800.xyz`。
+
+> 注意区分：`functions/worker.ts` 的 `isPreviewHost()` 只把 `*.pages.dev` /
+> `*.workers.dev` 判为预览域名（不索引），自定义域名不受影响，可直接被搜索引擎收录。
 
 ### 自动部署用 Workers Builds，不依赖仓库里的 API Token
 

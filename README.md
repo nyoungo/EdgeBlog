@@ -7,7 +7,7 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
-- 在线演示：<https://edge-blog.nyoungo.workers.dev>
+- 在线演示：<https://www.068800.xyz>
 - 非静态生成：页面是 SPA，数据通过 Worker 提供的 API 实时读取
 - 无需服务器：D1 存数据，R2 存媒体，KV 做缓存与限流
 - 定时写作：按排期自动生成整篇文章与封面图，并保存为草稿或直接发布
