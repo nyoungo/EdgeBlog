@@ -27,11 +27,18 @@ const PROVIDER_BASE: Record<AiSettings['provider'], string> = {
 const REQUEST_TIMEOUT_MS = 60_000;
 const MODELS_TIMEOUT_MS = 20_000;
 
-/** Shown when `env.AI.models()` is unavailable (older runtimes / offline). */
+/** 推理模型的 reasoning 也计入 max_tokens；预算耗尽时按此区间重试一次。 */
+const REASONING_RETRY_MIN_TOKENS = 1024;
+const REASONING_RETRY_MAX_TOKENS = 8192;
+
+/**
+ * Shown when `env.AI.models()` is unavailable (older runtimes / offline).
+ * 首项是非推理的快速模型：推理模型会把预算花在 reasoning 上，正文更容易被截断。
+ */
 export const CLOUDFLARE_FALLBACK_MODELS = [
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
   '@cf/zai-org/glm-4.7-flash',
   '@cf/qwen/qwen3.8-27b',
-  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
   '@cf/openai/gpt-oss-120b',
 ];
 
@@ -209,6 +216,38 @@ function asArray(value: unknown): unknown[] {
 }
 
 /**
+ * 把模型返回的 content 归一化成纯文本。
+ *
+ * 除了字符串，真实响应里还有几种形态必须兼容，否则会被误判成「未返回内容」：
+ *   * `null` —— 推理模型（如 glm-4.7-flash）把正文前的思考放进了 reasoning 字段；
+ *   * 数组分片 —— 部分模型/兼容层返回 `[{ type: 'text', text: '...' }]`；
+ *   * 对象 —— `{ text: '...' }`。
+ */
+function textFromContent(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (Array.isArray(value)) {
+    return value
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        const rec = asRecord(part);
+        return typeof rec.text === 'string' ? rec.text : '';
+      })
+      .join('')
+      .trim();
+  }
+  const rec = asRecord(value);
+  return typeof rec.text === 'string' ? rec.text.trim() : '';
+}
+
+/** 读取 finish_reason（OpenAI 兼容层在 choices[0]，个别实现放顶层）。 */
+function finishReasonOf(payload: unknown): string | undefined {
+  const obj = asRecord(payload);
+  const choice = asRecord(asArray(obj.choices)[0]);
+  const reason = choice.finish_reason ?? obj.finish_reason;
+  return typeof reason === 'string' ? reason : undefined;
+}
+
+/**
  * Extract generated text from the many shapes Workers AI models return.
  * Older models use `{ response }`; newer / OpenAI-compatible ones use
  * `{ choices: [{ message: { content } }] }`.
@@ -217,22 +256,52 @@ export function extractAiText(payload: unknown): string {
   if (typeof payload === 'string') return payload.trim();
   if (payload === null || payload === undefined) return '';
 
+  // 个别模型直接返回分片数组，先拼成字符串再判断。
+  if (Array.isArray(payload)) return textFromContent(payload);
+
   const obj = asRecord(payload);
   const choice = asRecord(asArray(obj.choices)[0]);
   const message = asRecord(choice.message);
-  const choiceText = message.content;
-  if (typeof choiceText === 'string' && choiceText.trim()) return choiceText.trim();
 
-  const response = obj.response;
-  if (typeof response === 'string' && response.trim()) return response.trim();
-
-  for (const key of ['text', 'output_text', 'generated_text']) {
-    const value = obj[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
+  for (const candidate of [
+    message.content,
+    choice.text,
+    obj.response,
+    obj.text,
+    obj.output_text,
+    obj.generated_text,
+  ]) {
+    const text = textFromContent(candidate);
+    if (text) return text;
   }
 
   // Some bindings wrap the payload in `result`.
   if (obj.result !== undefined && obj.result !== payload) return extractAiText(obj.result);
+  return '';
+}
+
+/**
+ * 推理模型（glm-4.7-flash、gpt-oss 等）会把思维链放在 reasoning 字段里，
+ * 而不是 content。单独取出这段文本，用于重试判断与兜底。
+ */
+export function extractReasoning(payload: unknown): string {
+  if (payload === null || payload === undefined || Array.isArray(payload)) return '';
+
+  const obj = asRecord(payload);
+  const choice = asRecord(asArray(obj.choices)[0]);
+  const message = asRecord(choice.message);
+
+  for (const candidate of [
+    message.reasoning_content,
+    message.reasoning,
+    obj.reasoning_content,
+    obj.reasoning,
+  ]) {
+    const text = textFromContent(candidate);
+    if (text) return text;
+  }
+
+  if (obj.result !== undefined && obj.result !== payload) return extractReasoning(obj.result);
   return '';
 }
 
@@ -325,6 +394,30 @@ function extractError(payload: unknown, status: number): string {
 }
 
 /**
+ * 空正文的报错要能自解释：带上模型、结束原因和 token 用量，
+ * 否则用户只能看到「未返回内容」，不知道是截断、模型不可用还是配置问题。
+ */
+function emptyCompletionMessage(model: string, payload: unknown): string {
+  const reason = finishReasonOf(payload);
+  const usage = asRecord(asRecord(payload).usage);
+  const prompt = typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : undefined;
+  const completion = typeof usage.completion_tokens === 'number' ? usage.completion_tokens : undefined;
+  const details = [
+    reason ? `结束原因：${reason}` : '',
+    prompt !== undefined || completion !== undefined
+      ? `tokens：输入 ${prompt ?? '?'} / 输出 ${completion ?? '?'}`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('，');
+  const hint =
+    reason === 'length'
+      ? '模型把 token 预算耗在了推理内容上，请调大「最大 token」，或改用非推理模型（如 @cf/meta/llama-3.3-70b-instruct-fp8-fast）'
+      : '请确认该模型支持文本生成，或改用其他模型';
+  return `Workers AI（${model}）未返回正文${details ? `（${details}）` : ''}。${hint}`;
+}
+
+/**
  * Run one chat completion, optionally with tools.
  * Returns the text and any tool calls; the caller decides whether to loop.
  */
@@ -342,6 +435,8 @@ export async function aiChatComplete(
       throw AppError.badRequest('未检测到 Workers AI 绑定，请检查 wrangler.toml 或 Pages 控制台的 AI 绑定');
     }
 
+    const aiBinding = env.AI;
+
     const inputs: Record<string, unknown> = {
       // The binding requires a string content (it rejects null).
       messages: messages.map((message) => ({ ...message, content: message.content ?? '' })),
@@ -353,24 +448,48 @@ export async function aiChatComplete(
       inputs.tool_choice = 'auto';
     }
 
-    let payload: unknown;
-    try {
-      payload = await withTimeout(
-        env.AI.run(ai.model, inputs),
-        REQUEST_TIMEOUT_MS,
-        'Workers AI 请求超时，请稍后重试',
+    const run = async (maxTokens: number): Promise<unknown> => {
+      try {
+        return await withTimeout(
+          aiBinding.run(ai.model, { ...inputs, max_tokens: maxTokens }),
+          REQUEST_TIMEOUT_MS,
+          'Workers AI 请求超时，请稍后重试',
+        );
+      } catch (err) {
+        if (err instanceof AppError) throw err;
+        throw AppError.upstream(
+          `Workers AI 请求失败：${err instanceof Error ? err.message : '未知错误'}`,
+        );
+      }
+    };
+
+    let payload = await run(ai.maxTokens);
+    let text = extractAiText(payload);
+    let toolCalls = extractToolCalls(payload);
+
+    // 推理模型的 reasoning_content 与正文共享 max_tokens。预算被推理耗尽时
+    // content 为 null 且 finish_reason 为 'length'，看起来就是「未返回内容」；
+    // 这里扩大预算重试一次，而不是直接把失败抛给用户。
+    if (!text && toolCalls.length === 0 && finishReasonOf(payload) === 'length') {
+      const retryTokens = Math.min(
+        REASONING_RETRY_MAX_TOKENS,
+        Math.max(REASONING_RETRY_MIN_TOKENS, ai.maxTokens * 2),
       );
-    } catch (err) {
-      if (err instanceof AppError) throw err;
-      throw AppError.upstream(
-        `Workers AI 请求失败：${err instanceof Error ? err.message : '未知错误'}`,
-      );
+      if (retryTokens > ai.maxTokens) {
+        payload = await run(retryTokens);
+        text = extractAiText(payload);
+        toolCalls = extractToolCalls(payload);
+      }
     }
 
-    const text = extractAiText(payload);
-    const toolCalls = extractToolCalls(payload);
     if (!text && toolCalls.length === 0) {
-      throw AppError.upstream('Workers AI 未返回内容，请稍后重试');
+      // 极少数推理模型只留下 reasoning。'length' 表示这段内容已被截断，
+      // 不能冒充正文返回；其余结束原因说明思考已完整，可以兜底。
+      if (finishReasonOf(payload) !== 'length') {
+        const reasoning = extractReasoning(payload);
+        if (reasoning) return { text: reasoning, toolCalls };
+      }
+      throw AppError.upstream(emptyCompletionMessage(ai.model, payload));
     }
     return { text, toolCalls };
   }

@@ -196,7 +196,7 @@ export const AI_DEFAULTS: AiSettings = {
   baseUrl: '',
   apiKey: '',
   monidApiKey: '',
-  model: '@cf/zai-org/glm-4.7-flash',
+  model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
   temperature: 0.7,
   maxTokens: 2048,
   excerptPrompt:

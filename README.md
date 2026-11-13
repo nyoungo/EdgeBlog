@@ -332,7 +332,7 @@ wrangler.toml           Worker + 静态资源 + Cron Trigger + D1 / R2 / KV 绑�
 
 AI 功能默认关闭，不会迁移或覆盖已有配置。后台「AI 设置」页（`/admin/ai`）提供两种接入方式：
 
-- **Cloudflare Workers AI（默认）**：通过 `wrangler.toml` 中的 `[ai] binding = "AI"` 直接调用，无需 API Key。默认模型 `@cf/zai-org/glm-4.7-flash`，可在设置页手动输入或拉取其他文本生成模型。
+- **Cloudflare Workers AI（默认）**：通过 `wrangler.toml` 中的 `[ai] binding = "AI"` 直接调用，无需 API Key。默认模型 `@cf/meta/llama-3.3-70b-instruct-fp8-fast`，可在设置页手动输入或拉取其他文本生成模型。
 - **OpenAI / DeepSeek / 自定义 OpenAI 兼容接口**：保存 API Key 后自动拉取模型列表，可配置 Base URL、温度、最大 Tokens 与提示词。已有配置会继续按原样工作。
 
 开启后：

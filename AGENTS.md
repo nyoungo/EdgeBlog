@@ -50,6 +50,21 @@ Domain 绑定到本 Worker（apex `068800.xyz` 302 跳 `www`），`wrangler.toml
 所需 token。`.github/workflows/ci.yml` 只保留校验（bundle/lint/typecheck/test/build），
 不再部署，避免同一版本被部署两次。
 
+### Workers AI 推理模型的 `reasoning_content` 与正文共享 `max_tokens`
+
+`@cf/zai-org/glm-4.7-flash`、`@cf/openai/gpt-oss-120b` 这类推理模型会先输出
+`message.reasoning_content`，预算被推理耗尽时 `message.content` 就是 `null`，
+`finish_reason` 为 `length`。只读 `content` 的代码会误判成「模型未返回内容」。
+
+**解决**（`functions/lib/ai.ts`）：
+
+- `textFromContent()` 兼容 `string | null | 数组分片 | { text }`，空正文识别不再只认字符串；
+- `content` 为空且 `finish_reason === 'length'` 时，自动把 `max_tokens` 翻倍（下限 1024、
+  上限 8192）重试一次；`reasoning` 已完整（非 `length`）时才允许兜底当正文返回；
+- 空正文报错带上模型、`finish_reason`、token 用量，并提示改大预算或换非推理模型；
+- 默认模型用 `@cf/meta/llama-3.3-70b-instruct-fp8-fast`（快、支持工具调用），推理模型
+  速度快慢差异极大，同一条摘要 14s～65s 都可能。
+
 ## 数据层 / SQLite(D1)
 
 ### 改 / 扩充列上的 CHECK 约束只能重建表,而 DROP TABLE 会级联删除子表行

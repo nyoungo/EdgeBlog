@@ -18,7 +18,7 @@ const PROVIDERS: Array<{ value: AiProvider; label: string; baseUrl: string; mode
     value: 'cloudflare',
     label: 'Cloudflare Workers AI（内置，推荐）',
     baseUrl: '',
-    model: '@cf/zai-org/glm-4.7-flash',
+    model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
   },
   { value: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
   { value: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
@@ -369,13 +369,13 @@ export function AiSettingsPage() {
                 value={form.model}
                 onChange={(value) => set('model', value)}
                 options={models.map((m) => ({ value: m.id, label: m.label, hint: m.id === m.label ? undefined : m.id }))}
-                placeholder="@cf/zai-org/glm-4.7-flash"
+                placeholder="@cf/meta/llama-3.3-70b-instruct-fp8-fast"
                 emptyText="没有匹配的模型，可直接输入完整 ID"
               />
               <p className="text-xs text-faint">
                 {models.length > 0
                   ? `共 ${models.length} 个可选模型，点击输入框展开列表，也可手动输入模型 ID`
-                  : '默认 @cf/zai-org/glm-4.7-flash，支持工具调用'}
+                  : '默认 @cf/meta/llama-3.3-70b-instruct-fp8-fast，支持工具调用'}
               </p>
             </div>
           )}

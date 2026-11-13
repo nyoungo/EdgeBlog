@@ -196,7 +196,7 @@ INSERT OR REPLACE INTO settings (key, value_json) VALUES
   "provider": "cloudflare",
   "baseUrl": "",
   "apiKey": "",
-  "model": "@cf/zai-org/glm-4.7-flash",
+  "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
   "temperature": 0.7,
   "maxTokens": 2048,
   "excerptPrompt": "你是资深的博客编辑。根据用户提供的文章内容，撰写一段 80–120 字的中文摘要：准确概括主旨与关键信息，语气自然，只输出摘要本身，不要标题、不要前后缀、不要引号。",
