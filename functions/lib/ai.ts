@@ -702,15 +702,34 @@ async function readTextStream(
   };
 
   let buffer = '';
+  let rawResponse = '';
   let text = '';
   let finish = '';
   let sawDelta = false;
+  let sawDone = false;
+
+  /** 兼容流式接口实际返回完整 JSON completion 的情况。 */
+  const completeJsonText = (): string => {
+    try {
+      const payload: unknown = JSON.parse(rawResponse.trim());
+      if (asArray(asRecord(payload).choices).length === 0) return '';
+      const reason = finishReasonOf(payload);
+      if (reason !== 'stop' && !sawDone) return '';
+      return extractAiText(payload);
+    } catch {
+      return '';
+    }
+  };
 
   const handleLine = (rawLine: string): void => {
     const line = rawLine.trim();
     if (!line || line.startsWith(':') || line.startsWith('event:')) return;
     const data = line.startsWith('data:') ? line.slice(5).trim() : line;
-    if (!data || data === '[DONE]') return;
+    if (data === '[DONE]') {
+      sawDone = true;
+      return;
+    }
+    if (!data) return;
     // 心跳、注释或分片边界处的半截 JSON 直接忽略,不当作错误。
     let payload: unknown;
     try {
@@ -754,6 +773,17 @@ async function readTextStream(
           );
         });
       } catch (err) {
+        // 有些兼容接口先完整送达 JSON 正文,随后才因连接关闭报错。
+        // 刷出解码器内部缓冲后,只有 JSON 可完整解析且包含正文时才采纳。
+        const trailing = decoder.decode();
+        buffer += trailing;
+        rawResponse += trailing;
+        const recovered = completeJsonText();
+        if (recovered) {
+          text = recovered;
+          finish = 'stop';
+          break;
+        }
         if (err instanceof AppError) throw err;
         throw AppError.upstream(
           `${options.label} 流式输出失败：${err instanceof Error ? err.message : '未知错误'}`,
@@ -761,7 +791,11 @@ async function readTextStream(
       }
 
       if (chunk.done) break;
-      if (chunk.value) buffer += decoder.decode(chunk.value, { stream: true });
+      if (chunk.value) {
+        const decoded = decoder.decode(chunk.value, { stream: true });
+        buffer += decoded;
+        rawResponse += decoded;
+      }
 
       for (;;) {
         const index = buffer.indexOf('\n');
@@ -771,8 +805,16 @@ async function readTextStream(
         handleLine(line);
       }
     }
-    buffer += decoder.decode();
+    const trailing = decoder.decode();
+    buffer += trailing;
+    rawResponse += trailing;
     if (buffer.trim()) handleLine(buffer);
+    // 兼容声明 stream=true 但实际返回完整 JSON 的接口。
+    const recovered = completeJsonText();
+    if (recovered) {
+      text = recovered;
+      finish = finish || 'stop';
+    }
   } catch (err) {
     // 单方面取消上游读取,避免连接悬挂到 Workers AI 自己的超时。
     try {

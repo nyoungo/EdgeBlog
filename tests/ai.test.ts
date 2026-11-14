@@ -653,6 +653,41 @@ describe('aiChatStream (OpenAI 兼容)', () => {
     }
   });
 
+  it('连接在完整 JSON completion 到达后中断时仍返回完整正文', async () => {
+    const originalFetch = globalThis.fetch;
+    const completion = JSON.stringify({
+      id: 'chatcmpl-test',
+      object: 'chat.completion',
+      choices: [{ index: 0, message: { role: 'assistant', content: '# 标题\\n\\n完整文章正文' }, finish_reason: 'stop' }],
+    });
+    globalThis.fetch = (async () => {
+      let sent = false;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (!sent) {
+            sent = true;
+            controller.enqueue(new TextEncoder().encode(completion));
+            return;
+          }
+          controller.error(new Error('Network connection lost.'));
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    }) as unknown as typeof fetch;
+
+    try {
+      const env = fakeEnv({ provider: 'custom', baseUrl: 'https://ai.example.com/v1', apiKey: 'k' }, null);
+      await expect(aiChatStream(env, [{ role: 'user', content: '写文章' }])).resolves.toBe(
+        '# 标题\\n\\n完整文章正文',
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('HTTP 错误按服务端返回的错误信息抛出', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () =>
