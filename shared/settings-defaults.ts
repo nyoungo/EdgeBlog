@@ -218,4 +218,11 @@ export const WECHAT_DEFAULTS: WechatSettings = {
   author: '',
   openComment: false,
   onlyFansCanComment: false,
+  miniprogramEnabled: false,
+  miniprogramAppId: '',
+  miniprogramPath: '',
+  miniprogramTitle: '点击进入小程序',
+  miniprogramDesc: '',
+  miniprogramImage: '',
+  miniprogramButton: '点击进入小程序',
 };

@@ -61,6 +61,13 @@ const patchSchema = z
     author: z.string().trim().max(16),
     openComment: z.boolean(),
     onlyFansCanComment: z.boolean(),
+    miniprogramEnabled: z.boolean(),
+    miniprogramAppId: z.string().trim().max(64),
+    miniprogramPath: z.string().trim().max(256),
+    miniprogramTitle: z.string().trim().max(64),
+    miniprogramDesc: z.string().trim().max(120),
+    miniprogramImage: z.string().trim().max(1024),
+    miniprogramButton: z.string().trim().max(16),
   })
   .deepPartial();
 

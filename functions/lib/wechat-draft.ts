@@ -17,12 +17,15 @@ import { downloadRemote } from './media-ingest';
 import { keyFromPublicUrl, sniffImageMime } from './media-file';
 import { addDraft, submitPublish, updateDraft, uploadContentImage, uploadCoverMaterial } from './wechat';
 import {
+  renderMiniprogramCard,
   renderWechatContent,
   substituteWechatImages,
   truncateChars,
   validateWechatContent,
   WECHAT_DIGEST_MAX,
   WECHAT_TITLE_MAX,
+  WX_IMAGE_PLACEHOLDER,
+  type WechatMiniProgramCard,
 } from './wechat-render';
 
 /** 正文图片：微信 uploadimg 仅收 jpg/png 且单张 < 1MB。 */
@@ -190,6 +193,22 @@ export interface PushDraftOptions {
   updateExisting?: boolean;
 }
 
+/** 从设置组装文末小程序卡片；未启用或缺 AppID/路径时返回 null。 */
+function miniProgramCardFromSettings(settings: WechatSettings): WechatMiniProgramCard | null {
+  if (!settings.miniprogramEnabled) return null;
+  const appId = settings.miniprogramAppId.trim();
+  const path = settings.miniprogramPath.trim();
+  if (!appId || !path) return null;
+  return {
+    appId,
+    path,
+    title: settings.miniprogramTitle.trim() || settings.miniprogramButton.trim() || '点击进入小程序',
+    desc: settings.miniprogramDesc.trim(),
+    image: settings.miniprogramImage.trim(),
+    button: settings.miniprogramButton.trim() || '点击进入小程序',
+  };
+}
+
 /**
  * 组装「阅读原文」地址。微信只接受可公网访问的 http(s) 地址，本地开发
  * （localhost / 127.0.0.1 / 内网）会被拒并返回 41039。这里遇到明显的回环/内网
@@ -237,15 +256,28 @@ export async function pushPostToWechatDraft(
     throw AppError.badRequest('推送草稿需要封面图：请先在文章中设置封面（微信 thumb_media_id 必填）');
   }
 
-  // 2. 正文图片上传。
-  const imageUrls = await uploadContentImages(env, settings, rendered.images);
-  const content = substituteWechatImages(rendered.html, imageUrls);
+  // 2. 文末小程序卡片（可选）：配图同样走 uploadimg，所以先占位再统一替换。
+  const card = miniProgramCardFromSettings(settings);
+  let cardHtml = '';
+  if (card) {
+    let cardImageSrc = '';
+    if (card.image) {
+      const index = rendered.images.length;
+      rendered.images.push(card.image);
+      cardImageSrc = `${WX_IMAGE_PLACEHOLDER}${index}}}`;
+    }
+    cardHtml = renderMiniprogramCard(card, cardImageSrc);
+  }
 
-  // 3. 体积校验（微信 < 2 万字符且 < 1M）。
+  // 3. 正文图片上传。
+  const imageUrls = await uploadContentImages(env, settings, rendered.images);
+  const content = substituteWechatImages(rendered.html + cardHtml, imageUrls);
+
+  // 4. 体积校验（微信 < 2 万字符且 < 1M）。
   const sizeError = validateWechatContent(content);
   if (sizeError) throw AppError.badRequest(sizeError);
 
-  // 4. 封面永久素材。
+  // 5. 封面永久素材。
   const thumbMediaId = await uploadCover(env, settings, post.cover_url);
 
   const title = truncateChars(post.title.trim() || '未命名文章', WECHAT_TITLE_MAX);
@@ -263,7 +295,7 @@ export async function pushPostToWechatDraft(
     onlyFansCanComment: (settings.openComment && settings.onlyFansCanComment ? 1 : 0) as 0 | 1,
   };
 
-  // 5. 新建或更新草稿（去重）。
+  // 6. 新建或更新草稿（去重）。
   const existing = options.updateExisting === false ? null : await getWechatDraft(env, post.id);
   let mediaId: string;
   let updated = false;

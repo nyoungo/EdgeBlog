@@ -56,6 +56,87 @@ export interface WechatRenderedContent {
   images: string[];
 }
 
+/* ------------------------------------------------------------- 小程序卡片 */
+
+/**
+ * 文末「小程序卡片」配置。
+ *
+ * 微信正文里插入小程序只有文字链接（`<a data-miniprogram-appid>`）与官方卡片
+ * 组件两种写法；实测 `draft/add` 会拒绝官方 `<mp-common-miniprogram>` 标签
+ * （报 45166 invalid content），但接受并保留文字链接的属性。所以这里自绘一个
+ * 内联样式的卡片外观，用文字链接承载跳转。
+ */
+export interface WechatMiniProgramCard {
+  /** 目标小程序 AppID。 */
+  appId: string;
+  /** 小程序页面路径，与 app.json 一致，可带参数。 */
+  path: string;
+  /** 卡片主标题。 */
+  title: string;
+  /** 卡片描述（选填）。 */
+  desc?: string;
+  /** 卡片配图地址；非空时计入正文图片，需经 uploadimg 换成 mmbiz URL。 */
+  image?: string;
+  /** 按钮文字。 */
+  button?: string;
+  /** 文字链接的兜底 href（老客户端不支持小程序跳转时用），可为空。 */
+  fallbackHref?: string;
+}
+
+/** 小程序卡片视觉样式：浅底、圆角、描边，与正文内联样式一致。 */
+const CARD_BOX_STYLE =
+  'margin:24px 0 8px;padding:16px;border:1px solid #e6e8eb;border-radius:12px;background:#f7f9fb;';
+const CARD_TITLE_STYLE = 'margin:0 0 6px;font-size:16px;font-weight:700;color:#1a1a1a;line-height:1.5;';
+const CARD_DESC_STYLE = 'margin:0;font-size:13px;color:#8a8a8a;line-height:1.6;';
+const CARD_BUTTON_STYLE =
+  'display:inline-block;margin-top:14px;padding:9px 20px;background:#07c160;color:#ffffff;' +
+  'font-size:14px;font-weight:600;border-radius:22px;text-decoration:none;';
+const CARD_IMAGE_STYLE = 'display:block;width:100%;border-radius:8px;margin-bottom:12px;';
+
+/**
+ * 渲染文末小程序卡片 HTML。
+ *
+ * `imageSrc` 为空表示无图卡片；非空时由调用方传入正文图片占位符或已替换的 URL。
+ * 链接统一用 `data-miniprogram-appid` / `data-miniprogram-path`，这是实测微信
+ * 草稿接口会保留的写法。
+ */
+export function renderMiniprogramCard(card: WechatMiniProgramCard, imageSrc = ''): string {
+  const appId = card.appId.trim();
+  const path = card.path.trim();
+  if (!appId || !path) return '';
+
+  const href = escapeHtml(card.fallbackHref ?? '');
+  const linkAttrs = `href="${href}" data-miniprogram-appid="${escapeHtml(appId)}" data-miniprogram-path="${escapeHtml(path)}"`;
+  const title = escapeHtml(card.title ?? '');
+  const desc = escapeHtml(card.desc ?? '');
+  const button = escapeHtml(card.button ?? '') || title;
+
+  const image = imageSrc
+    ? `<a ${linkAttrs} style="text-decoration:none;display:block;"><img src="${imageSrc}" alt="${title}" style="${CARD_IMAGE_STYLE}" /></a>`
+    : '';
+
+  const titleBlock = title
+    ? `<p style="${CARD_TITLE_STYLE}">${title}</p>`
+    : '';
+  const descBlock = desc ? `<p style="${CARD_DESC_STYLE}">${desc}</p>` : '';
+
+  // 标题/描述也包在链接里：点击卡片上半部分即可跳转；底部按钮是更明显的入口。
+  const body = titleBlock || descBlock ? `<a ${linkAttrs} style="text-decoration:none;display:block;">${titleBlock}${descBlock}</a>` : '';
+
+  return (
+    `<section style="${CARD_BOX_STYLE}">` +
+    image +
+    body +
+    `<a ${linkAttrs} style="${CARD_BUTTON_STYLE}">${button}</a>` +
+    `</section>`
+  );
+}
+
+/** 渲染参数：可选的文末小程序卡片。 */
+export interface WechatRenderOptions {
+  card?: WechatMiniProgramCard;
+}
+
 /**
  * 把 Markdown 渲染成微信可用的内联样式 HTML，并收集图片地址。
  *

@@ -8,10 +8,11 @@ import { useDocumentTitle } from '../../hooks';
 import { useSettings } from '../../providers/SettingsProvider';
 import { useToast } from '../../providers/ToastProvider';
 import { Button } from '../../components/ui/Button';
-import { Input } from '../../components/ui/Field';
+import { Input, Textarea } from '../../components/ui/Field';
 import { Switch } from '../../components/ui/Switch';
 import { Card, EmptyState } from '../../components/ui/Feedback';
 import { Icon, type IconName } from '../../components/ui/icons';
+import { MediaPicker } from '../../components/admin/MediaPicker';
 import { cn } from '../../lib/utils';
 
 type FormState = Omit<WechatSettingsView, 'hasAppSecret' | 'configured'>;
@@ -85,6 +86,7 @@ export function WechatSettingsPage() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
+  const [cardPicker, setCardPicker] = useState(false);
 
   useDocumentTitle('公众号设置', settings.site.name);
 
@@ -282,6 +284,82 @@ export function WechatSettingsPage() {
         </Section>
 
         <Section
+          title="文末小程序卡片"
+          description="在每篇推送文章末尾追加一张自绘样式的小程序卡片，点击跳转小程序"
+          icon="sparkles"
+          className="lg:col-span-2"
+        >
+          <Switch
+            checked={form.miniprogramEnabled}
+            onChange={(v) => set('miniprogramEnabled', v)}
+            label="启用文末小程序卡片"
+            description="需先在小程序与公众号后台完成关联，否则点击无法跳转"
+          />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input
+              label="小程序 AppID"
+              value={form.miniprogramAppId}
+              onChange={(e) => set('miniprogramAppId', e.target.value)}
+              placeholder="wx1234567890abcdef"
+              autoComplete="off"
+            />
+            <Input
+              label="页面路径"
+              value={form.miniprogramPath}
+              onChange={(e) => set('miniprogramPath', e.target.value)}
+              placeholder="pages/index/index"
+              hint="与小程序 app.json 一致，可带参数（?a=1）"
+            />
+            <Input
+              label="卡片主标题"
+              value={form.miniprogramTitle}
+              onChange={(e) => set('miniprogramTitle', e.target.value)}
+              placeholder="点击进入小程序"
+              maxLength={64}
+            />
+            <Input
+              label="按钮文字"
+              value={form.miniprogramButton}
+              onChange={(e) => set('miniprogramButton', e.target.value)}
+              placeholder="点击进入小程序"
+              maxLength={16}
+            />
+            <Textarea
+              label="卡片描述（选填）"
+              value={form.miniprogramDesc}
+              onChange={(e) => set('miniprogramDesc', e.target.value)}
+              rows={2}
+              maxLength={120}
+              placeholder="一句话说明小程序里有什么"
+            />
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-fg">卡片配图（选填）</span>
+              <div className="flex items-center gap-2">
+                <input
+                  value={form.miniprogramImage}
+                  onChange={(e) => set('miniprogramImage', e.target.value)}
+                  placeholder="https://… 或 /media/…"
+                  className="w-full rounded-lg border border-border bg-surface-2/60 px-3.5 py-2.5 text-sm text-fg placeholder:text-faint transition-colors focus:border-brand focus:bg-surface focus:outline-none focus:ring-2 focus:ring-brand/30"
+                />
+                <Button type="button" variant="secondary" className="h-10 shrink-0" onClick={() => setCardPicker(true)}>
+                  <Icon name="image" size={15} /> 选择图片
+                </Button>
+              </div>
+              <p className="text-xs text-faint">
+                正文图要求 jpg/png 且单张小于 1MB；留空则渲染无图卡片。
+              </p>
+              {form.miniprogramImage && (
+                <img
+                  src={form.miniprogramImage}
+                  alt=""
+                  className="mt-1 h-20 w-40 rounded-md border border-border object-cover"
+                />
+              )}
+            </div>
+          </div>
+        </Section>
+
+        <Section
           title="已推送的草稿"
           description="同一篇文章重复推送会更新既有草稿，不会新增重复项"
           icon="list"
@@ -320,6 +398,12 @@ export function WechatSettingsPage() {
           )}
         </Section>
       </div>
+
+      <MediaPicker
+        open={cardPicker}
+        onClose={() => setCardPicker(false)}
+        onSelect={(item) => set('miniprogramImage', item.url)}
+      />
     </div>
   );
 }

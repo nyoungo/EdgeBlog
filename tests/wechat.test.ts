@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WechatSettings } from '../shared/types';
 import type { Env } from '../functions/lib/env';
 import { AppError } from '../functions/lib/errors';
-import { renderWechatContent, substituteWechatImages, truncateChars, validateWechatContent } from '../functions/lib/wechat-render';
+import { renderWechatContent, renderMiniprogramCard, substituteWechatImages, truncateChars, validateWechatContent } from '../functions/lib/wechat-render';
 import { validateWechatContentImage } from '../functions/lib/wechat-draft';
 import { addDraft, type WechatArticle } from '../functions/lib/wechat';
 
@@ -13,6 +13,13 @@ const SETTINGS: WechatSettings = {
   author: '测试作者',
   openComment: false,
   onlyFansCanComment: false,
+  miniprogramEnabled: false,
+  miniprogramAppId: '',
+  miniprogramPath: '',
+  miniprogramTitle: '点击进入小程序',
+  miniprogramDesc: '',
+  miniprogramImage: '',
+  miniprogramButton: '点击进入小程序',
 };
 
 const ARTICLE: WechatArticle = {
@@ -80,6 +87,37 @@ describe('WeChat Markdown rendering', () => {
   it('enforces strict HTML character and byte limits', () => {
     expect(validateWechatContent('<p>ok</p>')).toBeNull();
     expect(validateWechatContent('a'.repeat(20_000))).toContain('2 万字符');
+  });
+
+  it('renders a self-styled mini program card with a preserved text link', () => {
+    const html = renderMiniprogramCard({
+      appId: 'wx38898f424c235f8a',
+      path: 'pages/index/index',
+      title: '软件最新版本下载',
+      desc: '发现更多实用工具',
+      button: '立即体验',
+      fallbackHref: 'https://www.068800.xyz/',
+    });
+
+    // 实测微信草稿接口保留这两个属性，是卡片可跳转的关键。
+    expect(html).toContain('data-miniprogram-appid="wx38898f424c235f8a"');
+    expect(html).toContain('data-miniprogram-path="pages/index/index"');
+    // 不使用会被 45166 拒绝的官方卡片组件。
+    expect(html).not.toContain('mp-common-miniprogram');
+    // 自绘样式内联，微信会剥掉外部样式。
+    expect(html).toContain('border-radius:12px');
+    expect(html).toContain('软件最新版本下载');
+  });
+
+  it('renders a card image placeholder and omits the card when appid/path missing', () => {
+    const withImage = renderMiniprogramCard(
+      { appId: 'wx1', path: 'p/index', title: '标题' },
+      '{{WXIMG:0}}',
+    );
+    expect(withImage).toContain('<img src="{{WXIMG:0}}"');
+
+    expect(renderMiniprogramCard({ appId: '', path: 'p/index', title: '标题' })).toBe('');
+    expect(renderMiniprogramCard({ appId: 'wx1', path: '', title: '标题' })).toBe('');
   });
 
   it('rejects unsupported or oversized body images with their identifying label', () => {

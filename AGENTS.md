@@ -170,6 +170,29 @@ Secure）、canonical / RSS 指向 localhost。这些本地覆盖项现在保持
 微信会退回的草稿。`title` ≤ 32 字、`digest` ≤ 120 字、`content` < 2 万字符且 < 1M：
 超长内容由 `truncateChars()`（按 Unicode 码点，避免截断 emoji 代理对）自动截断。
 
+### 文末小程序卡片：官方 `<mp-common-miniprogram>` 会被 `draft/add` 拒(45166)，只能自绘 + 文字链接
+
+用户要求「文章末尾加小程序卡片」时，第一反应是用 MP 编辑器复制来的
+`<mp-common-miniprogram data-miniprogram-appid=... data-miniprogram-type="card">`。
+实测（本地 curl 直连公众号接口）：**该标签无论带多少属性、`type` 是 `card` 还是其他，
+`cgi-bin/draft/add` 都返回 `45166 invalid content`**；精简到官方文档《上传图文消息素材》
+给出的最小形态也一样被拒。官方现在只在**旧图文素材**文档里给过卡片示例，草稿接口不认。
+
+同一轮实测里，**文字链接写法被接受且属性被原样保留**：
+
+```html
+<a href="" data-miniprogram-appid="wx..." data-miniprogram-path="pages/index/index">点击进入小程序</a>
+```
+
+用 `draft/get` 读回草稿，`data-miniprogram-appid` / `data-miniprogram-path` 仍在，
+自绘卡片的内联样式（`border-radius` 等）也没被剥掉。所以 `renderMiniprogramCard()`
+（`functions/lib/wechat-render.ts`）走的是**自绘 section 卡片 + 文字链接**：图片、标题、
+描述、按钮都包在带 `data-miniprogram-*` 的 `<a>` 里，样式全部内联。
+
+> 前提：`data-miniprogram-appid` 对应的小程序必须与公众号有绑定关系，否则**点击不跳转**
+> （接口不会因此报错，静默不生效）——所以这是需要人工在微信里预览点测的环节，代码层面
+> 只能保证标签写对、属性不被过滤。
+
 ### 微信几乎总以 HTTP 200 返回，错误藏在 `errcode`
 
 `stale`/`expired` access_token 不会是非 2xx，而是 `{errcode: 40001|42001|40014}`。

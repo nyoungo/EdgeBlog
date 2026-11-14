@@ -631,6 +631,20 @@ export interface WechatSettings {
   openComment: boolean;
   /** 是否仅粉丝可评论（only_fans_can_comment），仅 openComment 为真时生效。 */
   onlyFansCanComment: boolean;
+  /** 是否在每篇推送文章末尾追加「小程序卡片」。 */
+  miniprogramEnabled: boolean;
+  /** 卡片跳转的小程序 AppID。 */
+  miniprogramAppId: string;
+  /** 卡片跳转的小程序页面路径，与 app.json 一致，可带参数。 */
+  miniprogramPath: string;
+  /** 卡片主标题。 */
+  miniprogramTitle: string;
+  /** 卡片副标题/描述（选填）。 */
+  miniprogramDesc: string;
+  /** 卡片配图地址（选填，站内 /media/… 或外链），留空则渲染无图卡片。 */
+  miniprogramImage: string;
+  /** 卡片按钮文字。 */
+  miniprogramButton: string;
 }
 
 /** WeChat settings safe to return to the admin UI (secret replaced by a flag). */
