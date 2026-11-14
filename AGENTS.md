@@ -50,6 +50,31 @@ Domain 绑定到本 Worker（apex `068800.xyz` 302 跳 `www`），`wrangler.toml
 所需 token。`.github/workflows/ci.yml` 只保留校验（bundle/lint/typecheck/test/build），
 不再部署，避免同一版本被部署两次。
 
+### Deploy to Cloudflare 按钮把 `.dev.vars.example` 当作线上 Secret 清单
+
+按钮流程会读取仓库里的 `.dev.vars.example`（或 `.env.example`）让用户逐项填写 Secret。
+这个文件里只能放真正的 Secret：早期模板里的 `ENVIRONMENT=development`、
+`SITE_URL=http://localhost:8788`、`ALLOWED_ORIGINS=http://localhost:5173` 会被原样写成
+线上 Secret 并覆盖 `wrangler.toml` 的 `[vars]`，结果是线上以开发模式运行（Cookie 不带
+Secure）、canonical / RSS 指向 localhost。这些本地覆盖项现在保持注释，用户按需取消注释。
+
+`JWT_SECRET` 的示例值故意写成不足 32 字符：留着它部署会直接 500 并提示补密钥，
+比用一个「长度合法但公开」的占位值安全。
+
+### 一键部署的数据库自举看表结构，不要用 `d1 migrations apply`
+
+现网 D1 没有 `d1_migrations` 记录表（早期是手工执行 SQL 建的库），
+`wrangler d1 migrations apply` 会从 0001 重放，在 `ALTER TABLE ... ADD COLUMN`
+处报 `duplicate column name`。所以 `npm run deploy` 先跑 `scripts/db-bootstrap.mjs`：
+
+- 查不到 `users` 表 → 执行 `db/init.sql`（0001–0009 + seed），空库一次建好；
+- 已有库 → 直接跳过，绝不写任何数据；
+- 建完再查 `settings` 行数，为 0 时补跑幂等的 `seed/seed.sql`。
+
+迁移文件本身仍是「空库一次性执行」语义，升级老站点要逐个手跑新增的迁移。
+另外 Node 18.20+/20.12+ 在 Windows 上 `spawn('wrangler.cmd')` 会抛 `EINVAL`，
+脚本统一用 `process.execPath` 执行 `node_modules/wrangler/bin/wrangler.js`。
+
 ### Workers AI 推理模型的 `reasoning_content` 与正文共享 `max_tokens`
 
 `@cf/zai-org/glm-4.7-flash`、`@cf/openai/gpt-oss-120b` 这类推理模型会先输出

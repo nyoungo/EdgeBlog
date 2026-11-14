@@ -27,7 +27,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
   site: {
     name: 'Edge Blog',
     tagline: '在边缘写作，与世界相连',
-    description: '一个部署在 Cloudflare Pages 上的现代化动态博客，React + Hono + D1。',
+    description: '一个部署在 Cloudflare Workers 上的现代化动态博客，React + Hono + D1。',
     logo: { type: 'text', text: 'Edge', imageUrl: '' },
     aboutLogo: '',
     aboutText: '',

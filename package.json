@@ -4,6 +4,16 @@
   "private": true,
   "type": "module",
   "description": "A fully dynamic, highly customizable blog system for Cloudflare Workers (React + Hono + D1 + R2 + KV).",
+  "cloudflare": {
+    "label": "Edge Blog",
+    "products": ["Workers", "D1", "R2", "KV", "Workers AI"],
+    "categories": ["blog", "cms"],
+    "bindings": {
+      "JWT_SECRET": {
+        "description": "用于签署登录会话（JWT）的密钥，至少 32 个字符。用 `openssl rand -base64 48` 生成，**不要保留示例值**；缺失或过短时后台接口会返回 500。"
+      }
+    }
+  },
   "engines": {
     "node": ">=18.18.0"
   },
@@ -17,7 +27,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dev:worker": "npm run build:only && wrangler dev --port 8788",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "npm run build && node ./scripts/db-bootstrap.mjs && wrangler deploy",
+    "db:bootstrap": "node ./scripts/db-bootstrap.mjs",
     "db:bundle": "node ./scripts/build-sql-bundle.mjs",
     "db:init": "wrangler d1 execute edge-blog --remote --file=./db/init.sql",
     "db:init:local": "wrangler d1 execute edge-blog --local --file=./db/init.sql",
