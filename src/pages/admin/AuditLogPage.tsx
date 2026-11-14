@@ -21,6 +21,8 @@ const ACTION_GROUPS = [
 const ACTION_LABELS: Record<string, string> = {
   'post.create': '创建文章',
   'post.update': '更新文章',
+  'post.pin': '置顶文章',
+  'post.unpin': '取消置顶',
   'post.trash': '移入回收站',
   'post.restore': '恢复文章',
   'post.purge': '彻底删除文章',

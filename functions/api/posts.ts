@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { PostDetail, Tag } from '@shared/types';
 import { requireAuth } from '../lib/auth';
 import { hashIp } from '../lib/crypto';
-import { first, run } from '../lib/db';
+import { all, batch, first, placeholders, run } from '../lib/db';
 import type { AppEnv, Env } from '../lib/env';
 import { AppError } from '../lib/errors';
 import {
@@ -277,6 +277,21 @@ postRoutes.put('/:id', requireAuth, async (c) => {
   return ok(c, await getPostById(c.env, id));
 });
 
+postRoutes.patch('/:id/pin', requireAuth, async (c) => {
+  const id = Number.parseInt(c.req.param('id'), 10);
+  if (!Number.isInteger(id)) throw AppError.badRequest('非法文章 ID');
+  const body = await parseJson(c, z.object({ pinned: z.boolean() }));
+  const result = await run(
+    c.env,
+    'UPDATE posts SET pinned = ? WHERE id = ? AND deleted_at IS NULL',
+    body.pinned ? 1 : 0,
+    id,
+  );
+  if (result.meta.changes === 0) throw AppError.notFound('文章不存在');
+  await recordAudit(c.env, c.get('user'), body.pinned ? 'post.pin' : 'post.unpin', 'post', id);
+  return ok(c, { id, pinned: body.pinned ? 1 : 0 });
+});
+
 postRoutes.delete('/:id', requireAuth, async (c) => {
   const id = Number.parseInt(c.req.param('id'), 10);
   if (!Number.isInteger(id)) throw AppError.badRequest('非法文章 ID');
@@ -303,6 +318,29 @@ postRoutes.post('/:id/restore', requireAuth, async (c) => {
   if (result.meta.changes === 0) throw AppError.notFound('回收站中没有这篇文章');
   await recordAudit(c.env, c.get('user'), 'post.restore', 'post', id);
   return ok(c, await getPostById(c.env, id));
+});
+
+postRoutes.post('/trash/purge', requireAuth, async (c) => {
+  const body = await parseJson(c, z.object({ ids: z.array(z.number().int().positive()).min(1).max(50) }));
+  const uniqueIds = [...new Set(body.ids)];
+  const trashed = await all<{ id: number }>(
+    c.env,
+    `SELECT id FROM posts WHERE deleted_at IS NOT NULL AND id IN (${placeholders(uniqueIds.length)})`,
+    ...uniqueIds,
+  );
+  const trashedIds = trashed.map((row) => row.id);
+  if (trashedIds.length > 0) {
+    await batch(
+      c.env,
+      trashedIds.flatMap((id) => [
+        c.env.DB.prepare('DELETE FROM post_tags WHERE post_id = ?').bind(id),
+        c.env.DB.prepare('DELETE FROM posts WHERE id = ? AND deleted_at IS NOT NULL').bind(id),
+      ]),
+    );
+    const actor = c.get('user');
+    await Promise.all(trashedIds.map((id) => recordAudit(c.env, actor, 'post.purge', 'post', id)));
+  }
+  return ok(c, { purged: trashedIds.length, requested: uniqueIds.length });
 });
 
 postRoutes.delete('/:id/purge', requireAuth, async (c) => {

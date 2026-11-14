@@ -62,7 +62,7 @@ async function latestPostsByColumn(
        SELECT p.id, p.slug, p.title, p.published_at, p.created_at, p.column_id,
               ROW_NUMBER() OVER (
                 PARTITION BY p.column_id
-                ORDER BY COALESCE(p.published_at, p.created_at) DESC, p.id DESC
+                ORDER BY p.pinned DESC, COALESCE(p.published_at, p.created_at) DESC, p.id DESC
               ) AS rn
          FROM posts p
         WHERE p.column_id IN (${placeholders(columnIds.length)})

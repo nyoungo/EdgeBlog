@@ -202,9 +202,15 @@ export function MediaPicker({
 
 export function SkeletonGrid({ count = 12 }: { count?: number }) {
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+    <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
       {Array.from({ length: count }).map((_, i) => (
-        <Skeleton key={i} className="aspect-square w-full" />
+        <div key={i} className="overflow-hidden rounded-2xl bg-surface shadow-card">
+          <Skeleton className="aspect-square w-full rounded-none" />
+          <div className="space-y-1 px-1.5 py-1">
+            <Skeleton className="h-3 w-3/4 rounded-sm" />
+            <Skeleton className="h-2.5 w-1/2 rounded-sm" />
+          </div>
+        </div>
       ))}
     </div>
   );

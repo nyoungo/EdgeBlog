@@ -48,6 +48,8 @@ export interface Post {
   og_image: string | null;
   word_count: number;
   featured: 0 | 1;
+  /** 0/1：置顶文章，公开列表优先展示。 */
+  pinned: 0 | 1;
   views: number;
   author_id: number | null;
   /** NULL = 博客文章；有值 = 该专栏的文章。 */

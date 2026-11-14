@@ -23,6 +23,7 @@ interface PostRow {
   og_image: string | null;
   word_count: number;
   featured: 0 | 1;
+  pinned: 0 | 1;
   views: number;
   author_id: number | null;
   column_id: number | null;
@@ -53,7 +54,7 @@ export function ftsQuery(input: string): string {
 const SELECT_COLUMNS = `
   p.id, p.slug, p.title, p.excerpt, p.cover_url, p.status, p.published_at,
   p.meta_title, p.meta_description, p.og_image, p.word_count,
-  p.featured, p.views, p.author_id, p.column_id, p.created_at, p.updated_at,
+  p.featured, p.pinned, p.views, p.author_id, p.column_id, p.created_at, p.updated_at,
   u.display_name AS author_name, u.username AS author_username`;
 
 /** 列表查询总是带出归属专栏，供卡片标注与后台筛选。 */
@@ -176,7 +177,8 @@ export async function listPosts(
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const orderBy = SORT_SQL[opts.sort ?? 'newest'];
+  const sortOrder = SORT_SQL[opts.sort ?? 'newest'];
+  const orderBy = opts.admin ? sortOrder : `p.pinned DESC, ${sortOrder}`;
   const offset = (opts.page - 1) * opts.perPage;
 
   // Count and page are independent: issue them together instead of paying two

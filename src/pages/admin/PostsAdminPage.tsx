@@ -36,6 +36,7 @@ export function PostsAdminPage() {
   const { success, error } = useToast();
   const [params, setParams] = useSearchParams();
   const [pendingDelete, setPendingDelete] = useState<Row | null>(null);
+  const [pendingBulkPurge, setPendingBulkPurge] = useState(false);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
@@ -131,6 +132,29 @@ export function PostsAdminPage() {
   };
 
   const restore = (post: Row) => runSingle(() => api.post(`/posts/${post.id}/restore`), '文章已恢复');
+
+  const togglePin = (post: Row) =>
+    runSingle(
+      () => api.patch(`/posts/${post.id}/pin`, { pinned: !post.pinned }),
+      post.pinned ? '已取消置顶' : '文章已置顶',
+    );
+
+  const bulkPurge = async () => {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    setBusy(true);
+    try {
+      const result = await api.post<{ purged: number }>('/posts/trash/purge', { ids });
+      success(`已彻底删除 ${result.data.purged} 篇文章`);
+      setPendingBulkPurge(false);
+      setSelected(new Set());
+      reload();
+    } catch (err) {
+      error(err instanceof Error ? err.message : '批量删除失败');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const bulkTrash = async () => {
     const ids = [...selected];
@@ -247,9 +271,14 @@ export function PostsAdminPage() {
           <span className="text-muted">已选择 {selected.size} 篇</span>
           <div className="ml-auto flex gap-2">
             {trash ? (
-              <Button size="sm" variant="secondary" loading={busy} onClick={() => void bulkRestore()}>
-                恢复所选
-              </Button>
+              <>
+                <Button size="sm" variant="secondary" loading={busy} onClick={() => void bulkRestore()}>
+                  恢复所选
+                </Button>
+                <Button size="sm" variant="danger" loading={busy} onClick={() => setPendingBulkPurge(true)}>
+                  彻底删除所选
+                </Button>
+              </>
             ) : (
               <Button size="sm" variant="danger" loading={busy} onClick={() => void bulkTrash()}>
                 移到回收站
@@ -323,6 +352,11 @@ export function PostsAdminPage() {
                           {post.title}
                         </Link>
                       )}
+                      {post.pinned === 1 && !trash && (
+                        <span className="mt-1 inline-flex items-center gap-1 rounded bg-brand/10 px-1.5 py-0.5 text-[11px] font-medium text-brand">
+                          <Icon name="pin" size={11} />置顶
+                        </span>
+                      )}
                       {post.tags.length > 0 && (
                         <p className="mt-0.5 text-xs text-faint">{post.tags.map((t) => t.name).join(' · ')}</p>
                       )}
@@ -369,6 +403,20 @@ export function PostsAdminPage() {
                           </>
                         ) : (
                           <>
+                            <button
+                              type="button"
+                              onClick={() => void togglePin(post)}
+                              disabled={busy}
+                              className={cn(
+                                'flex h-8 items-center gap-1 rounded-md px-2 text-xs transition-colors hover:bg-surface-2',
+                                post.pinned ? 'text-brand' : 'text-muted hover:text-fg',
+                              )}
+                              title={post.pinned ? '取消置顶' : '置顶'}
+                              aria-label={post.pinned ? `取消《${post.title}》置顶` : `置顶《${post.title}》`}
+                            >
+                              <Icon name="pin" size={15} />
+                              {post.pinned ? '取消置顶' : '置顶'}
+                            </button>
                             {post.status === 'published' && (
                               <a
                                 href={`/posts/${post.slug}`}
@@ -412,6 +460,17 @@ export function PostsAdminPage() {
         page={meta.page ?? 1}
         totalPages={meta.totalPages ?? 1}
         onChange={(p) => update({ page: p })}
+      />
+
+      <ConfirmDialog
+        open={pendingBulkPurge}
+        title="批量彻底删除文章"
+        description={`确定要彻底删除选中的 ${selected.size} 篇文章吗？此操作无法撤销。`}
+        confirmLabel={`彻底删除 ${selected.size} 篇`}
+        danger
+        loading={busy}
+        onConfirm={() => void bulkPurge()}
+        onClose={() => setPendingBulkPurge(false)}
       />
 
       <ConfirmDialog

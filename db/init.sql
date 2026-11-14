@@ -12,6 +12,7 @@
 --   * migrations/0008_automation.sql
 --   * migrations/0009_automation_cover_agent.sql
 --   * migrations/0010_wechat.sql
+--   * migrations/0011_post_pinned.sql
 --   * seed/seed.sql
 --
 -- Regenerate with: npm run db:bundle
@@ -601,6 +602,17 @@ CREATE TABLE IF NOT EXISTS wechat_drafts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_wechat_drafts_pushed ON wechat_drafts (pushed_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- migrations/0011_post_pinned.sql
+-- ---------------------------------------------------------------------------
+
+-- Edge Blog — migration 0011
+-- 文章置顶状态；公开列表排序时置顶文章优先。
+ALTER TABLE posts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1));
+
+CREATE INDEX IF NOT EXISTS idx_posts_pinned_published
+  ON posts (pinned DESC, status, published_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- seed/seed.sql

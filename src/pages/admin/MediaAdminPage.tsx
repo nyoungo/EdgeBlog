@@ -200,7 +200,7 @@ export function MediaAdminPage() {
       </div>
 
       {loading && !data ? (
-        <SkeletonGrid count={12} />
+        <SkeletonGrid count={24} />
       ) : items.length === 0 ? (
         <EmptyState
           icon="image"
