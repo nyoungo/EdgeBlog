@@ -6,7 +6,7 @@ import { Select } from '../ui/Field';
 import { Centered, EmptyState, Skeleton, Spinner } from '../ui/Feedback';
 import { Icon } from '../ui/icons';
 import { api, qs, uploadMedia } from '../../lib/api';
-import { COMPRESS_OPTIONS, compressImage, getCompressLevel, setCompressLevel, type CompressLevel } from '../../lib/image-compress';
+import { COMPRESS_OPTIONS, FORMAT_OPTIONS, compressImage, getCompressLevel, getImageFormat, setCompressLevel, setImageFormat, type CompressLevel, type ImageFormat } from '../../lib/image-compress';
 import { useAsync } from '../../hooks';
 import { useToast } from '../../providers/ToastProvider';
 
@@ -26,6 +26,7 @@ export function MediaPicker({
   const [page, setPage] = useState(1);
   const [uploading, setUploading] = useState(false);
   const [compress, setCompress] = useState<CompressLevel>(getCompressLevel);
+  const [format, setFormat] = useState<ImageFormat>(getImageFormat);
   const fileRef = useRef<HTMLInputElement>(null);
   const videoOnly = kind === 'video';
 
@@ -41,7 +42,7 @@ export function MediaPicker({
     setUploading(true);
     try {
       // Video is uploaded as-is; canvas compression only applies to images.
-      const payload = file.type.startsWith('image/') ? await compressImage(file, compress) : file;
+      const payload = file.type.startsWith('image/') ? await compressImage(file, compress, format) : file;
       const item = await uploadMedia(payload);
       success('上传成功');
       reload();
@@ -60,6 +61,11 @@ export function MediaPicker({
     setCompressLevel(level);
   };
 
+  const onFormatChange = (value: ImageFormat) => {
+    setFormat(value);
+    setImageFormat(value);
+  };
+
   return (
     <Modal
       open={open}
@@ -68,8 +74,8 @@ export function MediaPicker({
       description={videoOnly ? '从媒体库中选择视频，或上传新视频' : '从媒体库中选择，或上传新图片'}
       className="max-w-2xl"
     >
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="secondary"
             size="sm"
@@ -80,18 +86,33 @@ export function MediaPicker({
             {videoOnly ? '上传视频' : '上传图片'}
           </Button>
           {!videoOnly && (
-            <Select
-              aria-label="压缩质量"
-              value={compress}
-              onChange={(e) => onCompressChange(e.target.value as CompressLevel)}
-              className="w-32 py-1.5 text-xs"
-            >
-              {COMPRESS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </Select>
+            <>
+              <Select
+                aria-label="图片格式"
+                title="图片上传格式"
+                value={format}
+                onChange={(e) => onFormatChange(e.target.value as ImageFormat)}
+                className="w-28 py-1.5 text-xs"
+              >
+                {FORMAT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                aria-label="压缩质量"
+                value={compress}
+                onChange={(e) => onCompressChange(e.target.value as CompressLevel)}
+                className="w-32 py-1.5 text-xs"
+              >
+                {COMPRESS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
+            </>
           )}
         </div>
         <input

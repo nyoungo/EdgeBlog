@@ -9,7 +9,7 @@ import { Pagination } from '../../components/ui/Pagination';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { SkeletonGrid } from '../../components/admin/MediaPicker';
 import { api, qs, uploadMedia } from '../../lib/api';
-import { COMPRESS_OPTIONS, compressImage, getCompressLevel, setCompressLevel, type CompressLevel } from '../../lib/image-compress';
+import { COMPRESS_OPTIONS, FORMAT_OPTIONS, compressImage, getCompressLevel, getImageFormat, setCompressLevel, setImageFormat, type CompressLevel, type ImageFormat } from '../../lib/image-compress';
 import { useAsync, useDebounced, useDocumentTitle } from '../../hooks';
 import { useSettings } from '../../providers/SettingsProvider';
 import { useToast } from '../../providers/ToastProvider';
@@ -33,6 +33,7 @@ export function MediaAdminPage() {
   const q = useDebounced(search.trim(), 350);
   const [uploading, setUploading] = useState(false);
   const [compress, setCompress] = useState<CompressLevel>(getCompressLevel);
+  const [format, setFormat] = useState<ImageFormat>(getImageFormat);
   const [pendingDelete, setPendingDelete] = useState<MediaItem | null>(null);
   const [usage, setUsage] = useState<MediaUsage[] | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -60,7 +61,7 @@ export function MediaAdminPage() {
     let saved = 0;
     for (const file of Array.from(files)) {
       try {
-        const prepared = await compressImage(file, compress);
+        const prepared = await compressImage(file, compress, format);
         saved += Math.max(0, file.size - prepared.size);
         await uploadMedia(prepared);
         ok += 1;
@@ -79,6 +80,11 @@ export function MediaAdminPage() {
   const onCompressChange = (level: CompressLevel) => {
     setCompress(level);
     setCompressLevel(level);
+  };
+
+  const onFormatChange = (value: ImageFormat) => {
+    setFormat(value);
+    setImageFormat(value);
   };
 
   const copyUrl = async (item: MediaItem) => {
@@ -140,7 +146,20 @@ export function MediaAdminPage() {
             {meta.total != null ? `共 ${meta.total} 个文件` : '管理上传的图片与视频'} · 图片 ≤ 8MB / 视频 ≤ 25MB
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            aria-label="图片格式"
+            title="图片上传格式"
+            value={format}
+            onChange={(e) => onFormatChange(e.target.value as ImageFormat)}
+            wrapperClassName="w-32"
+          >
+            {FORMAT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </Select>
           <Select
             aria-label="压缩质量"
             value={compress}

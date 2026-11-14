@@ -21,10 +21,14 @@ import { useToast } from '../../providers/ToastProvider';
 import { uploadMedia } from '../../lib/api';
 import {
   COMPRESS_OPTIONS,
+  FORMAT_OPTIONS,
   compressImage,
   getCompressLevel,
+  getImageFormat,
   setCompressLevel,
+  setImageFormat,
   type CompressLevel,
+  type ImageFormat,
 } from '../../lib/image-compress';
 import {
   editorStats,
@@ -103,6 +107,7 @@ export function MarkdownEditor({
   const [helpOpen, setHelpOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [compress, setCompress] = useState<CompressLevel>(getCompressLevel);
+  const [format, setFormat] = useState<ImageFormat>(getImageFormat);
 
   const imageMenuRef = useClickOutside<HTMLDivElement>(() => setImageMenu(false), imageMenu);
   const helpRef = useClickOutside<HTMLDivElement>(() => setHelpOpen(false), helpOpen);
@@ -189,7 +194,7 @@ export function MarkdownEditor({
       try {
         const parts: string[] = [];
         for (const file of images) {
-          const item = await uploadMedia(await compressImage(file, compress));
+          const item = await uploadMedia(await compressImage(file, compress, format));
           parts.push(imageMarkdown(item.url, item.filename));
         }
         apply(insertBlock(value, start, end, parts.join('\n\n'), false));
@@ -201,7 +206,7 @@ export function MarkdownEditor({
         if (fileRef.current) fileRef.current.value = '';
       }
     },
-    [apply, compress, error, readSel, success, value],
+    [apply, compress, error, format, readSel, success, value],
   );
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -287,6 +292,11 @@ export function MarkdownEditor({
   const onCompressChange = (level: CompressLevel) => {
     setCompress(level);
     setCompressLevel(level);
+  };
+
+  const onFormatChange = (value: ImageFormat) => {
+    setFormat(value);
+    setImageFormat(value);
   };
 
   const headingValue = ctx.heading >= 1 && ctx.heading <= 4 ? String(ctx.heading) : '0';
@@ -425,20 +435,37 @@ export function MarkdownEditor({
             }}
           />
           <MenuItem icon="link" label="插入图片链接" onClick={insertImageUrl} />
-          <div className="mt-1 flex items-center gap-2 border-t border-border pt-2">
-            <span className="text-xs text-faint">上传质量</span>
-            <Select
-              aria-label="上传压缩质量"
-              value={compress}
-              onChange={(e) => onCompressChange(e.target.value as CompressLevel)}
-              className="h-7 flex-1 py-0 text-xs"
-            >
-              {COMPRESS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
+          <div className="mt-1 flex flex-col gap-2 border-t border-border pt-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-faint">图片格式</span>
+              <Select
+                aria-label="上传图片格式"
+                value={format}
+                onChange={(e) => onFormatChange(e.target.value as ImageFormat)}
+                className="h-7 flex-1 py-0 text-xs"
+              >
+                {FORMAT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-faint">上传质量</span>
+              <Select
+                aria-label="上传压缩质量"
+                value={compress}
+                onChange={(e) => onCompressChange(e.target.value as CompressLevel)}
+                className="h-7 flex-1 py-0 text-xs"
+              >
+                {COMPRESS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
           </div>
         </div>
       )}
