@@ -75,6 +75,9 @@ Secure）、canonical / RSS 指向 localhost。这些本地覆盖项现在保持
 另外 Node 18.20+/20.12+ 在 Windows 上 `spawn('wrangler.cmd')` 会抛 `EINVAL`，
 脚本统一用 `process.execPath` 执行 `node_modules/wrangler/bin/wrangler.js`。
 
+所有 `wrangler d1 execute` 一律写**绑定名** `DB`，不写数据库名 `edge-blog`：
+一键部署允许用户把库改成别的名字，写死库名会让那些命令直接失效。
+
 ### Workers AI 推理模型的 `reasoning_content` 与正文共享 `max_tokens`
 
 `@cf/zai-org/glm-4.7-flash`、`@cf/openai/gpt-oss-120b` 这类推理模型会先输出

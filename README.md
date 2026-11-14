@@ -245,6 +245,8 @@ npm run dev:worker  # 构建前端并启动 Worker，http://127.0.0.1:8788
 | `npm run db:reset:local` | 等同 `db:init:local`（不会删除已有本地库） |
 | `npm run hash-password -- "密码"` | 生成 PBKDF2 密码哈希 |
 
+> 所有 `db:*` 与部署命令都按**绑定名** `DB` 操作，不写死数据库名；一键部署把库改叫别的名字时命令依然可用。
+
 ## 项目结构
 
 ```
