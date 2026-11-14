@@ -25,6 +25,9 @@ import type { Env, Role, SessionUser } from './env';
 import { AppError } from './errors';
 import { countWords, deriveExcerpt } from './sanitize';
 import { resolveTagIds, setPostTags, uniqueSlug } from './posts-write';
+import { getPostById } from './posts-repo';
+import { pushPostToWechatDraft } from './wechat-draft';
+import { readWechatSettings, wechatConfigured } from './wechat-settings';
 
 // 封面相关工具函数对外保持从本模块可导入(既有测试与调用方依赖)。
 export { buildCoverPrompt, generateCoverImage } from './cover';
@@ -368,9 +371,33 @@ async function performGeneration(env: Env, task: AutomationTask): Promise<Automa
   });
 
   const verb = task.publish_mode === 'publish' ? '已发布《' : '已生成草稿《';
+  let message = `${verb}${article.title}》`;
+
+  // 任务开启「同步到公众号」时，生成成功后推草稿。微信是可选产物：推送失败
+  // 不改变文章已生成的事实，仅记一条警告（与封面失败的处理一致）。
+  if (task.wechat_push === 1) {
+    const wechat = await readWechatSettings(env);
+    if (!wechat.enabled || !wechatConfigured(wechat)) {
+      message += '；公众号未启用或未配置，已跳过同步';
+    } else {
+      try {
+        const post = await getPostById(env, id);
+        if (!post) throw AppError.internal('生成的草稿读回失败');
+        const push = await pushPostToWechatDraft(env, wechat, post, {
+          siteUrl: (env.SITE_URL ?? '').trim() || undefined,
+        });
+        message += `；已同步到公众号${push.updated ? '（更新既有草稿）' : ''}`;
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : '未知错误';
+        console.error('[automation] 同步公众号草稿失败', err);
+        message += `；同步公众号失败：${detail}`;
+      }
+    }
+  }
+
   return {
     status: 'success',
-    message: `${verb}${article.title}》`,
+    message,
     postId: id,
     postSlug: slug,
     coverUrl,

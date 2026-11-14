@@ -45,6 +45,8 @@ interface FormState {
   startDate: string;
   endDate: string;
   enabled: boolean;
+  /** 生成成功后是否同步推送到微信公众号草稿箱。 */
+  wechatPush: boolean;
 }
 
 function emptyForm(): FormState {
@@ -64,6 +66,7 @@ function emptyForm(): FormState {
     startDate: todayUtc8(),
     endDate: '',
     enabled: true,
+    wechatPush: false,
   };
 }
 
@@ -84,6 +87,7 @@ function toForm(task: AutomationTaskView): FormState {
     startDate: task.start_date,
     endDate: task.end_date ?? '',
     enabled: task.enabled === 1,
+    wechatPush: task.wechat_push === 1,
   };
 }
 
@@ -178,6 +182,7 @@ export function AutomationPage() {
       startDate: form.startDate,
       endDate: form.endDate.trim() || null,
       enabled: form.enabled,
+      wechatPush: form.wechatPush,
     };
 
     setSaving(true);
@@ -294,6 +299,7 @@ export function AutomationPage() {
                       <Badge tone={task.publish_mode === 'publish' ? 'brand' : 'neutral'}>
                         {task.publish_mode === 'publish' ? '直接发布' : '存草稿'}
                       </Badge>
+                      {task.wechat_push === 1 && <Badge tone="brand">同步公众号</Badge>}
                       {status && <Badge tone={status.tone}>{status.label}</Badge>}
                     </div>
 
@@ -552,6 +558,15 @@ export function AutomationPage() {
               onChange={(v) => set('enabled', v)}
               label="启用任务"
               description="暂停后定时器会跳过该任务，可随时重新启用"
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <Switch
+              checked={form.wechatPush}
+              onChange={(v) => set('wechatPush', v)}
+              label="同步到微信公众号草稿"
+              description="生成成功后自动推送到公众号草稿箱；需先在「公众号设置」中启用并配置凭据，失败只记警告不影响发文"
             />
           </div>
         </form>

@@ -220,11 +220,13 @@ export async function uniqueColumnSlug(
   ignoreId: number | null,
 ): Promise<string> {
   const root = slugify(base) || 'column';
+  // 与 uniqueSlug 同理：D1 的 LIKE 模式上限 50 字节，长 slug 前缀改用区间比较。
   const rows = await all<{ id: number; slug: string }>(
     env,
-    'SELECT id, slug FROM columns WHERE slug = ? OR slug LIKE ?',
+    'SELECT id, slug FROM columns WHERE slug = ? OR (slug >= ? AND slug < ?)',
     root,
-    `${root}-%`,
+    `${root}-`,
+    `${root}.`,
   );
   const taken = new Set(rows.filter((r) => ignoreId === null || r.id !== ignoreId).map((r) => r.slug));
   if (!taken.has(root)) return root;

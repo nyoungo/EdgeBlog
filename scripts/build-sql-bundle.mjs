@@ -28,6 +28,7 @@ const SOURCES = [
   'migrations/0007_columns.sql',
   'migrations/0008_automation.sql',
   'migrations/0009_automation_cover_agent.sql',
+  'migrations/0010_wechat.sql',
   'seed/seed.sql',
 ];
 
@@ -40,7 +41,7 @@ ${SOURCES.map((file) => `--   * ${file}`).join('\n')}
 -- Regenerate with: npm run db:bundle
 --
 -- If the database has already been initialized, do not run this file again:
--- the ALTER TABLE statements in 0003/0005/0006/0007 will fail with
+-- the ALTER TABLE statements in 0003/0005/0006/0007/0010 will fail with
 -- "duplicate column name". Use the per-file migration path instead:
 -- npm run db:migrate / npm run db:migrate:local.
 -- ============================================================================

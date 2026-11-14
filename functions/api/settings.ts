@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { requireAdmin } from '../lib/auth';
 import type { AppEnv } from '../lib/env';
 import { AppError } from '../lib/errors';
-import { DEFAULT_SETTINGS, SETTING_NAMESPACES, AI_NAMESPACE } from '@shared/settings-defaults';
+import { DEFAULT_SETTINGS, SETTING_NAMESPACES, AI_NAMESPACE, WECHAT_NAMESPACE } from '@shared/settings-defaults';
 import { getSettings, patchSettings, readSettingRows, resetSettings } from '../lib/settings';
 import { ok } from '../lib/response';
 import { parseJson } from '../lib/validate';
@@ -23,8 +23,10 @@ settingRoutes.get('/public', async (c) => {
 settingRoutes.get('/', requireAdmin, async (c) => {
   c.header('Cache-Control', 'no-store');
   const rows = await readSettingRows(c.env);
-  // The AI namespace holds a secret; it is served only by /api/ai/settings.
+  // The AI / WeChat namespaces hold secrets; they are served only by their own
+  // admin endpoints (/api/ai/settings, /api/wechat/settings).
   delete rows[AI_NAMESPACE];
+  delete rows[WECHAT_NAMESPACE];
   return ok(c, { rows, defaults: DEFAULT_SETTINGS, namespaces: SETTING_NAMESPACES });
 });
 

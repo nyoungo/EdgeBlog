@@ -67,7 +67,7 @@ Secure）、canonical / RSS 指向 localhost。这些本地覆盖项现在保持
 `wrangler d1 migrations apply` 会从 0001 重放，在 `ALTER TABLE ... ADD COLUMN`
 处报 `duplicate column name`。所以 `npm run deploy` 先跑 `scripts/db-bootstrap.mjs`：
 
-- 查不到 `users` 表 → 执行 `db/init.sql`（0001–0009 + seed），空库一次建好；
+- 查不到 `users` 表 → 执行 `db/init.sql`（0001–0010 + seed），空库一次建好；
 - 已有库 → 直接跳过，绝不写任何数据；
 - 建完再查 `settings` 行数，为 0 时补跑幂等的 `seed/seed.sql`。
 
@@ -149,6 +149,47 @@ Secure）、canonical / RSS 指向 localhost。这些本地覆盖项现在保持
 - 取数轮就写出正文的**丢弃重写**:那时还没读资料,这段正文必然是凭记忆编的;
 - 上下文要确定性压制:`ARTICLE_AGENT_TOOL_RESULT_CHARS = 3500` 截断单条工具结果,
   并让模型 `maxChars: 3000`。实测 4 页 × 3000 字 ≈ 225s,放大到 6000 字会逼近 300s 上限。
+
+## 微信公众号草稿推送
+
+### 微信正文图片 URL 必须来自 `media/uploadimg`，外链会被过滤
+
+`draft/add` 的 `content` 是 HTML，但图片 `src` 只接受 `media/uploadimg` 返回的
+`mmbiz.qpic.cn` 地址；直接塞本站 `/media/...` 或任意外链，微信会**静默丢弃图片**。
+所以渲染阶段先把每张图写成占位符 `{{WXIMG:n}}`（`functions/lib/wechat-render.ts`），
+上传成功后再用 `substituteWechatImages()` 按索引回填。
+
+另外 `uploadimg` 只收 **jpg/png 且单张 < 1MB**；`material/add_material?type=image`
+（封面永久素材）才收 bmp/png/jpeg/jpg/gif 且 ≤10MB。两者的限制不同，不要混用。
+按用户要求，格式/体积不符一律**指名报错**（第 N 张 / 封面），不静默跳过或降级。
+
+### `draft/add` 的 `thumb_media_id` 必填，且必须是永久素材 id
+
+`thumb_media_id` 不能用 `uploadimg` 那种临时 URL，必须来自
+`material/add_material`。没有封面的文章直接拒绝推送并提示先设封面，而不是推一个
+微信会退回的草稿。`title` ≤ 32 字、`digest` ≤ 120 字、`content` < 2 万字符且 < 1M：
+超长内容由 `truncateChars()`（按 Unicode 码点，避免截断 emoji 代理对）自动截断。
+
+### 微信几乎总以 HTTP 200 返回，错误藏在 `errcode`
+
+`stale`/`expired` access_token 不会是非 2xx，而是 `{errcode: 40001|42001|40014}`。
+所以 `readEnvelope()` 先判 `errcode !== 0`，`withToken()` 再据此清缓存 + `force_refresh`
+重取一次 token 重试。token 缓存在 KV（键 `wechat:token:${appId}`，提前 300s 过期），
+`stable_token` 正常模式下有效期内返回同一个 token，缓存足够。
+
+### 正文渲染不能复用前端的 marked + DOMPurify 链路
+
+`src/lib/markdown.ts` 依赖 DOMPurify + DOM，Workers 运行时没有 DOM。服务端另起
+`functions/lib/wechat-render.ts`，纯字符串渲染、全部样式内联（微信会剥 `<style>`
+与外链样式），原始 HTML 直接丢弃。每次渲染新建独立 `Marked` 实例并在闭包里收集
+图片地址，避免并发请求串味。
+
+### 推送失败不应改变「文章已生成」的事实
+
+定时任务的公众号同步是 **可选产物**：推送失败只把警告追加进 `automation_runs.message`
+（与封面失败一致），保持任务 `success`。否则一次微信抖动会把正常生成的整篇任务标成失败。
+去重用 `wechat_drafts(post_id UNIQUE)`，重复推送走 `draft/update` 更新既有草稿，
+不在草稿箱堆重复项。
 
 ## 数据层 / SQLite(D1)
 

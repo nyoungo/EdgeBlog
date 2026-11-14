@@ -71,7 +71,7 @@ export function assertRemoteUrl(raw: string, label = '媒体地址'): URL {
 
 export async function downloadRemote(
   rawUrl: string,
-  opts: { imageOnly?: boolean } = {},
+  opts: { imageOnly?: boolean; maxSize?: number; maxSizeMessage?: string } = {},
 ): Promise<DownloadedMedia> {
   const url = assertRemoteUrl(rawUrl);
   const controller = new AbortController();
@@ -105,16 +105,17 @@ export async function downloadRemote(
     }
   }
 
-  const maxSize = opts.imageOnly ? THUMBNAIL_MAX_SIZE : VIDEO_MAX_SIZE;
+  const maxSize = opts.maxSize ?? (opts.imageOnly ? THUMBNAIL_MAX_SIZE : VIDEO_MAX_SIZE);
+  const maxSizeMessage = opts.maxSizeMessage ?? (opts.imageOnly ? '封面图超过 2MB 限制' : '媒体文件超过 25MB 限制');
   const declared = Number(response.headers.get('content-length') ?? '0');
   if (Number.isFinite(declared) && declared > maxSize) {
-    throw AppError.payloadTooLarge(opts.imageOnly ? '封面图超过 2MB 限制' : '媒体文件超过 25MB 限制');
+    throw AppError.payloadTooLarge(maxSizeMessage);
   }
 
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.byteLength === 0) throw AppError.badRequest('下载到的文件为空');
   if (bytes.byteLength > maxSize) {
-    throw AppError.payloadTooLarge(opts.imageOnly ? '封面图超过 2MB 限制' : '媒体文件超过 25MB 限制');
+    throw AppError.payloadTooLarge(maxSizeMessage);
   }
 
   const mime = opts.imageOnly ? sniffImageMime(bytes.slice(0, 32)) : sniffMediaMime(bytes.slice(0, 32));

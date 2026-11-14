@@ -6,7 +6,7 @@
  * Values mirror seed/seed.sql. If you change a default here, update the seed
  * too so a fresh database matches a restored one.
  */
-import type { AiSettings, PublicSettings } from './types';
+import type { AiSettings, PublicSettings, WechatSettings } from './types';
 
 export const SETTING_NAMESPACES = [
   'site',
@@ -204,4 +204,18 @@ export const AI_DEFAULTS: AiSettings = {
     '你是资深的博客编辑。根据用户提供的文章内容，撰写一段 80–120 字的中文摘要：准确概括主旨与关键信息，语气自然，只输出摘要本身，不要标题、不要前后缀、不要引号。',
   contentPrompt:
     '你是一位专业的中文博客作者。根据用户提供的标题与要点，写一篇结构清晰、可读性高的 Markdown 文章：使用多级标题、列表与必要的代码块，语言自然、专业，只输出文章正文，不要任何与内容无关的说明。',
+};
+
+/* ------------------------------------------------------------------ wechat */
+
+/** Admin-only namespace holding the official-account AppID/AppSecret. */
+export const WECHAT_NAMESPACE = 'wechat';
+
+export const WECHAT_DEFAULTS: WechatSettings = {
+  enabled: false,
+  appId: '',
+  appSecret: '',
+  author: '',
+  openComment: false,
+  onlyFansCanComment: false,
 };

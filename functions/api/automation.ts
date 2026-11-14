@@ -66,6 +66,7 @@ const taskBody = z.object({
   startDate: DATE,
   endDate: DATE.nullable().optional(),
   enabled: z.boolean().optional(),
+  wechatPush: z.boolean().optional(),
 });
 
 const taskUpdateBody = taskBody.partial();
@@ -183,8 +184,8 @@ automationRoutes.post('/', async (c) => {
     `INSERT INTO automation_tasks
        (name, prompt, column_id, tags_json, cover_mode, cover_prompt, cover_url, publish_mode,
         recurrence, time_of_day, weekday, day_of_month, start_date, end_date,
-        enabled, next_run_at, created_by, created_by_name)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        enabled, wechat_push, next_run_at, created_by, created_by_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     body.name,
     body.prompt,
     columnId,
@@ -200,6 +201,7 @@ automationRoutes.post('/', async (c) => {
     body.startDate,
     body.endDate ?? null,
     enabled ? 1 : 0,
+    body.wechatPush ? 1 : 0,
     nextRunAt,
     user.id,
     await displayName(c.env, user),
@@ -255,7 +257,7 @@ automationRoutes.put('/:id', async (c) => {
     `UPDATE automation_tasks SET
         name = ?, prompt = ?, column_id = ?, tags_json = ?, cover_mode = ?, cover_prompt = ?,
         cover_url = ?, publish_mode = ?, recurrence = ?, time_of_day = ?, weekday = ?, day_of_month = ?,
-        start_date = ?, end_date = ?, enabled = ?, next_run_at = ?, updated_at = datetime('now')
+        start_date = ?, end_date = ?, enabled = ?, wechat_push = ?, next_run_at = ?, updated_at = datetime('now')
       WHERE id = ?`,
     body.name ?? existing.name,
     body.prompt ?? existing.prompt,
@@ -272,6 +274,7 @@ automationRoutes.put('/:id', async (c) => {
     merged.startDate,
     merged.endDate ?? null,
     enabled ? 1 : 0,
+    body.wechatPush === undefined ? existing.wechat_push : body.wechatPush ? 1 : 0,
     enabled ? computeNextRun(merged, new Date()) : null,
     id,
   );

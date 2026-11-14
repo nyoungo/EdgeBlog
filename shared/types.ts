@@ -238,6 +238,8 @@ export interface AutomationTask {
   start_date: string;
   end_date: string | null;
   enabled: 0 | 1;
+  /** 生成成功后是否同步推送到微信公众号草稿箱。 */
+  wechat_push: 0 | 1;
   next_run_at: string | null;
   last_run_at: string | null;
   last_status: AutomationLastStatus | null;
@@ -607,6 +609,49 @@ export type AiSettingsView = Omit<AiSettings, 'apiKey' | 'monidApiKey'> & {
   /** Feature is enabled AND the selected provider is actually usable. */
   ready: boolean;
 };
+
+/* ------------------------------------------------------- wechat (admin) */
+
+/**
+ * 微信公众号「服务端接口」配置（草稿推送用）。
+ *
+ * 与 AI 设置同样存放在 `settings` 表的私有命名空间 `wechat` 中，
+ * AppSecret 绝不进入 `/api/settings/public`，只由 `/api/wechat/settings`
+ * 以 `hasAppSecret` 掩码形式回给管理员。
+ */
+export interface WechatSettings {
+  enabled: boolean;
+  /** 公众号 AppID。 */
+  appId: string;
+  /** 公众号 AppSecret（仅存服务端）。 */
+  appSecret: string;
+  /** 草稿署名作者，微信限制 16 字，留空则不传。 */
+  author: string;
+  /** 是否自动打开评论（need_open_comment）。 */
+  openComment: boolean;
+  /** 是否仅粉丝可评论（only_fans_can_comment），仅 openComment 为真时生效。 */
+  onlyFansCanComment: boolean;
+}
+
+/** WeChat settings safe to return to the admin UI (secret replaced by a flag). */
+export type WechatSettingsView = Omit<WechatSettings, 'appSecret'> & {
+  hasAppSecret: boolean;
+  /** AppID 与 AppSecret 均已填写。 */
+  configured: boolean;
+};
+
+/** 一次草稿推送的结果（后台按钮与定时任务的返回值）。 */
+export interface WechatPushResult {
+  /** 新草稿 media_id，或更新既有草稿时为 null。 */
+  mediaId: string | null;
+  /** 是否为更新既有草稿（去重命中）。 */
+  updated: boolean;
+  /** 上传到正文的图片数量。 */
+  imageCount: number;
+  /** 封面永久素材 id。 */
+  thumbMediaId: string;
+  title: string;
+}
 
 /* ------------------------------------------------------- ai chat assistant */
 

@@ -16,11 +16,18 @@ export async function uniqueSlug(env: Env, base: string, ignoreId: number | null
   const root = slugify(base) || 'post';
   // One prefix query instead of an EXISTS probe per candidate: the loop used to
   // cost up to 200 sequential D1 round trips on a heavily suffixed title.
+  //
+  // 用「区间比较」而不是 `slug LIKE '<root>-%'`：D1 把 SQLite 的
+  // SQLITE_LIMIT_LIKE_PATTERN_LENGTH 压到 50 字节（默认是 50000），标题的
+  // slug 前缀超过约 48 字节时这条 LIKE 直接抛 “LIKE or GLOB pattern too complex”。
+  // 中文标题很容易到 48 字节（16 个汉字），因此长标题建文章会 500。
+  // 区间比较没有长度上限，且 `-`/`.` 作为字面量参与比较，无需转义。
   const rows = await all<{ id: number; slug: string }>(
     env,
-    'SELECT id, slug FROM posts WHERE slug = ? OR slug LIKE ?',
+    'SELECT id, slug FROM posts WHERE slug = ? OR (slug >= ? AND slug < ?)',
     root,
-    `${root}-%`,
+    `${root}-`,
+    `${root}.`,
   );
   const taken = new Set(rows.filter((r) => ignoreId === null || r.id !== ignoreId).map((r) => r.slug));
   if (!taken.has(root)) return root;

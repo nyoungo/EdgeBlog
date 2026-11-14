@@ -18,6 +18,7 @@ import { searchRoutes } from './search';
 import { settingRoutes } from './settings';
 import { statsRoutes } from './stats';
 import { tagRoutes } from './tags';
+import { wechatRoutes } from './wechat';
 
 /**
  * The API is mounted at /api and shares one middleware pipeline:
@@ -92,5 +93,6 @@ api.route('/search', searchRoutes);
 api.route('/stats', statsRoutes);
 api.route('/ai', aiRoutes);
 api.route('/automation', automationRoutes);
+api.route('/wechat', wechatRoutes);
 api.route('/audit', auditRoutes);
 api.route('/export', exportRoutes);

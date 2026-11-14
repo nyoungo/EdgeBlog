@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import type { AiSettingsView, ColumnSummary, MediaItem, PostDetail, PostStatus } from '@shared/types';
+import type { AiSettingsView, ColumnSummary, MediaItem, PostDetail, PostStatus, WechatSettingsView } from '@shared/types';
 import { ApiError, api } from '../../lib/api';
 import { parseSqlDate } from '../../lib/format';
 import { useAsync, useDocumentTitle, useUnsavedChangesGuard } from '../../hooks';
@@ -100,6 +100,8 @@ export function PostEditorPage() {
   const [picker, setPicker] = useState<null | 'cover' | 'og'>(null);
   const [aiReady, setAiReady] = useState(false);
   const [aiBusy, setAiBusy] = useState<null | 'excerpt' | 'content'>(null);
+  const [wechatReady, setWechatReady] = useState(false);
+  const [wechatPushing, setWechatPushing] = useState(false);
 
   const draftKey = `${DRAFT_PREFIX}${routeSlug ?? 'new'}`;
   const [baseline, setBaseline] = useState<string>(() => JSON.stringify(EMPTY));
@@ -172,6 +174,22 @@ export function PostEditorPage() {
     };
   }, []);
 
+  // 公众号推送是否可用（启用 + 已配置），决定编辑器里是否显示推送按钮。
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<WechatSettingsView>('/wechat/settings')
+      .then(({ data }) => {
+        if (!cancelled) setWechatReady(data.enabled && data.configured);
+      })
+      .catch(() => {
+        /* 未配置公众号 — 静默隐藏推送入口 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // 专栏列表（含隐藏专栏）：文章可以发到隐藏专栏，编辑时也要能选回原专栏。
   const columns = useAsync(
     () => api.get<ColumnSummary[]>('/columns/admin').then((r) => r.data).catch(() => [] as ColumnSummary[]),
@@ -229,6 +247,55 @@ export function PostEditorPage() {
       error(err instanceof Error ? err.message : 'AI 生成失败');
     } finally {
       setAiBusy(null);
+    }
+  };
+
+  const pushToWechat = async () => {
+    if (!editing || !postId) {
+      error('请先保存文章，再推送到公众号草稿');
+      return;
+    }
+    if (!form.title.trim()) {
+      error('标题不能为空');
+      return;
+    }
+    if (!form.coverUrl.trim()) {
+      error('推送草稿需要封面图，请先设置封面');
+      return;
+    }
+    setWechatPushing(true);
+    try {
+      // 推送接口按文章 ID 从库里读取，先把未保存的修改落库，避免推旧内容。
+      if (dirty) {
+        await api.put<PostDetail>(`/posts/${postId}`, {
+          title: form.title.trim(),
+          slug: form.slug.trim() || undefined,
+          excerpt: form.excerpt.trim(),
+          contentMd: form.contentMd,
+          coverUrl: form.coverUrl.trim() || null,
+          status: form.status,
+          publishedAt: form.publishedAt ? new Date(form.publishedAt).toISOString() : null,
+          metaTitle: form.metaTitle.trim() || null,
+          metaDescription: form.metaDescription.trim() || null,
+          ogImage: form.ogImage.trim() || null,
+          featured: form.featured,
+          tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
+          columnId: form.columnId ? Number(form.columnId) : null,
+        });
+        setBaseline(JSON.stringify(form));
+      }
+      const { data } = await api.post<{ updated: boolean; imageCount: number }>(
+        `/wechat/posts/${postId}/draft`,
+      );
+      success(
+        data.updated
+          ? `已更新公众号草稿（同步 ${data.imageCount} 张正文图）`
+          : `已推送到公众号草稿（同步 ${data.imageCount} 张正文图）`,
+      );
+    } catch (err) {
+      error(err instanceof ApiError ? err.message : '推送失败');
+    } finally {
+      setWechatPushing(false);
     }
   };
 
@@ -358,6 +425,18 @@ export function PostEditorPage() {
               <span className="h-1.5 w-1.5 rounded-full bg-warning" />
               未保存
             </span>
+          )}
+          {editing && wechatReady && (
+            <Button
+              type="button"
+              variant="secondary"
+              loading={wechatPushing}
+              disabled={saving}
+              onClick={() => void pushToWechat()}
+            >
+              <Icon name="globe" size={16} />
+              推送到公众号草稿
+            </Button>
           )}
           <Button type="submit" loading={saving}>
             <Icon name="save" size={16} />
