@@ -108,6 +108,13 @@ export function PostEditorPage() {
   const [stashed, setStashed] = useState<FormState | null>(null);
   const dirty = loaded && JSON.stringify(form) !== baseline;
 
+  // 异步回调（公众号推送失败后服务端自动修图）需要读到最新表单值再合并，
+  // 不能用闭包里可能已经过期的 form。
+  const formRef = useRef(form);
+  useEffect(() => {
+    formRef.current = form;
+  }, [form]);
+
   // Stashes are tagged with the tab that wrote them: a second, clean editor tab
   // must never wipe another tab's unsaved work.
   const ownerId = useRef(newTabId()).current;
@@ -284,13 +291,26 @@ export function PostEditorPage() {
         });
         setBaseline(JSON.stringify(form));
       }
-      const { data } = await api.post<{ updated: boolean; imageCount: number }>(
-        `/wechat/posts/${postId}/draft`,
-      );
+      const { data } = await api.post<{
+        updated: boolean;
+        imageCount: number;
+        repaired: boolean;
+        contentMd?: string;
+        coverUrl?: string | null;
+      }>(`/wechat/posts/${postId}/draft`);
+      // 服务端自动修复过图片时会改写正文/封面地址，必须同步回编辑器，
+      // 否则下一次保存会把修复前的旧图地址覆盖回去，推送又失败。
+      if (data.repaired && data.contentMd !== undefined) {
+        const next = { ...formRef.current, contentMd: data.contentMd, coverUrl: data.coverUrl ?? '' };
+        formRef.current = next;
+        setForm(next);
+        setBaseline(JSON.stringify(next));
+      }
+      const fixed = data.repaired ? '，图片已自动修复' : '';
       success(
         data.updated
-          ? `已更新公众号草稿（同步 ${data.imageCount} 张正文图）`
-          : `已推送到公众号草稿（同步 ${data.imageCount} 张正文图）`,
+          ? `已更新公众号草稿（同步 ${data.imageCount} 张正文图${fixed}）`
+          : `已推送到公众号草稿（同步 ${data.imageCount} 张正文图${fixed}）`,
       );
     } catch (err) {
       error(err instanceof ApiError ? err.message : '推送失败');

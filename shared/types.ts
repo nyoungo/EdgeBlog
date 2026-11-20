@@ -633,6 +633,10 @@ export interface WechatSettings {
   openComment: boolean;
   /** 是否仅粉丝可评论（only_fans_can_comment），仅 openComment 为真时生效。 */
   onlyFansCanComment: boolean;
+  /** 推送到公众号时，封面图在正文中的位置；不插入时仍作为公众号封面。 */
+  bodyCoverPosition: 'none' | 'top' | 'middle' | 'bottom';
+  /** 推送因图片格式/体积失败时，是否让 AI 自动压缩或转换后重试一次。 */
+  repairPushFailures: boolean;
   /** 是否在每篇推送文章末尾追加「小程序卡片」。 */
   miniprogramEnabled: boolean;
   /** 卡片跳转的小程序 AppID。 */

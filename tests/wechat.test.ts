@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WechatSettings } from '../shared/types';
 import type { Env } from '../functions/lib/env';
 import { AppError } from '../functions/lib/errors';
-import { renderWechatContent, renderMiniprogramCard, substituteWechatImages, truncateChars, validateWechatContent } from '../functions/lib/wechat-render';
+import { insertBodyCover, renderWechatContent, renderMiniprogramCard, substituteWechatImages, truncateChars, validateWechatContent } from '../functions/lib/wechat-render';
 import { validateWechatContentImage } from '../functions/lib/wechat-draft';
 import { addDraft, type WechatArticle } from '../functions/lib/wechat';
 
@@ -13,6 +13,8 @@ const SETTINGS: WechatSettings = {
   author: '测试作者',
   openComment: false,
   onlyFansCanComment: false,
+  bodyCoverPosition: 'none',
+  repairPushFailures: true,
   miniprogramEnabled: false,
   miniprogramAppId: '',
   miniprogramPath: '',
@@ -82,6 +84,17 @@ describe('WeChat Markdown rendering', () => {
     expect(rendered.html).toContain('<li style=');
     expect(truncateChars('甲😀乙', 2)).toBe('甲😀');
     expect(truncateChars('abc', 4)).toBe('abc');
+  });
+
+  it('inserts a body cover at the requested position', () => {
+    const html = '<p>第一段</p><p>第二段</p><p>第三段</p>';
+    const cover = '<p>封面</p>';
+
+    expect(insertBodyCover(html, cover, 'top')).toBe(`${cover}${html}`);
+    expect(insertBodyCover(html, cover, 'bottom')).toBe(`${html}${cover}`);
+    expect(insertBodyCover(html, cover, 'middle')).toContain('</p><p>封面</p><p>');
+    expect(insertBodyCover('plain text', cover, 'middle')).toBe(`${cover}plain text`);
+    expect(insertBodyCover(html, cover, 'none')).toBe(html);
   });
 
   it('enforces strict HTML character and byte limits', () => {

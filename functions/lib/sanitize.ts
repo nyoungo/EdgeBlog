@@ -12,6 +12,34 @@ export function escapeHtml(input: string): string {
 
 const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f]/g;
 
+/** 字符统计明细（注意与 `countWords` 的词数口径不同：这里按字符算）。 */
+export interface CharStats {
+  /** Markdown 源码的 Unicode 码点数（含标点、空白与 Markdown 标记）。 */
+  chars: number;
+  /** 去掉所有空白后的码点数。 */
+  charsNoSpace: number;
+  /** 去掉 Markdown 标记后的正文码点数。 */
+  plainChars: number;
+  /** 正文去掉所有空白后的码点数，最接近「有多少字」。 */
+  plainCharsNoSpace: number;
+  /** 非空行数，用于粗估段落数。 */
+  lines: number;
+}
+
+/** 按 Unicode 码点计数：一个汉字、一个 emoji 都算 1，不会被 UTF-16 拆成 2。 */
+const codePointLength = (text: string): number => Array.from(text).length;
+
+export function charStats(markdown: string): CharStats {
+  const plain = stripMarkdown(markdown);
+  return {
+    chars: codePointLength(markdown),
+    charsNoSpace: codePointLength(markdown.replace(/\s+/g, '')),
+    plainChars: codePointLength(plain),
+    plainCharsNoSpace: codePointLength(plain.replace(/\s+/g, '')),
+    lines: markdown.split(/\r?\n/).filter((line) => line.trim().length > 0).length,
+  };
+}
+
 /** Count "words": each CJK char counts as one, latin runs count as one each. */
 export function countWords(markdown: string): number {
   const plain = stripMarkdown(markdown);

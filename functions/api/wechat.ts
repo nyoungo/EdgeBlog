@@ -21,7 +21,8 @@ import { ok } from '../lib/response';
 import { parseJson } from '../lib/validate';
 import { getPostById } from '../lib/posts-repo';
 import { readWechatSettings, wechatConfigured, writeWechatSettings } from '../lib/wechat-settings';
-import { pushPostToWechatDraft, getWechatDraft, listWechatDrafts } from '../lib/wechat-draft';
+import { getWechatDraft, listWechatDrafts } from '../lib/wechat-draft';
+import { pushPostToWechatWithRepair } from '../lib/wechat-repair';
 import { testWechatConnection } from '../lib/wechat';
 
 export const wechatRoutes = new Hono<AppEnv>();
@@ -61,6 +62,8 @@ const patchSchema = z
     author: z.string().trim().max(16),
     openComment: z.boolean(),
     onlyFansCanComment: z.boolean(),
+    bodyCoverPosition: z.enum(['none', 'top', 'middle', 'bottom']),
+    repairPushFailures: z.boolean(),
     miniprogramEnabled: z.boolean(),
     miniprogramAppId: z.string().trim().max(64),
     miniprogramPath: z.string().trim().max(256),
@@ -115,12 +118,16 @@ wechatRoutes.post('/posts/:id/draft', async (c) => {
   // 阅读原文指向部署站点；SITE_URL 未配置时不下发该字段。
   const siteUrl = (c.env.SITE_URL ?? '').trim() || undefined;
 
-  const result = await pushPostToWechatDraft(c.env, settings, post, { siteUrl });
+  const result = await pushPostToWechatWithRepair(c.env, settings, post, {
+    siteUrl,
+    actor: user,
+  });
   await recordAudit(c.env, user, 'wechat.push', 'post', id, {
     mediaId: result.mediaId,
     updated: result.updated,
     imageCount: result.imageCount,
     title: result.title,
+    repaired: result.repaired,
   });
   return ok(c, result);
 });

@@ -8,7 +8,7 @@ import { useDocumentTitle } from '../../hooks';
 import { useSettings } from '../../providers/SettingsProvider';
 import { useToast } from '../../providers/ToastProvider';
 import { Button } from '../../components/ui/Button';
-import { Input, Textarea } from '../../components/ui/Field';
+import { Input, Select, Textarea } from '../../components/ui/Field';
 import { Switch } from '../../components/ui/Switch';
 import { Card, EmptyState } from '../../components/ui/Feedback';
 import { Icon, type IconName } from '../../components/ui/icons';
@@ -277,10 +277,27 @@ export function WechatSettingsPage() {
             label="仅粉丝可评论"
             description="仅在「自动打开评论」开启时生效"
           />
+          <Select
+            label="正文中的封面位置"
+            value={form.bodyCoverPosition}
+            onChange={(e) => set('bodyCoverPosition', e.target.value as FormState['bodyCoverPosition'])}
+            hint="仅影响公众号草稿正文，不修改站点文章；插入正文的图片需为小于 1MB 的 JPG/PNG。"
+          >
+            <option value="none">不插入</option>
+            <option value="top">正文顶部</option>
+            <option value="middle">正文中间</option>
+            <option value="bottom">正文底部</option>
+          </Select>
           <p className="text-xs leading-relaxed text-faint">
             封面取文章的封面图（微信 thumb_media_id 必填，无封面会拒绝推送）；正文图片会逐张上传到微信，
             仅支持 jpg/png 且单张小于 1MB。
           </p>
+          <Switch
+            checked={form.repairPushFailures}
+            onChange={(v) => set('repairPushFailures', v)}
+            label="图片错误时自动修复并重推一次"
+            description="仅处理公众号正文/封面的图片格式或体积问题；AI 会生成新图并替换文章中的图片地址。"
+          />
         </Section>
 
         <Section

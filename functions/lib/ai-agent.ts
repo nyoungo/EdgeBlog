@@ -28,7 +28,7 @@ import {
   setPostTags,
   uniqueSlug,
 } from './posts-write';
-import { countWords, deriveExcerpt } from './sanitize';
+import { charStats, countWords, deriveExcerpt } from './sanitize';
 import { htmlToText } from './html-to-text';
 import { resultsLookRelevant, type SearchResult } from './serp';
 import { resolveSearchQuery } from './search-query';
@@ -40,8 +40,18 @@ import {
 } from './monid';
 import { IMAGE_MAX_SIZE, VIDEO_MAX_SIZE, isVideoMime, thumbnailKey } from './media-file';
 import { mediaObjectKey, mediaPublicUrl } from './media-store';
-import { assertRemoteUrl, downloadRemote, filenameFromUrl, isPrivateHost } from './media-ingest';
+import {
+  assertRemoteUrl,
+  downloadRemote,
+  filenameFromUrl,
+  isPrivateHost,
+  loadImageSource,
+  storeImageInMedia,
+} from './media-ingest';
 import { generateCoverImage } from './cover';
+import { compressImage } from './image-codec';
+import { formatBytes } from './image-process';
+import { renderWechatContent, validateWechatContent } from './wechat-render';
 
 const MAX_ROUNDS = 6;
 const MAX_HISTORY = 20;
@@ -482,6 +492,45 @@ const setThumbnailSchema = z.object({
 
 const generateCoverSchema = z.object({
   prompt: z.string().trim().min(1).max(2000),
+});
+
+const countCharsSchema = z
+  .object({
+    text: z.string().max(500_000).optional(),
+    postId: z.coerce.number().int().positive().optional(),
+    slug: z.string().trim().min(1).max(200).optional(),
+  })
+  .refine(
+    (value) => value.text !== undefined || value.postId !== undefined || value.slug !== undefined,
+    '请提供 text、postId 或 slug',
+  );
+
+const compressImageSchema = z.object({
+  url: z.string().trim().min(1).max(2000),
+  maxBytes: z.coerce.number().int().min(50_000).max(IMAGE_MAX_SIZE).optional(),
+  maxWidth: z.coerce.number().int().min(200).max(6000).optional(),
+  quality: z.coerce.number().int().min(30).max(95).optional(),
+  format: z.enum(['jpeg', 'png', 'auto']).optional(),
+  filename: z.string().trim().max(120).optional(),
+});
+
+const convertImageFormatSchema = z
+  .object({
+    url: z.string().trim().min(1).max(2000).optional(),
+    mediaId: z.coerce.number().int().positive().optional(),
+    format: z.enum(['jpeg', 'png']),
+    quality: z.coerce.number().int().min(30).max(95).optional(),
+    maxWidth: z.coerce.number().int().min(200).max(6000).optional(),
+    maxBytes: z.coerce.number().int().min(50_000).max(IMAGE_MAX_SIZE).optional(),
+    filename: z.string().trim().max(120).optional(),
+  })
+  .refine((value) => Boolean(value.url || value.mediaId), '请提供 url 或 mediaId');
+
+const replacePostImageSchema = z.object({
+  id: z.coerce.number().int().positive().optional(),
+  slug: z.string().trim().min(1).max(200).optional(),
+  oldUrl: z.string().trim().min(1).max(2000),
+  newUrl: z.string().trim().min(1).max(2000),
 });
 
 const fetchPageSchema = z.object({
@@ -1048,6 +1097,224 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
     },
   ),
 
+  count_chars: makeTool(
+    {
+      type: 'function',
+      function: {
+        name: 'count_chars',
+        description:
+          '统计字符数：给出 text 直接统计文本，或给出 postId/slug 统计文章正文。按 Unicode 码点算，一个汉字、一个字母、一个 emoji 都算 1 个字符；同时返回公众号正文的长度校验结果。',
+        parameters: {
+          type: 'object',
+          properties: {
+            text: { type: 'string', description: '要统计的文本（Markdown 或纯文本）。' },
+            postId: { type: 'number', description: '统计这篇文章的正文。' },
+            slug: { type: 'string', description: '用 slug 定位文章。' },
+          },
+        },
+      },
+    },
+    countCharsSchema,
+    async ({ env }, args) => {
+      let markdown = args.text ?? '';
+      let source = '文本';
+      if (args.text === undefined) {
+        const post = await requirePost(env, args.postId, args.slug);
+        markdown = post.content_md ?? '';
+        source = `文章《${post.title}》`;
+      }
+      const stats = charStats(markdown);
+      const rendered = renderWechatContent(markdown);
+      return {
+        summary: `${source}共 ${stats.chars} 个字符（不含空白 ${stats.charsNoSpace}）`,
+        data: {
+          source,
+          ...stats,
+          wechatHtmlChars: Array.from(rendered.html).length,
+          wechatContentError: validateWechatContent(rendered.html),
+        },
+      };
+    },
+  ),
+
+  compress_image_from_url: makeTool(
+    {
+      type: 'function',
+      function: {
+        name: 'compress_image_from_url',
+        description:
+          '从 URL 或本站 /media/ 地址取图，缩放到指定宽度并压缩到目标体积以内，然后存入媒体库并返回新地址。适合修复公众号正文图超过 1MB、尺寸过大的问题。',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: '图片的公网 http/https 地址或站内 /media/... 地址。' },
+            maxBytes: {
+              type: 'number',
+              description: '目标体积上限（字节），默认 900000（约 900KB，给微信 1MB 留余量）。',
+            },
+            maxWidth: { type: 'number', description: '最大宽度，默认 1440。' },
+            quality: { type: 'number', description: 'JPEG 初始质量 30-95，默认 82。' },
+            format: {
+              type: 'string',
+              enum: ['jpeg', 'png', 'auto'],
+              description: '输出格式，auto 默认转 jpeg。',
+            },
+            filename: { type: 'string', description: '可选文件名，用于生成可读的存储路径。' },
+          },
+          required: ['url'],
+        },
+      },
+    },
+    compressImageSchema,
+    async ({ env }, args) => {
+      const source = await loadImageSource(env, args.url, {
+        maxSize: IMAGE_MAX_SIZE,
+        maxSizeMessage: '原图超过 8MB，无法压缩',
+      });
+      const compressed = await compressImage(source.bytes, source.mime, {
+        maxBytes: args.maxBytes ?? 900_000,
+        maxWidth: args.maxWidth ?? 1440,
+        quality: args.quality ?? 82,
+        format: args.format ?? 'auto',
+      });
+      const filename = args.filename || filenameFromUrl(args.url) || 'image';
+      const stored = await storeImageInMedia(env, compressed.bytes, compressed.mime, filename);
+      return {
+        summary: `已压缩并上传：${formatBytes(source.bytes.byteLength)} → ${formatBytes(stored.size)}（${compressed.width}×${compressed.height}）`,
+        data: {
+          id: stored.id,
+          url: stored.url,
+          mime: stored.mime,
+          size: stored.size,
+          width: compressed.width,
+          height: compressed.height,
+          attempts: compressed.attempts,
+        },
+      };
+    },
+  ),
+
+  convert_image_format: makeTool(
+    {
+      type: 'function',
+      function: {
+        name: 'convert_image_format',
+        description:
+          '把图片转换成 JPG 或 PNG 并存入媒体库，返回新地址。可传图片 URL、站内 /media/ 地址或媒体库 id。适合把 WebP/超大图转成公众号可用的格式。',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: '图片的公网 http/https 地址或站内 /media/... 地址。' },
+            mediaId: { type: 'number', description: '媒体库 id；与 url 二选一。' },
+            format: { type: 'string', enum: ['jpeg', 'png'], description: '目标格式。' },
+            quality: { type: 'number', description: 'JPEG 质量 30-95，默认 90。' },
+            maxWidth: { type: 'number', description: '最大宽度，默认 4000（只缩小）。' },
+            maxBytes: { type: 'number', description: '体积上限（字节），默认 8MB。' },
+            filename: { type: 'string', description: '可选文件名。' },
+          },
+          required: ['format'],
+        },
+      },
+    },
+    convertImageFormatSchema,
+    async ({ env }, args) => {
+      let sourceUrl = args.url ?? '';
+      if (!sourceUrl && args.mediaId) {
+        const row = await first<{ url: string }>(env, 'SELECT url FROM media WHERE id = ?', args.mediaId);
+        if (!row) throw AppError.notFound('媒体不存在');
+        sourceUrl = row.url;
+      }
+      if (!sourceUrl) throw AppError.badRequest('请提供 url 或 mediaId');
+
+      const source = await loadImageSource(env, sourceUrl, {
+        maxSize: IMAGE_MAX_SIZE,
+        maxSizeMessage: '原图超过 8MB，无法转换',
+      });
+      const converted = await compressImage(source.bytes, source.mime, {
+        maxBytes: args.maxBytes ?? IMAGE_MAX_SIZE,
+        maxWidth: args.maxWidth ?? 4000,
+        quality: args.quality ?? 90,
+        format: args.format,
+      });
+      const filename = args.filename || source.filename || 'image';
+      const stored = await storeImageInMedia(env, converted.bytes, converted.mime, filename);
+      return {
+        summary: `已转换并上传：${source.mime} → ${stored.mime}（${converted.width}×${converted.height}，${formatBytes(stored.size)}）`,
+        data: {
+          id: stored.id,
+          url: stored.url,
+          mime: stored.mime,
+          size: stored.size,
+          width: converted.width,
+          height: converted.height,
+        },
+      };
+    },
+  ),
+
+  replace_post_image: makeTool(
+    {
+      type: 'function',
+      function: {
+        name: 'replace_post_image',
+        description:
+          '把文章正文或封面里的某张图片地址替换成新地址（例如换成刚压缩/转换后的图片），只改地址字符串，不动其他内容。',
+        parameters: {
+          type: 'object',
+          properties: {
+            id: { type: 'number', description: '文章 id。' },
+            slug: { type: 'string', description: '文章 slug；与 id 二选一。' },
+            oldUrl: { type: 'string', description: '要替换的图片原地址，需与正文里的写法一致。' },
+            newUrl: { type: 'string', description: '替换后的新地址。' },
+          },
+          required: ['oldUrl', 'newUrl'],
+        },
+      },
+    },
+    replacePostImageSchema,
+    async ({ env, user }, args) => {
+      const post = await requirePost(env, args.id, args.slug);
+      const oldUrl = args.oldUrl.trim();
+      const newUrl = args.newUrl.trim();
+      if (oldUrl === newUrl) throw AppError.badRequest('新旧图片地址相同，无需替换');
+
+      const contentMd = post.content_md ?? '';
+      const inContent = contentMd.includes(oldUrl);
+      const inCover = (post.cover_url ?? '').trim() === oldUrl;
+      if (!inContent && !inCover) {
+        throw AppError.badRequest(`文章正文和封面里都没有这个图片地址：${oldUrl}`);
+      }
+
+      // split/join 做纯文本替换，避免正则元字符（图片 URL 常带 ? 和 &）出错。
+      const nextContent = inContent ? contentMd.split(oldUrl).join(newUrl) : contentMd;
+      await run(
+        env,
+        `UPDATE posts SET content_md = ?, cover_url = ?, word_count = ?, updated_at = datetime('now')
+          WHERE id = ?`,
+        nextContent,
+        inCover ? newUrl : post.cover_url,
+        countWords(nextContent),
+        post.id,
+      );
+      await recordAudit(env, user, 'post.update', 'post', post.id, {
+        title: post.title,
+        via: 'ai',
+        imageReplaced: true,
+      });
+
+      return {
+        summary: `已替换《${post.title}》中的图片地址${inContent ? '（正文）' : ''}${inCover ? '（封面）' : ''}`,
+        data: {
+          id: post.id,
+          slug: post.slug,
+          contentUpdated: inContent,
+          coverUpdated: inCover,
+          url: newUrl,
+        },
+      };
+    },
+  ),
+
   list_comments: makeTool(
     {
       type: 'function',
@@ -1336,7 +1603,7 @@ function buildSystemPrompt(context?: AiChatContext): string {
   if (context?.postId) lines.push(`当前正在编辑的文章 id：${context.postId}`);
   lines.push(
     '',
-    '你可以调用工具:查询/创建/修改/删除文章,查询标签,查询媒体库,从 URL 上传图片或视频,给视频设置封面,用 Workers AI 生成封面图,查询和审核评论,查看统计和站点信息,联网搜索,读取指定网页的正文。',
+    '你可以调用工具:查询/创建/修改/删除文章,查询标签,查询媒体库,从 URL 上传图片或视频,给视频设置封面,用 Workers AI 生成封面图,统计文章字符数,压缩图片或转换图片格式并替换文章里的图片地址,查询和审核评论,查看统计和站点信息,联网搜索,读取指定网页的正文。',
     '',
     '规则：',
     '1. 需要执行操作时优先调用工具，不要只在回复里描述操作。',
@@ -1457,7 +1724,12 @@ export interface AgentLoopResult extends AiChatResult {
 }
 
 /** 能产出「已入库图片」的工具:从它们的结果里收集封面候选。 */
-const COVER_IMAGE_TOOLS = new Set(['upload_media_from_url', 'generate_cover']);
+const COVER_IMAGE_TOOLS = new Set([
+  'upload_media_from_url',
+  'generate_cover',
+  'compress_image_from_url',
+  'convert_image_format',
+]);
 
 function collectCoverImage(tool: string, result: unknown, sink: string[]): void {
   if (!COVER_IMAGE_TOOLS.has(tool)) return;

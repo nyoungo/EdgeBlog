@@ -10,11 +10,9 @@
  * 封面是可选产物:任何一步失败都返回 null / 原地址,不影响正文落库。
  */
 import type { AutomationTask } from '@shared/types';
-import { run } from './db';
 import type { Env } from './env';
-import { ingestRemoteImage } from './media-ingest';
+import { ingestRemoteImage, storeImageInMedia } from './media-ingest';
 import { EXT_BY_MIME, IMAGE_MAX_SIZE, sniffImageMime } from './media-file';
-import { mediaObjectKey, mediaPublicUrl } from './media-store';
 
 const COVER_MODEL = '@cf/black-forest-labs/flux-1-schnell';
 
@@ -33,28 +31,8 @@ async function storeGeneratedImage(
   mime: string,
   filename: string,
 ): Promise<string> {
-  const key = mediaObjectKey(filename, mime);
-  await env.MEDIA.put(key, bytes, {
-    httpMetadata: { contentType: mime, cacheControl: 'public, max-age=31536000, immutable' },
-  });
-  const url = mediaPublicUrl(env.MEDIA_PUBLIC_BASE, key);
-  try {
-    await run(
-      env,
-      'INSERT INTO media (key, url, filename, size, mime, thumbnail_url) VALUES (?, ?, ?, ?, ?, ?)',
-      key,
-      url,
-      filename,
-      bytes.byteLength,
-      mime,
-      null,
-    );
-  } catch (err) {
-    // 索引写失败就把对象删掉,避免 R2 里留下没有记录的孤儿文件。
-    await env.MEDIA.delete(key).catch(() => undefined);
-    throw err;
-  }
-  return url;
+  const stored = await storeImageInMedia(env, bytes, mime, filename);
+  return stored.url;
 }
 
 /**

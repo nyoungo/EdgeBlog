@@ -218,6 +218,8 @@ export const WECHAT_DEFAULTS: WechatSettings = {
   author: '',
   openComment: false,
   onlyFansCanComment: false,
+  bodyCoverPosition: 'none',
+  repairPushFailures: true,
   miniprogramEnabled: false,
   miniprogramAppId: '',
   miniprogramPath: '',

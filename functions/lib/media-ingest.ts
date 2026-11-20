@@ -14,6 +14,7 @@ import {
   THUMBNAIL_MAX_SIZE,
   VIDEO_MAX_SIZE,
   isVideoMime,
+  keyFromPublicUrl,
   sniffImageMime,
   sniffMediaMime,
 } from './media-file';
@@ -147,26 +148,58 @@ export interface IngestedImage {
   size: number;
 }
 
-/**
- * 从公网 URL 下载一张图片,存入 R2 并写入 `media` 表,返回入库结果。
- *
- * 与「从 URL 上传媒体」工具走同一条链路,但只接受图片、上限为图片档位,
- * 供定时发文的封面外链入库与 AI 助手配图复用。
- */
-export async function ingestRemoteImage(
-  env: Env,
-  rawUrl: string,
-  filenameHint = 'image',
-): Promise<IngestedImage> {
-  const media = await downloadRemote(rawUrl);
-  if (isVideoMime(media.mime)) throw AppError.unsupportedMedia('封面必须是图片');
-  if (media.bytes.byteLength > IMAGE_MAX_SIZE) throw AppError.payloadTooLarge('图片超过 8MB 限制');
+export interface ImageSource {
+  bytes: Uint8Array;
+  mime: string;
+  filename: string;
+}
 
-  const filename = filenameFromUrl(rawUrl) || filenameHint;
-  const key = mediaObjectKey(filename, media.mime);
-  await env.MEDIA.put(key, media.bytes, {
+/**
+ * 读取一张图片的字节：本站 `/media/...` 直接读 R2（不绕回自家域名），
+ * 外链走带 SSRF 防护与体积上限的下载。
+ *
+ * 公众号推送、压缩工具、格式转换共用这一条链路，避免各写一套。
+ */
+export async function loadImageSource(
+  env: Env,
+  url: string,
+  opts: { maxSize?: number; maxSizeMessage?: string } = {},
+): Promise<ImageSource> {
+  const raw = url.trim();
+  if (!raw) throw AppError.badRequest('图片地址为空');
+  const maxSize = opts.maxSize ?? IMAGE_MAX_SIZE;
+  const maxSizeMessage = opts.maxSizeMessage ?? '图片超过 8MB 限制';
+
+  if (raw.startsWith('/') && !raw.startsWith('//')) {
+    const key = keyFromPublicUrl(raw, env.MEDIA_PUBLIC_BASE ?? '');
+    if (!key) throw AppError.badRequest(`无法识别的站内图片地址：${raw}`);
+    const object = await env.MEDIA.get(key);
+    if (!object) throw AppError.badRequest(`站内图片不存在（可能已被删除）：${raw}`);
+    if (object.size > maxSize) throw AppError.payloadTooLarge(maxSizeMessage);
+    const bytes = new Uint8Array(await object.arrayBuffer());
+    return {
+      bytes,
+      // 以文件魔数为准，不能信任 R2 metadata 或 URL 后缀。
+      mime: sniffImageMime(bytes.slice(0, 32)) ?? '',
+      filename: key.split('/').pop() ?? 'image',
+    };
+  }
+
+  const media = await downloadRemote(raw, { imageOnly: true, maxSize, maxSizeMessage });
+  return { bytes: media.bytes, mime: media.mime, filename: filenameFromUrl(raw) || 'image' };
+}
+
+/** 把图片字节写入 R2 与 `media` 表，返回公开地址。索引写失败时回滚 R2 对象。 */
+export async function storeImageInMedia(
+  env: Env,
+  bytes: Uint8Array,
+  mime: string,
+  filename: string,
+): Promise<IngestedImage> {
+  const key = mediaObjectKey(filename, mime);
+  await env.MEDIA.put(key, bytes, {
     httpMetadata: {
-      contentType: media.mime,
+      contentType: mime,
       cacheControl: 'public, max-age=31536000, immutable',
     },
   });
@@ -179,14 +212,35 @@ export async function ingestRemoteImage(
       key,
       url,
       filename,
-      media.bytes.byteLength,
-      media.mime,
+      bytes.byteLength,
+      mime,
       null,
     );
-    return { id: Number(result.meta.last_row_id), url, mime: media.mime, size: media.bytes.byteLength };
+    return { id: Number(result.meta.last_row_id), url, mime, size: bytes.byteLength };
   } catch (err) {
-    // 索引写失败就把对象删掉,避免 R2 里留下没有记录的孤儿文件。
     await env.MEDIA.delete(key).catch(() => undefined);
     throw err;
   }
+}
+
+/**
+ * 从公网 URL 下载一张图片,存入 R2 并写入 `media` 表,返回入库结果。
+ *
+ * 与「从 URL 上传媒体」工具走同一条链路,但只接受图片、上限为图片档位,
+ * 供定时发文的封面外链入库与 AI 助手配图复用。
+ */
+export async function ingestRemoteImage(
+  env: Env,
+  rawUrl: string,
+  filenameHint = 'image',
+): Promise<IngestedImage> {
+  const media = await downloadRemote(rawUrl, {
+    imageOnly: true,
+    maxSize: IMAGE_MAX_SIZE,
+    maxSizeMessage: '图片超过 8MB 限制',
+  });
+  if (isVideoMime(media.mime)) throw AppError.unsupportedMedia('封面必须是图片');
+
+  const filename = filenameFromUrl(rawUrl) || filenameHint;
+  return storeImageInMedia(env, media.bytes, media.mime, filename);
 }

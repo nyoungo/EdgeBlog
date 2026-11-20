@@ -214,6 +214,45 @@ Secure）、canonical / RSS 指向 localhost。这些本地覆盖项现在保持
 去重用 `wechat_drafts(post_id UNIQUE)`，重复推送走 `draft/update` 更新既有草稿，
 不在草稿箱堆重复项。
 
+### 图片错误自动修复：只修图、不重写正文，判成功要看数据库是否真的变了
+
+推送因正文图/封面的**格式或体积**失败时，`wechat-repair.ts` 先跑一次受限工具循环
+（白名单只有 `compress_image_from_url` / `convert_image_format` / `replace_post_image`），
+再由外层确定性地重推一次。要点：
+
+- 只对 `PAYLOAD_TOO_LARGE` / `UNSUPPORTED_MEDIA_TYPE` 且消息里能定位到具体图片的错误
+  触发；鉴权、限流、配置、正文超长不在范围内，否则会白白多打一次微信接口。
+- 不给模型 `update_post`：整篇重写会把正文改坏，也容易超出上下文。替换走
+  `replace_post_image` 的纯文本 `split/join`（图片 URL 带 `?` `&`，不能用正则）。
+- **不能信模型说「已修复」**。判断标准是重新读库后 `content_md` / `cover_url`
+  是否真的变了；没变就抛原始错误，保留真实失败原因。
+- 修复后必须把新的正文/封面返回给编辑器并重置 baseline（`PostEditorPage`）。
+  否则用户下一次保存会把旧图地址写回去，推送又失败一次。
+
+## 图片处理(WASM)
+
+### Workers 里没有 sharp/canvas，编解码用 `@jsquash/*`，且必须按相对路径 import `.wasm`
+
+- Workers 运行时没有 DOM、不能装原生模块，`sharp` 不可用；浏览器端的 Canvas 压缩
+  （`src/lib/image-compress.ts`）也搬不过来。
+- 本项目用 `@jsquash/jpeg` / `png` / `webp` / `resize`。WebP **只用于解码**：
+  编码器 `webp_enc.wasm` 走 SIMD 动态导入，Workers 里不可靠，所以输出只有 JPEG/PNG。
+- wrangler 的 module collector 只认**相对路径**：`import wasm from
+  '../../node_modules/@jsquash/png/codec/pkg/squoosh_png_bg.wasm'`。写成包名
+  （`'@jsquash/png/...wasm'`）会被当成相对源码目录的路径，报 `ENOENT`。
+- `@jsquash/png` 与 `@jsquash/resize` 的包里自带 `xxx_bg.wasm.d.ts`（wasm-bindgen
+  导出的函数声明，没有 default），会**盖住** `%.wasm` 的通配声明；这两处用
+  `// @ts-expect-error` 放行，其它 wasm 不需要。
+- 体积：5 个 wasm 原始约 780KB、gzip 约 200KB，整个 Worker dry-run 后 gzip 约 450KB。
+  改 wasm 依赖后用 `npx wrangler deploy --dry-run` 核对（Workers 免费版压缩上限 1MB）。
+
+### Vitest 不能直接 import `.wasm`：用 `resolveId` 换成空模块
+
+Node/Vite 会把 `.wasm` 当外部模块交给原生 loader，报
+`Cannot find package 'wbg'`（把二进制当 JS 解析）。`vitest.config.ts` 里的
+`wasm-stub` 插件把任何以 `.wasm` 结尾的 specifier 解析到 `tests/wasm-stub.ts`。
+注意 **`resolve.alias` 不管用**——rollup 的 alias 会跳过相对路径，必须用插件。
+
 ## 数据层 / SQLite(D1)
 
 ### 改 / 扩充列上的 CHECK 约束只能重建表,而 DROP TABLE 会级联删除子表行

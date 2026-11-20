@@ -26,7 +26,7 @@ import { AppError } from './errors';
 import { countWords, deriveExcerpt } from './sanitize';
 import { resolveTagIds, setPostTags, uniqueSlug } from './posts-write';
 import { getPostById } from './posts-repo';
-import { pushPostToWechatDraft } from './wechat-draft';
+import { pushPostToWechatWithRepair } from './wechat-repair';
 import { readWechatSettings, wechatConfigured } from './wechat-settings';
 
 // 封面相关工具函数对外保持从本模块可导入(既有测试与调用方依赖)。
@@ -383,10 +383,11 @@ async function performGeneration(env: Env, task: AutomationTask): Promise<Automa
       try {
         const post = await getPostById(env, id);
         if (!post) throw AppError.internal('生成的草稿读回失败');
-        const push = await pushPostToWechatDraft(env, wechat, post, {
+        const push = await pushPostToWechatWithRepair(env, wechat, post, {
           siteUrl: (env.SITE_URL ?? '').trim() || undefined,
+          actor: await taskSessionUser(env, task),
         });
-        message += `；已同步到公众号${push.updated ? '（更新既有草稿）' : ''}`;
+        message += `；已同步到公众号${push.updated ? '（更新既有草稿）' : ''}${push.repaired ? '（图片已自动修复并重推）' : ''}`;
       } catch (err) {
         const detail = err instanceof Error ? err.message : '未知错误';
         console.error('[automation] 同步公众号草稿失败', err);

@@ -32,6 +32,10 @@ function normalize(value: unknown): WechatSettings {
     author: str(src['author'], WECHAT_DEFAULTS.author).trim().slice(0, 16),
     openComment: bool(src['openComment'], WECHAT_DEFAULTS.openComment),
     onlyFansCanComment: bool(src['onlyFansCanComment'], WECHAT_DEFAULTS.onlyFansCanComment),
+    bodyCoverPosition: ['none', 'top', 'middle', 'bottom'].includes(String(src['bodyCoverPosition']))
+      ? (src['bodyCoverPosition'] as WechatSettings['bodyCoverPosition'])
+      : WECHAT_DEFAULTS.bodyCoverPosition,
+    repairPushFailures: bool(src['repairPushFailures'], WECHAT_DEFAULTS.repairPushFailures),
     miniprogramEnabled: bool(src['miniprogramEnabled'], WECHAT_DEFAULTS.miniprogramEnabled),
     miniprogramAppId: str(src['miniprogramAppId'], WECHAT_DEFAULTS.miniprogramAppId).trim(),
     miniprogramPath: str(src['miniprogramPath'], WECHAT_DEFAULTS.miniprogramPath).trim(),

@@ -13,10 +13,10 @@ import type { Post, WechatPushResult, WechatSettings } from '@shared/types';
 import { AppError } from './errors';
 import type { Env } from './env';
 import { all, first, run } from './db';
-import { downloadRemote } from './media-ingest';
-import { keyFromPublicUrl, sniffImageMime } from './media-file';
+import { loadImageSource } from './media-ingest';
 import { addDraft, submitPublish, updateDraft, uploadContentImage, uploadCoverMaterial } from './wechat';
 import {
+  insertBodyCover,
   renderMiniprogramCard,
   renderWechatContent,
   substituteWechatImages,
@@ -94,65 +94,57 @@ export interface PushImageSource {
   filename: string;
 }
 
-/** 从本站 `/media/<key>` 读 R2 对象。 */
-async function readLocalImage(
-  env: Env,
-  url: string,
-  maxSize: number,
-  maxSizeMessage: string,
-): Promise<PushImageSource> {
-  const key = keyFromPublicUrl(url, env.MEDIA_PUBLIC_BASE ?? '');
-  if (!key) throw AppError.badRequest(`无法识别的站内图片地址：${url}`);
-  const object = await env.MEDIA.get(key);
-  if (!object) throw AppError.badRequest(`站内图片不存在（可能已被删除）：${url}`);
-  if (object.size > maxSize) throw AppError.payloadTooLarge(maxSizeMessage);
-  const bytes = new Uint8Array(await object.arrayBuffer());
-  return {
-    bytes,
-    // 以文件魔数为准，不能信任 R2 metadata 或 URL 后缀。
-    mime: sniffImageMime(bytes.slice(0, 32)) ?? '',
-    filename: key.split('/').pop() ?? 'image',
-  };
-}
-
 /** 取图片二进制：本站读 R2，外链走带 SSRF 防护与体积上限的下载。 */
-async function loadImage(
+function loadImage(
   env: Env,
   url: string,
   maxSize: number,
   maxSizeMessage: string,
 ): Promise<PushImageSource> {
-  const raw = url.trim();
-  if (!raw) throw AppError.badRequest('图片地址为空');
-  // 本站相对地址（/media/...）：直接读 R2，避免绕回自家域名再下载。
-  if (raw.startsWith('/') && !raw.startsWith('//')) {
-    return readLocalImage(env, raw, maxSize, maxSizeMessage);
-  }
-  const media = await downloadRemote(raw, {
-    imageOnly: true,
-    maxSize,
-    maxSizeMessage,
-  });
-  return { bytes: media.bytes, mime: media.mime, filename: 'image' };
+  return loadImageSource(env, url, { maxSize, maxSizeMessage });
 }
 
 /**
  * 上传正文全部图片，返回与占位符一一对应的 mmbiz URL。
  * 遇到不支持的图片时按用户要求直接报错并指明是哪一张（不静默跳过）。
  */
+interface ContentImage {
+  url: string;
+  label: string;
+  /** 同一图片需要作为正文图和封面上传时复用已读取的字节，避免随机外链返回不同图片。 */
+  source?: PushImageSource;
+}
+
+/** URL fragment 不会随 HTTP 请求发送；比较时去掉 fragment，确保同一资源只取一次。 */
+export function imageSourceKey(rawUrl: string): string {
+  const value = rawUrl.trim();
+  try {
+    const url = new URL(value);
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
 async function uploadContentImages(
   env: Env,
   settings: WechatSettings,
-  images: string[],
+  images: ContentImage[],
 ): Promise<string[]> {
   const urls: string[] = [];
   for (let i = 0; i < images.length; i++) {
-    const source = images[i] ?? '';
-    const label = `第 ${i + 1} 张正文图片（${source}）`;
+    const image = images[i];
+    if (!image) continue;
+    const source = image.url;
+    const label = image.label;
     const sizeMessage = `${label} 超过微信正文图 1MB 上限，请压缩后再推送`;
     let loaded: PushImageSource;
     try {
-      loaded = await loadImage(env, source, CONTENT_IMAGE_MAX_BYTES - 1, sizeMessage);
+      loaded = image.source ?? (await loadImage(env, source, CONTENT_IMAGE_MAX_BYTES - 1, sizeMessage));
+      if (image.source && loaded.bytes.byteLength >= CONTENT_IMAGE_MAX_BYTES) {
+        throw AppError.payloadTooLarge(sizeMessage);
+      }
     } catch (err) {
       if (err instanceof AppError && !err.message.includes(label)) {
         throw new AppError(err.code, `${label}：${err.message}`, err.details);
@@ -166,13 +158,18 @@ async function uploadContentImages(
 }
 
 /** 上传封面为永久素材；格式不支持时报错指明。 */
-async function uploadCover(env: Env, settings: WechatSettings, coverUrl: string): Promise<string> {
-  const loaded = await loadImage(
+async function uploadCover(
+  env: Env,
+  settings: WechatSettings,
+  coverUrl: string,
+  source?: PushImageSource,
+): Promise<string> {
+  const loaded = source ?? (await loadImage(
     env,
     coverUrl,
     COVER_MAX_BYTES,
     '封面图超过微信封面 10MB 上限',
-  );
+  ));
   if (loaded.bytes.byteLength > COVER_MAX_BYTES) {
     throw AppError.payloadTooLarge(
       `封面图体积 ${Math.round(loaded.bytes.byteLength / 1024)}KB，超过微信封面 10MB 上限`,
@@ -250,10 +247,40 @@ export async function pushPostToWechatDraft(
   const markdown = (post.content_md ?? '').trim();
   if (!markdown) throw AppError.badRequest('文章正文为空，无法推送');
 
-  // 1. 渲染（图片先占位）。
+  // 1. 渲染（图片先占位），保留来源标签以便错误能指出具体图片。
   const rendered = renderWechatContent(markdown);
+  const images: ContentImage[] = rendered.images.map((url, index) => ({
+    url,
+    label: `第 ${index + 1} 张正文图片（${url}）`,
+  }));
   if (!post.cover_url) {
     throw AppError.badRequest('推送草稿需要封面图：请先在文章中设置封面（微信 thumb_media_id 必填）');
+  }
+
+  let bodyHtml = rendered.html;
+  let coverSource: PushImageSource | undefined;
+  const coverKey = imageSourceKey(post.cover_url);
+  const existingImages = images.filter((image) => imageSourceKey(image.url) === coverKey);
+  if (settings.bodyCoverPosition !== 'none' || existingImages.length > 0) {
+    // 随机图片接口可能每次访问返回不同图片：同一篇推送里正文封面与
+    // thumb_media_id 必须复用同一次 HTTP 访问读到的同一份字节。
+    coverSource = await loadImage(
+      env,
+      post.cover_url,
+      COVER_MAX_BYTES,
+      '封面图超过微信封面 10MB 上限',
+    );
+    for (const existingImage of existingImages) {
+      existingImage.source = coverSource;
+      existingImage.label = '封面图';
+    }
+    if (settings.bodyCoverPosition !== 'none' && existingImages.length === 0) {
+      const index = images.length;
+      images.push({ url: post.cover_url, label: '封面图', source: coverSource });
+      const coverPlaceholder = `${WX_IMAGE_PLACEHOLDER}${index}}}`;
+      const coverHtml = `<p style="margin:0 0 16px;"><img src="${coverPlaceholder}" alt="封面图" style="max-width:100%;height:auto;display:block;margin:8px auto;" /></p>`;
+      bodyHtml = insertBodyCover(bodyHtml, coverHtml, settings.bodyCoverPosition);
+    }
   }
 
   // 2. 文末小程序卡片（可选）：配图同样走 uploadimg，所以先占位再统一替换。
@@ -262,23 +289,23 @@ export async function pushPostToWechatDraft(
   if (card) {
     let cardImageSrc = '';
     if (card.image) {
-      const index = rendered.images.length;
-      rendered.images.push(card.image);
+      const index = images.length;
+      images.push({ url: card.image, label: `小程序卡片配图（${card.image}）` });
       cardImageSrc = `${WX_IMAGE_PLACEHOLDER}${index}}}`;
     }
     cardHtml = renderMiniprogramCard(card, cardImageSrc);
   }
 
   // 3. 正文图片上传。
-  const imageUrls = await uploadContentImages(env, settings, rendered.images);
-  const content = substituteWechatImages(rendered.html + cardHtml, imageUrls);
+  const imageUrls = await uploadContentImages(env, settings, images);
+  const content = substituteWechatImages(bodyHtml + cardHtml, imageUrls);
 
   // 4. 体积校验（微信 < 2 万字符且 < 1M）。
   const sizeError = validateWechatContent(content);
   if (sizeError) throw AppError.badRequest(sizeError);
 
   // 5. 封面永久素材。
-  const thumbMediaId = await uploadCover(env, settings, post.cover_url);
+  const thumbMediaId = await uploadCover(env, settings, post.cover_url, coverSource);
 
   const title = truncateChars(post.title.trim() || '未命名文章', WECHAT_TITLE_MAX);
   const digest = truncateChars(post.excerpt?.trim() ?? '', WECHAT_DIGEST_MAX);

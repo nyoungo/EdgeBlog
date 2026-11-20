@@ -245,6 +245,59 @@ describe('runToolAgent 取数轮与流式成文', () => {
   });
 });
 
+describe('count_chars 工具', () => {
+  it('按字符统计,并带上公众号正文校验结果', async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    let round = 0;
+    const env = fakeEnv(async (_model, inputs) => {
+      seen.push(inputs);
+      round += 1;
+      if (round === 1) {
+        return openAiReply('', [
+          {
+            id: 'call_1',
+            function: {
+              name: 'count_chars',
+              arguments: JSON.stringify({ text: '你好世界 hello world 😀' }),
+            },
+          },
+        ]);
+      }
+      return openAiReply('统计完成');
+    });
+
+    const result = await runToolAgent(env, null, 'sys', '数一下字符数', {
+      maxRounds: 2,
+      tools: ['count_chars'],
+    });
+
+    expect(result.actions).toHaveLength(1);
+    expect(result.actions[0]?.tool).toBe('count_chars');
+    expect(result.actions[0]?.ok).toBe(true);
+    expect(result.actions[0]?.summary).toContain('18');
+
+    const messages = seen[1]?.messages as Array<{ role: string; content?: string }>;
+    const toolMessage = messages.find((message) => message.role === 'tool');
+    const payload = JSON.parse(toolMessage?.content ?? '{}') as {
+      data?: {
+        chars?: number;
+        charsNoSpace?: number;
+        plainChars?: number;
+        plainCharsNoSpace?: number;
+        lines?: number;
+        wechatContentError?: string | null;
+      };
+    };
+    // 汉字与 emoji 都按 1 个字符算,不会被 UTF-16 拆成 2
+    expect(payload.data?.chars).toBe(18);
+    expect(payload.data?.charsNoSpace).toBe(15);
+    expect(payload.data?.plainChars).toBe(18);
+    expect(payload.data?.plainCharsNoSpace).toBe(15);
+    expect(payload.data?.lines).toBe(1);
+    expect(payload.data?.wechatContentError).toBeNull();
+  });
+});
+
 describe('runToolAgent 整体预算', () => {
   it('预算耗尽时不再提供工具,直接让模型收尾成文', async () => {
     const seen: Array<Record<string, unknown>> = [];

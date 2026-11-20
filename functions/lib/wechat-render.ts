@@ -250,6 +250,36 @@ export function substituteWechatImages(html: string, urls: string[]): string {
   return out;
 }
 
+/** 在微信正文的块级内容边界插入封面；中间位置按 HTML 长度选接近一半的段落边界。 */
+export function insertBodyCover(
+  html: string,
+  coverHtml: string,
+  position: 'none' | 'top' | 'middle' | 'bottom',
+): string {
+  if (!coverHtml || position === 'none') return html;
+  if (position === 'top' || !html) return `${coverHtml}${html}`;
+  if (position === 'bottom') return `${html}${coverHtml}`;
+
+  const boundaryPattern = /<\/(?:p|h[1-6]|li|blockquote|pre|table|ul|ol)>/gi;
+  const boundaries: number[] = [];
+  while (boundaryPattern.exec(html) !== null) {
+    boundaries.push(boundaryPattern.lastIndex);
+  }
+  if (boundaries.length === 0) return `${coverHtml}${html}`;
+
+  const midpoint = html.length / 2;
+  let insertionPoint = boundaries[0] ?? 0;
+  let closestDistance = Math.abs(insertionPoint - midpoint);
+  for (const boundary of boundaries.slice(1)) {
+    const distance = Math.abs(boundary - midpoint);
+    if (distance < closestDistance) {
+      insertionPoint = boundary;
+      closestDistance = distance;
+    }
+  }
+  return `${html.slice(0, insertionPoint)}${coverHtml}${html.slice(insertionPoint)}`;
+}
+
 /** 正文体积校验：微信要求 < 2 万字符且 < 1M。返回错误信息或 null。 */
 export function validateWechatContent(html: string): string | null {
   const chars = Array.from(html).length;
