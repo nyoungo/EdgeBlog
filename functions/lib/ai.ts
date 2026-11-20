@@ -16,6 +16,7 @@ import type { AiSettings } from '@shared/types';
 import { AI_DEFAULTS, AI_NAMESPACE } from '@shared/settings-defaults';
 import type { Env } from './env';
 import { AppError } from './errors';
+import { isAbortError } from './deadline';
 
 const PROVIDER_BASE: Record<AiSettings['provider'], string> = {
   cloudflare: '',
@@ -532,6 +533,8 @@ export async function aiChatComplete(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), callTimeout);
   let response: Response;
+  let payload: ChatResponse | null = null;
+  let bodyError: 'unparsable' | 'timeout' | null = null;
   try {
     response = await fetch(endpoint(base), {
       method: 'POST',
@@ -542,18 +545,23 @@ export async function aiChatComplete(
       body: JSON.stringify(body),
       signal: controller.signal,
     });
+    // 读取响应体也在同一个超时窗口内：只包 fetch 时，对方发完响应头就不再
+    // 发送 body 的话 `response.json()` 会一直挂着，界面表现为「请求卡死」。
+    try {
+      payload = (await response.json()) as ChatResponse;
+    } catch (err) {
+      bodyError = isAbortError(err) ? 'timeout' : 'unparsable';
+    }
   } catch (err) {
     throw AppError.upstream(
-      err instanceof Error && err.name === 'AbortError' ? 'AI 请求超时，请稍后重试' : '无法连接 AI 服务，请检查接口地址',
+      isAbortError(err) ? 'AI 请求超时，请稍后重试' : '无法连接 AI 服务，请检查接口地址',
     );
   } finally {
     clearTimeout(timer);
   }
 
-  let payload: ChatResponse;
-  try {
-    payload = (await response.json()) as ChatResponse;
-  } catch {
+  if (bodyError === 'timeout') throw AppError.upstream('AI 请求超时，请稍后重试');
+  if (!payload) {
     throw AppError.upstream(`AI 服务返回了无法解析的响应（HTTP ${response.status}）`);
   }
 
@@ -1071,25 +1079,29 @@ export async function listAiModels(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MODELS_TIMEOUT_MS);
   let response: Response;
+  let payload: ModelsResponse | null = null;
+  let bodyTimeout = false;
   try {
     response = await fetch(`${base.replace(/\/+$/, '')}/models`, {
       headers: { authorization: `Bearer ${ai.apiKey}` },
       signal: controller.signal,
     });
+    try {
+      // 读取 body 同样受这次超时约束。
+      payload = (await response.json()) as ModelsResponse;
+    } catch (err) {
+      bodyTimeout = isAbortError(err);
+    }
   } catch (err) {
     throw AppError.upstream(
-      err instanceof Error && err.name === 'AbortError'
-        ? '获取模型列表超时，请稍后重试'
-        : '无法连接 AI 服务，请检查接口地址',
+      isAbortError(err) ? '获取模型列表超时，请稍后重试' : '无法连接 AI 服务，请检查接口地址',
     );
   } finally {
     clearTimeout(timer);
   }
 
-  let payload: ModelsResponse;
-  try {
-    payload = (await response.json()) as ModelsResponse;
-  } catch {
+  if (bodyTimeout) throw AppError.upstream('获取模型列表超时，请稍后重试');
+  if (!payload) {
     throw AppError.upstream(`AI 服务返回了无法解析的响应（HTTP ${response.status}）`);
   }
   if (!response.ok) {

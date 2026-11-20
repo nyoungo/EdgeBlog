@@ -22,7 +22,7 @@ import { ok } from '../lib/response';
 import { parseJson } from '../lib/validate';
 import { getPostById } from '../lib/posts-repo';
 import { readWechatSettings, wechatConfigured, writeWechatSettings } from '../lib/wechat-settings';
-import { getWechatDraft, listWechatDrafts } from '../lib/wechat-draft';
+import { getWechatDraft, listWechatDrafts, WECHAT_PUSH_BUDGET_MS } from '../lib/wechat-draft';
 import { pushPostToWechatWithRepair } from '../lib/wechat-repair';
 import { buildWechatBody, measureWechatBody, miniProgramCardFromSettings } from '../lib/wechat-length';
 import { testWechatConnection } from '../lib/wechat';
@@ -149,9 +149,13 @@ wechatRoutes.post('/posts/:id/draft', async (c) => {
   // 阅读原文指向部署站点；SITE_URL 未配置时不下发该字段。
   const siteUrl = (c.env.SITE_URL ?? '').trim() || undefined;
 
+  // 交互式推送是同步请求，而 Cloudflare 边缘在 125 秒没有响应就会断开（524）。
+  // 因此整条「推送 / 修复后重推」的预算压在 100 秒内，让服务端先返回明确的
+  // 超时原因，而不是让浏览器等一个已经被边缘丢弃的连接。
   const result = await pushPostToWechatWithRepair(c.env, settings, post, {
     siteUrl,
     actor: user,
+    budgetMs: WECHAT_PUSH_BUDGET_MS,
   });
   await recordAudit(c.env, user, 'wechat.push', 'post', id, {
     mediaId: result.mediaId,

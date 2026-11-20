@@ -19,8 +19,18 @@ import {
   sniffMediaMime,
 } from './media-file';
 import { mediaObjectKey, mediaPublicUrl } from './media-store';
+import { isAbortError, withTimeout } from './deadline';
 
 export const REMOTE_FETCH_TIMEOUT_MS = 30_000;
+
+/** 下载可选参数：`timeoutMs` 覆盖默认值（调用方按剩余预算收窄）。 */
+export interface DownloadOptions {
+  imageOnly?: boolean;
+  maxSize?: number;
+  maxSizeMessage?: string;
+  /** 本次下载的总超时（覆盖 `REMOTE_FETCH_TIMEOUT_MS`）。 */
+  timeoutMs?: number;
+}
 
 export interface DownloadedMedia {
   bytes: Uint8Array;
@@ -72,39 +82,44 @@ export function assertRemoteUrl(raw: string, label = '媒体地址'): URL {
 
 export async function downloadRemote(
   rawUrl: string,
-  opts: { imageOnly?: boolean; maxSize?: number; maxSizeMessage?: string } = {},
+  opts: DownloadOptions = {},
 ): Promise<DownloadedMedia> {
   const url = assertRemoteUrl(rawUrl);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REMOTE_FETCH_TIMEOUT_MS);
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: { 'user-agent': 'EdgeBlog-AI/1.0' },
-    });
-  } catch (err) {
-    throw AppError.upstream(
-      err instanceof Error && err.name === 'AbortError'
-        ? '下载媒体超时,请稍后重试'
-        : '无法下载媒体,请检查地址是否可访问',
-    );
-  } finally {
-    clearTimeout(timer);
-  }
-  if (!response.ok) throw AppError.upstream(`下载媒体失败(HTTP ${response.status})`);
-  // `fetch` follows redirects; re-check the final host so a public URL cannot
-  // bounce the request into the private network.
-  if (response.url) {
-    try {
-      if (isPrivateHost(new URL(response.url).hostname)) {
-        throw AppError.badRequest('不允许从内网地址下载媒体');
+  const timeoutMs = opts.timeoutMs ?? REMOTE_FETCH_TIMEOUT_MS;
+  const timeoutMessage = '下载媒体超时,请稍后重试';
+
+  // fetch 与读取响应体共用同一个超时窗口:只包 fetch 时,对方发完响应头
+  // 不再发 body 会让 `arrayBuffer()` 一直挂着。
+  const { response, bytes } = await withTimeout(
+    async (signal) => {
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          signal,
+          redirect: 'follow',
+          headers: { 'user-agent': 'EdgeBlog-AI/1.0' },
+        });
+      } catch (err) {
+        if (isAbortError(err)) throw err;
+        throw AppError.upstream('无法下载媒体,请检查地址是否可访问');
       }
-    } catch (err) {
-      if (err instanceof AppError) throw err;
-    }
-  }
+      if (!res.ok) throw AppError.upstream(`下载媒体失败(HTTP ${res.status})`);
+      // `fetch` follows redirects; re-check the final host so a public URL cannot
+      // bounce the request into the private network.
+      if (res.url) {
+        try {
+          if (isPrivateHost(new URL(res.url).hostname)) {
+            throw AppError.badRequest('不允许从内网地址下载媒体');
+          }
+        } catch (err) {
+          if (err instanceof AppError) throw err;
+        }
+      }
+      return { response: res, bytes: new Uint8Array(await res.arrayBuffer()) };
+    },
+    timeoutMs,
+    timeoutMessage,
+  );
 
   const maxSize = opts.maxSize ?? (opts.imageOnly ? THUMBNAIL_MAX_SIZE : VIDEO_MAX_SIZE);
   const maxSizeMessage = opts.maxSizeMessage ?? (opts.imageOnly ? '封面图超过 2MB 限制' : '媒体文件超过 25MB 限制');
@@ -113,7 +128,6 @@ export async function downloadRemote(
     throw AppError.payloadTooLarge(maxSizeMessage);
   }
 
-  const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.byteLength === 0) throw AppError.badRequest('下载到的文件为空');
   if (bytes.byteLength > maxSize) {
     throw AppError.payloadTooLarge(maxSizeMessage);
@@ -163,7 +177,7 @@ export interface ImageSource {
 export async function loadImageSource(
   env: Env,
   url: string,
-  opts: { maxSize?: number; maxSizeMessage?: string } = {},
+  opts: { maxSize?: number; maxSizeMessage?: string; timeoutMs?: number } = {},
 ): Promise<ImageSource> {
   const raw = url.trim();
   if (!raw) throw AppError.badRequest('图片地址为空');
@@ -185,7 +199,12 @@ export async function loadImageSource(
     };
   }
 
-  const media = await downloadRemote(raw, { imageOnly: true, maxSize, maxSizeMessage });
+  const media = await downloadRemote(raw, {
+    imageOnly: true,
+    maxSize,
+    maxSizeMessage,
+    timeoutMs: opts.timeoutMs,
+  });
   return { bytes: media.bytes, mime: media.mime, filename: filenameFromUrl(raw) || 'image' };
 }
 

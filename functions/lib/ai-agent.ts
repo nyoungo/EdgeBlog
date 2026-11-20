@@ -51,6 +51,7 @@ import {
 import { generateCoverImage } from './cover';
 import { compressImage } from './image-codec';
 import { formatBytes } from './image-process';
+import { isAbortError, withTimeout } from './deadline';
 import { buildWechatBody, measureWechatBody, miniProgramCardFromSettings } from './wechat-length';
 import { readWechatSettings } from './wechat-settings';
 
@@ -201,57 +202,67 @@ interface FetchedPage {
 /** 抓取公开网页并把 HTML 转成纯文本（SSRF 防护与媒体下载共用一套规则）。 */
 async function fetchReadablePage(rawUrl: string, maxChars: number): Promise<FetchedPage> {
   const url = assertRemoteUrl(rawUrl, '网页地址');
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PAGE_FETCH_TIMEOUT_MS);
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'user-agent': 'EdgeBlog-AI/1.0 (+https://github.com/)',
-        accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5',
-        'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-      },
-    });
-  } catch (err) {
-    throw AppError.upstream(
-      err instanceof Error && err.name === 'AbortError'
-        ? '读取网页超时，请稍后重试'
-        : '无法访问该网页，请检查地址是否可公开访问',
-    );
-  } finally {
-    clearTimeout(timer);
-  }
+  const timeoutMessage = '读取网页超时，请稍后重试';
 
-  if (!response.ok) throw AppError.upstream(`读取网页失败（HTTP ${response.status}）`);
+  // 超时窗口覆盖「建连 + 读完响应体」：只包 fetch 时，对方发完响应头不再发
+  // body 会让 readCappedBytes 一直挂着，整轮工具调用就被拖死。
+  const { response, bytes, contentType } = await withTimeout(
+    async (signal) => {
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          signal,
+          redirect: 'follow',
+          headers: {
+            'user-agent': 'EdgeBlog-AI/1.0 (+https://github.com/)',
+            accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5',
+            'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          },
+        });
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') throw err;
+        throw AppError.upstream('无法访问该网页，请检查地址是否可公开访问');
+      }
 
-  // 跟随重定向后重新校验最终主机，防止公网地址跳转到内网
+      if (!res.ok) throw AppError.upstream(`读取网页失败（HTTP ${res.status}）`);
+
+      // 跟随重定向后重新校验最终主机，防止公网地址跳转到内网
+      const finalUrl = res.url || url.toString();
+      try {
+        if (isPrivateHost(new URL(finalUrl).hostname)) {
+          throw AppError.badRequest('不允许访问内网地址（网页地址）');
+        }
+      } catch (err) {
+        if (err instanceof AppError) throw err;
+      }
+
+      const type = (res.headers.get('content-type') ?? '').toLowerCase();
+      const mime = type.split(';')[0]?.trim() ?? '';
+      if (mime && !/^text\/|application\/xhtml\+xml|application\/json|application\/xml/.test(mime)) {
+        throw AppError.unsupportedMedia(`该地址不是网页（Content-Type: ${mime}），无法读取正文`);
+      }
+
+      const declared = Number(res.headers.get('content-length') ?? '0');
+      if (Number.isFinite(declared) && declared > PAGE_MAX_BYTES) {
+        throw AppError.payloadTooLarge('网页体积超过 2MB，无法读取');
+      }
+
+      return {
+        response: res,
+        bytes: await readCappedBytes(res, PAGE_MAX_BYTES),
+        contentType: type,
+      };
+    },
+    PAGE_FETCH_TIMEOUT_MS,
+    timeoutMessage,
+  );
+
   const finalUrl = response.url || url.toString();
-  try {
-    if (isPrivateHost(new URL(finalUrl).hostname)) {
-      throw AppError.badRequest('不允许访问内网地址（网页地址）');
-    }
-  } catch (err) {
-    if (err instanceof AppError) throw err;
-  }
-
-  const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
-  const mime = contentType.split(';')[0]?.trim() ?? '';
-  if (mime && !/^text\/|application\/xhtml\+xml|application\/json|application\/xml/.test(mime)) {
-    throw AppError.unsupportedMedia(`该地址不是网页（Content-Type: ${mime}），无法读取正文`);
-  }
-
-  const declared = Number(response.headers.get('content-length') ?? '0');
-  if (Number.isFinite(declared) && declared > PAGE_MAX_BYTES) {
-    throw AppError.payloadTooLarge('网页体积超过 2MB，无法读取');
-  }
-
-  const charset = contentType.match(/charset=["']?([\w-]+)/)?.[1] ?? 'utf-8';
-  const bytes = await readCappedBytes(response, PAGE_MAX_BYTES);
   if (bytes.byteLength === 0) throw AppError.upstream('该网页返回了空内容');
 
+  const charset = contentType.match(/charset=["']?([\w-]+)/)?.[1] ?? 'utf-8';
   const html = decodeHtmlBytes(bytes, charset);
+  const mime = contentType.split(';')[0]?.trim() ?? '';
   if (mime === 'application/json') {
     return { url: finalUrl, title: '', text: html.slice(0, maxChars), truncated: html.length > maxChars };
   }
@@ -334,7 +345,12 @@ async function searchViaCloudflare(env: Env, query: string, limit: number): Prom
 
   let payload: CloudflareSearchPayload | null = null;
   try {
-    payload = (await response.json()) as CloudflareSearchPayload;
+    // 读取响应体也计入这次搜索的超时，避免只包了连接、body 一直挂住。
+    payload = await withTimeout(
+      async () => (await response.json()) as CloudflareSearchPayload,
+      SEARCH_TIMEOUT_MS,
+      '请求超时',
+    );
   } catch {
     payload = null;
   }
@@ -380,36 +396,36 @@ async function resolveMonidApiKey(env: Env): Promise<string> {
  * 尝试下一级通道。
  */
 async function searchViaMonid(apiKey: string, query: string, limit: number): Promise<SearchResult[]> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
-  let response: Response;
-  try {
-    response = await fetch(`${MONID_API_BASE}/v1/run`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        'content-type': 'application/json',
-        accept: 'application/json',
-      },
-      body: JSON.stringify(buildMonidSearchRequest(query)),
-    });
-  } catch (err) {
-    throw new Error(
-      err instanceof Error && err.name === 'AbortError'
-        ? '请求超时'
-        : searchErrorMessage(err, '无法访问 api.monid.ai'),
-    );
-  } finally {
-    clearTimeout(timer);
-  }
-
-  let payload: unknown = null;
-  try {
-    payload = (await response.json()) as unknown;
-  } catch {
-    payload = null;
-  }
+  const { response, payload } = await withTimeout(
+    async (signal) => {
+      let res: Response;
+      try {
+        res = await fetch(`${MONID_API_BASE}/v1/run`, {
+          method: 'POST',
+          signal,
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            'content-type': 'application/json',
+            accept: 'application/json',
+          },
+          body: JSON.stringify(buildMonidSearchRequest(query)),
+        });
+      } catch (err) {
+        if (isAbortError(err)) throw err;
+        throw new Error(searchErrorMessage(err, '无法访问 api.monid.ai'));
+      }
+      let body: unknown = null;
+      try {
+        body = (await res.json()) as unknown;
+      } catch (err) {
+        if (isAbortError(err)) throw err;
+        body = null;
+      }
+      return { response: res, payload: body };
+    },
+    SEARCH_TIMEOUT_MS,
+    '请求超时',
+  );
 
   if (!response.ok) throw new Error(describeMonidError(payload, response.status));
 

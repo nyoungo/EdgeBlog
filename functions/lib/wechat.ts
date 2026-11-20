@@ -20,6 +20,7 @@
 import type { WechatSettings } from '@shared/types';
 import type { Env } from './env';
 import { AppError } from './errors';
+import { type Deadline, isAbortError, withTimeout } from './deadline';
 
 export const WECHAT_API_BASE = 'https://api.weixin.qq.com';
 
@@ -27,7 +28,7 @@ export const WECHAT_API_BASE = 'https://api.weixin.qq.com';
 const TOKEN_REFRESH_MARGIN_SECONDS = 300;
 
 /** 单次微信接口请求的最长等待时间。 */
-const WECHAT_TIMEOUT_MS = 30_000;
+export const WECHAT_TIMEOUT_MS = 30_000;
 
 /** 微信在 HTTP 200 里返回的 JSON 信封。 */
 interface WechatEnvelope {
@@ -43,39 +44,61 @@ function tokenCacheKey(appId: string): string {
   return `wechat:token:${appId}`;
 }
 
-/** 带超时的 fetch，超时归一成 upstream 错误。 */
-async function fetchWithTimeout(url: string, init: RequestInit, label: string): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), WECHAT_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } catch (err) {
-    throw AppError.upstream(
-      err instanceof Error && err.name === 'AbortError'
-        ? `调用微信「${label}」接口超时，请稍后重试`
-        : `无法连接微信接口（${label}），请检查网络`,
-    );
-  } finally {
-    clearTimeout(timer);
-  }
+function timeoutMessage(label: string): string {
+  return `调用微信「${label}」接口超时，请稍后重试`;
 }
 
-/** 解析响应体 JSON，失败归一成 upstream 错误。 */
-async function readEnvelope(response: Response, label: string): Promise<WechatEnvelope> {
+/**
+ * 调一次微信接口并解析 JSON 信封。
+ *
+ * 超时同时管住 `fetch` **和读取响应体**：只包 fetch 的话，对方下发了响应头
+ * 却不再发送 body 时 `response.json()` 会一直挂着，表现上就是「推送卡住」。
+ * 传了 `deadline` 时按剩余预算收窄本次超时，预算耗尽直接报错。
+ */
+async function callWechat(
+  url: string,
+  init: RequestInit,
+  label: string,
+  deadline?: Deadline,
+): Promise<WechatEnvelope> {
+  const message = timeoutMessage(label);
+  const ms = deadline ? deadline.take(WECHAT_TIMEOUT_MS, message) : WECHAT_TIMEOUT_MS;
+
   let payload: unknown;
+  let status = 0;
+  let ok = false;
+  let unparsable = false;
   try {
-    payload = await response.json();
-  } catch {
-    throw AppError.upstream(`微信「${label}」接口返回了非 JSON 响应（HTTP ${response.status}）`);
+    await withTimeout(async (signal) => {
+      const response = await fetch(url, { ...init, signal });
+      status = response.status;
+      ok = response.ok;
+      // 读取 body 也必须在同一个超时窗口内。
+      try {
+        payload = await response.json();
+      } catch (err) {
+        // 超时导致的中断要继续往上走，语法错误则单独归类为「非 JSON 响应」。
+        if (isAbortError(err)) throw err;
+        unparsable = true;
+      }
+    }, ms, message);
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    if (isAbortError(err)) throw AppError.upstream(message);
+    throw AppError.upstream(`无法连接微信接口（${label}），请检查网络`);
   }
+  if (unparsable) {
+    throw AppError.upstream(`微信「${label}」接口返回了非 JSON 响应（HTTP ${status}）`);
+  }
+
   const body = (typeof payload === 'object' && payload !== null ? payload : {}) as WechatEnvelope;
   // 微信几乎总是 HTTP 200，错误通过 errcode 表达；HTTP 非 2xx 时兜底判错。
   const code = typeof body.errcode === 'number' ? body.errcode : 0;
   if (code !== 0) {
     throw AppError.upstream(`微信「${label}」接口返回错误 ${code}：${body.errmsg ?? '未知错误'}`);
   }
-  if (!response.ok) {
-    throw AppError.upstream(`微信「${label}」接口请求失败（HTTP ${response.status}）`);
+  if (!ok) {
+    throw AppError.upstream(`微信「${label}」接口请求失败（HTTP ${status}）`);
   }
   return body;
 }
@@ -97,8 +120,9 @@ async function fetchAccessToken(
   env: Env,
   settings: WechatSettings,
   forceRefresh = false,
+  deadline?: Deadline,
 ): Promise<string> {
-  const response = await fetchWithTimeout(
+  const body = await callWechat(
     `${WECHAT_API_BASE}/cgi-bin/stable_token`,
     {
       method: 'POST',
@@ -111,8 +135,8 @@ async function fetchAccessToken(
       }),
     },
     'stable_token',
+    deadline,
   );
-  const body = await readEnvelope(response, 'stable_token');
   const token = typeof body.access_token === 'string' ? body.access_token : '';
   if (!token) throw AppError.upstream('微信未返回 access_token，请检查 AppID / AppSecret');
   const expiresIn = typeof body.expires_in === 'number' ? body.expires_in : 7200;
@@ -126,11 +150,15 @@ async function fetchAccessToken(
 }
 
 /** 取（可缓存的）access_token。 */
-async function getAccessToken(env: Env, settings: WechatSettings): Promise<string> {
-  if (!env.CACHE) return fetchAccessToken(env, settings);
+async function getAccessToken(
+  env: Env,
+  settings: WechatSettings,
+  deadline?: Deadline,
+): Promise<string> {
+  if (!env.CACHE) return fetchAccessToken(env, settings, false, deadline);
   const cached = await env.CACHE.get(tokenCacheKey(settings.appId)).catch(() => null);
   if (cached) return cached;
-  return fetchAccessToken(env, settings);
+  return fetchAccessToken(env, settings, false, deadline);
 }
 
 async function clearAccessToken(env: Env, settings: WechatSettings): Promise<void> {
@@ -149,15 +177,16 @@ async function withToken<T>(
   env: Env,
   settings: WechatSettings,
   call: (token: string) => Promise<T>,
+  deadline?: Deadline,
 ): Promise<T> {
-  const token = await getAccessToken(env, settings);
+  const token = await getAccessToken(env, settings, deadline);
   try {
     return await call(token);
   } catch (err) {
     // 40001/42001/40014：token 失效或被顶掉，清缓存后重试一次。
     if (!TOKEN_ERROR_CODES.has(errcodeOf(err))) throw err;
     await clearAccessToken(env, settings);
-    const fresh = await fetchAccessToken(env, settings, true);
+    const fresh = await fetchAccessToken(env, settings, true, deadline);
     return call(fresh);
   }
 }
@@ -181,18 +210,19 @@ export async function uploadContentImage(
   bytes: Uint8Array,
   mime: string,
   filename: string,
+  deadline?: Deadline,
 ): Promise<string> {
   return withToken(env, settings, async (token) => {
-    const response = await fetchWithTimeout(
+    const body = await callWechat(
       `${WECHAT_API_BASE}/cgi-bin/media/uploadimg?access_token=${encodeURIComponent(token)}`,
       { method: 'POST', body: mediaForm(bytes, mime, filename) },
       'uploadimg',
+      deadline,
     );
-    const body = await readEnvelope(response, 'uploadimg');
     const url = typeof body.url === 'string' ? body.url : '';
     if (!url) throw AppError.upstream('微信未返回正文图片 URL');
     return url;
-  });
+  }, deadline);
 }
 
 /**
@@ -204,18 +234,19 @@ export async function uploadCoverMaterial(
   bytes: Uint8Array,
   mime: string,
   filename: string,
+  deadline?: Deadline,
 ): Promise<string> {
   return withToken(env, settings, async (token) => {
-    const response = await fetchWithTimeout(
+    const body = await callWechat(
       `${WECHAT_API_BASE}/cgi-bin/material/add_material?access_token=${encodeURIComponent(token)}&type=image`,
       { method: 'POST', body: mediaForm(bytes, mime, filename) },
       'add_material',
+      deadline,
     );
-    const body = await readEnvelope(response, 'add_material');
     const mediaId = typeof body.media_id === 'string' ? body.media_id : '';
     if (!mediaId) throw AppError.upstream('微信未返回封面素材 media_id');
     return mediaId;
-  });
+  }, deadline);
 }
 
 /** draft/add / draft/update 共用的一篇文章结构。 */
@@ -250,9 +281,10 @@ export async function addDraft(
   env: Env,
   settings: WechatSettings,
   article: WechatArticle,
+  deadline?: Deadline,
 ): Promise<string> {
   return withToken(env, settings, async (token) => {
-    const response = await fetchWithTimeout(
+    const body = await callWechat(
       `${WECHAT_API_BASE}/cgi-bin/draft/add?access_token=${encodeURIComponent(token)}`,
       {
         method: 'POST',
@@ -260,12 +292,12 @@ export async function addDraft(
         body: JSON.stringify({ articles: [articlePayload(article)] }),
       },
       'draft/add',
+      deadline,
     );
-    const body = await readEnvelope(response, 'draft/add');
     const mediaId = typeof body.media_id === 'string' ? body.media_id : '';
     if (!mediaId) throw AppError.upstream('微信未返回草稿 media_id');
     return mediaId;
-  });
+  }, deadline);
 }
 
 /** 更新既有草稿（去重命中时用，避免草稿箱堆重复项）。 */
@@ -274,9 +306,10 @@ export async function updateDraft(
   settings: WechatSettings,
   mediaId: string,
   article: WechatArticle,
+  deadline?: Deadline,
 ): Promise<void> {
   await withToken(env, settings, async (token) => {
-    const response = await fetchWithTimeout(
+    await callWechat(
       `${WECHAT_API_BASE}/cgi-bin/draft/update?access_token=${encodeURIComponent(token)}`,
       {
         method: 'POST',
@@ -284,10 +317,10 @@ export async function updateDraft(
         body: JSON.stringify({ media_id: mediaId, index: 0, articles: articlePayload(article) }),
       },
       'draft/update',
+      deadline,
     );
-    await readEnvelope(response, 'draft/update');
     return undefined;
-  });
+  }, deadline);
 }
 
 /** 可选：把草稿真正提交发表（publish_mode=publish 时使用）。 */
@@ -295,9 +328,10 @@ export async function submitPublish(
   env: Env,
   settings: WechatSettings,
   mediaId: string,
+  deadline?: Deadline,
 ): Promise<string> {
   return withToken(env, settings, async (token) => {
-    const response = await fetchWithTimeout(
+    const body = await callWechat(
       `${WECHAT_API_BASE}/cgi-bin/freepublish/submit?access_token=${encodeURIComponent(token)}`,
       {
         method: 'POST',
@@ -305,10 +339,10 @@ export async function submitPublish(
         body: JSON.stringify({ media_id: mediaId }),
       },
       'freepublish/submit',
+      deadline,
     );
-    const body = await readEnvelope(response, 'freepublish/submit');
     return typeof body.publish_id === 'string' ? body.publish_id : '';
-  });
+  }, deadline);
 }
 
 /**

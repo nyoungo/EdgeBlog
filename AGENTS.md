@@ -152,6 +152,31 @@ Secure）、canonical / RSS 指向 localhost。这些本地覆盖项现在保持
 
 ## 微信公众号草稿推送
 
+### 推送必须带「整条链路」的总预算,单请求超时拦不住 524
+
+早期每步外部调用都只包自己的 30 秒:`fetchWithTimeout` 管微信接口、
+`REMOTE_FETCH_TIMEOUT_MS` 管外链图下载。一步没超时,但推送要串行做「取图 →
+uploadimg(每张一次) → add_material → draft/add」,几张图的耗时一叠加就可能顶穿
+Cloudflare 边缘 **125 秒的 Proxy Read Timeout**(`Error 524: a timeout occurred`),
+用户看到的就是「一直等、最后 524」。
+
+**解决**(`functions/lib/deadline.ts`):
+
+- `Deadline` 记录总预算剩余,`take(cap, msg)` 让每次调用的超时 = min(单次上限, 剩余);
+  耗尽时立刻抛 `上游错误`,不发起下一次请求;
+- `withTimeout(task, ms, msg)` 把 **fetch + 读取响应体** 放进同一个 AbortController:
+  只包 fetch 不够——对方发完响应头不再发 body 时 `response.json()`/`arrayBuffer()`
+  会一直挂着,表现和「推送卡死」一模一样;
+- `WECHAT_PUSH_BUDGET_MS = 100_000`(后台按钮同步请求,留 25 秒给 524 前的余量),
+  定时任务里「修复 + 重推」用 `WECHAT_REPAIR_TOTAL_BUDGET_MS = 240_000`,并给重推
+  留 45 秒保底;
+- 超时错误要带阶段(「取第 N 张正文图片（xxx）」「封面图」「写入草稿」),否则线上
+  只看到「推送超时」根本没法判断是图多还是接口慢。
+
+前端同样要设上限(`src/lib/api.ts`):`fetch` 挂死时界面会无限转圈。普通接口 30 秒,
+公众号推送 130 秒、AI 生成 330 秒、手动跑定时任务 660 秒——都比服务端自己的预算大一点,
+让服务端先返回明确原因。
+
 ### 微信正文图片 URL 必须来自 `media/uploadimg`，外链会被过滤
 
 `draft/add` 的 `content` 是 HTML，但图片 `src` 只接受 `media/uploadimg` 返回的

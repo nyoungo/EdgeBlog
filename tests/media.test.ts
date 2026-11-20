@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
   keyFromPublicUrl,
   parseByteRange,
@@ -7,7 +7,12 @@ import {
   sniffVideoMime,
   thumbnailKey,
 } from '../functions/lib/media-file';
+import { downloadRemote } from '../functions/lib/media-ingest';
 import { normalizeVideoRange } from '../src/lib/hero-video';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function bytes(...values: number[]): Uint8Array {
   return new Uint8Array(values);
@@ -107,5 +112,24 @@ describe('normalizeVideoRange', () => {
     expect(normalizeVideoRange(30, 12, 5)).toEqual({ start: 0, end: 30 });
     expect(normalizeVideoRange(30, 30, 30)).toEqual({ start: 0, end: 30 });
     expect(normalizeVideoRange(30, -5, 10)).toEqual({ start: 0, end: 10 });
+  });
+});
+
+describe('downloadRemote 超时', () => {
+  it('响应体迟迟不发完时按传入的超时报错，而不是一直挂着', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(new ReadableStream({ start() {} }), {
+            status: 200,
+            headers: { 'content-type': 'image/png' },
+          }),
+      ),
+    );
+
+    await expect(
+      downloadRemote('https://images.example/a.png', { imageOnly: true, timeoutMs: 80 }),
+    ).rejects.toThrow(/下载媒体超时/);
   });
 });

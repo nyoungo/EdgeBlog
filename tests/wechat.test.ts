@@ -5,6 +5,7 @@ import { AppError } from '../functions/lib/errors';
 import { insertBodyCover, renderWechatContent, renderMiniprogramCard, substituteWechatImages, truncateChars, validateWechatContent } from '../functions/lib/wechat-render';
 import { validateWechatContentImage } from '../functions/lib/wechat-draft';
 import { addDraft, type WechatArticle } from '../functions/lib/wechat';
+import { Deadline } from '../functions/lib/deadline';
 
 const SETTINGS: WechatSettings = {
   enabled: true,
@@ -211,5 +212,23 @@ describe('WeChat API client', () => {
       expect((err as Error).message).not.toContain(SETTINGS.appSecret);
     }
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('响应体迟迟不发完时也会超时，而不是一直挂着', async () => {
+    const { env } = createEnv();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/cgi-bin/stable_token')) {
+        return jsonResponse({ access_token: 'token', expires_in: 7200 });
+      }
+      // 响应头已返回，但 body 永远不结束：只包 fetch 的实现会在这里挂死。
+      return new Response(new ReadableStream({ start() {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(addDraft(env, SETTINGS, ARTICLE, new Deadline(80))).rejects.toThrow(/超时/);
   });
 });

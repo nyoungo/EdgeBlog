@@ -120,3 +120,39 @@ describe('公众号封面复用同一次图片读取', () => {
     expect(mocks.uploadCoverMaterial.mock.calls[0]?.[2]).toBe(COVER_BYTES);
   });
 });
+
+describe('推送整体超时', () => {
+  it('单张图片的下载超时按剩余预算收窄，不会各自等满 30 秒', async () => {
+    await pushPostToWechatDraft({} as Env, SETTINGS, post('只有普通文字的正文'), {
+      budgetMs: 5_000,
+    });
+
+    expect(mocks.loadImageSource).toHaveBeenCalledTimes(1);
+    const options = mocks.loadImageSource.mock.calls[0]?.[2] as { timeoutMs?: number };
+    expect(options.timeoutMs).toBeGreaterThan(0);
+    expect(options.timeoutMs).toBeLessThanOrEqual(5_000);
+  });
+
+  it('预算耗尽后不再发起后续微信接口调用，并报出卡在哪一步', async () => {
+    let clock = 0;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    // 第一张图上传耗掉全部预算（模拟上传接口很慢）。
+    mocks.uploadContentImage.mockImplementation(async () => {
+      clock += 10_000;
+      return 'https://mmbiz.example/body-image.jpg';
+    });
+
+    try {
+      await expect(
+        pushPostToWechatDraft({} as Env, SETTINGS, post('只有普通文字的正文'), {
+          budgetMs: 5_000,
+        }),
+      ).rejects.toThrow(/推送超时/);
+      // 预算耗尽后封面素材与草稿接口都不该被调用。
+      expect(mocks.uploadCoverMaterial).not.toHaveBeenCalled();
+      expect(mocks.addDraft).not.toHaveBeenCalled();
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+});

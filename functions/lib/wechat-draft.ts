@@ -13,8 +13,16 @@ import type { Post, WechatPushResult, WechatSettings } from '@shared/types';
 import { AppError } from './errors';
 import type { Env } from './env';
 import { all, first, run } from './db';
+import { Deadline } from './deadline';
 import { loadImageSource } from './media-ingest';
-import { addDraft, submitPublish, updateDraft, uploadContentImage, uploadCoverMaterial } from './wechat';
+import {
+  addDraft,
+  submitPublish,
+  updateDraft,
+  uploadContentImage,
+  uploadCoverMaterial,
+  WECHAT_TIMEOUT_MS,
+} from './wechat';
 import {
   substituteWechatImages,
   truncateChars,
@@ -28,6 +36,21 @@ import {
   type WechatBodyImage,
 } from './wechat-length';
 
+/**
+ * 一次推送的整体预算（毫秒）。
+ *
+ * 推送要串行做「取图 → uploadimg → add_material → draft/add」，每一步各自
+ * 只包自己的超时是拦不住整体的：几步各卡 30 秒就会顶穿 Cloudflare 边缘
+ * 125 秒的 Proxy Read Timeout，用户只看到 524 或一直转圈。
+ *
+ * 取 100 秒，既给正常的 2～3 张图留足时间（实测单次微信接口 200～400ms），
+ * 又能在边缘断开之前把「卡在哪一步」明确报出来。
+ */
+export const WECHAT_PUSH_BUDGET_MS = 100_000;
+
+/** 单张图片的下载上限；实际值还会被剩余预算收窄。 */
+const IMAGE_FETCH_TIMEOUT_MS = 30_000;
+
 /** 正文图片：微信 uploadimg 仅收 jpg/png 且单张 < 1MB。 */
 const CONTENT_IMAGE_MAX_BYTES = 1024 * 1024;
 const CONTENT_IMAGE_MIMES = new Set(['image/jpeg', 'image/png']);
@@ -35,6 +58,18 @@ const CONTENT_IMAGE_MIMES = new Set(['image/jpeg', 'image/png']);
 /** 封面：add_material 收 bmp/png/jpeg/jpg/gif，≤10MB。 */
 const COVER_MAX_BYTES = 10 * 1024 * 1024;
 const COVER_MIMES = new Set(['image/jpeg', 'image/png', 'image/bmp', 'image/gif']);
+
+/** 预算耗尽时的统一报错：说清「总预算多少秒、卡在哪一步」。 */
+function pushTimeout(stage: string, deadline: Deadline): AppError {
+  return AppError.upstream(
+    `推送超时：整条推送最多等 ${Math.round(deadline.totalMs / 1000)} 秒，卡在${stage}。请稍后重试；正文图片较多时可分批压缩后再推`,
+  );
+}
+
+/** 预算已经耗尽就立刻报错，不再发起下一步外部请求。 */
+function ensureBudget(deadline: Deadline, stage: string): void {
+  if (deadline.remainingMs() <= 0) throw pushTimeout(stage, deadline);
+}
 
 /** 对正文图执行微信接口的格式与体积校验，错误中保留图片定位信息。 */
 export function validateWechatContentImage(mime: string, size: number, label: string): void {
@@ -100,8 +135,14 @@ function loadImage(
   url: string,
   maxSize: number,
   maxSizeMessage: string,
+  deadline: Deadline,
 ): Promise<PushImageSource> {
-  return loadImageSource(env, url, { maxSize, maxSizeMessage });
+  return loadImageSource(env, url, {
+    maxSize,
+    maxSizeMessage,
+    // 剩余预算比默认值更小时按剩余预算走，不再给单张图 30 秒。
+    timeoutMs: Math.min(IMAGE_FETCH_TIMEOUT_MS, deadline.remainingMs() || 1),
+  });
 }
 
 /** 上传正文图片时需要额外携带已读取的字节(封面复用)。 */
@@ -117,6 +158,7 @@ async function uploadContentImages(
   env: Env,
   settings: WechatSettings,
   images: ContentImage[],
+  deadline: Deadline,
 ): Promise<string[]> {
   const urls: string[] = [];
   for (let i = 0; i < images.length; i++) {
@@ -124,21 +166,34 @@ async function uploadContentImages(
     if (!image) continue;
     const source = image.url;
     const label = image.label;
+    const position = `第 ${i + 1} 张正文图片（${label}）`;
     const sizeMessage = `${label} 超过微信正文图 1MB 上限，请压缩后再推送`;
+    ensureBudget(deadline, `取${position}`);
     let loaded: PushImageSource;
     try {
-      loaded = image.source ?? (await loadImage(env, source, CONTENT_IMAGE_MAX_BYTES - 1, sizeMessage));
+      loaded = image.source ?? (await loadImage(env, source, CONTENT_IMAGE_MAX_BYTES - 1, sizeMessage, deadline));
       if (image.source && loaded.bytes.byteLength >= CONTENT_IMAGE_MAX_BYTES) {
         throw AppError.payloadTooLarge(sizeMessage);
       }
     } catch (err) {
-      if (err instanceof AppError && !err.message.includes(label)) {
+      // 超时类错误已经写明卡在哪一步，不再套一层图名。
+      if (err instanceof AppError && !err.message.includes(label) && !err.message.startsWith('推送超时')) {
         throw new AppError(err.code, `${label}：${err.message}`, err.details);
       }
       throw err;
     }
     validateWechatContentImage(loaded.mime, loaded.bytes.byteLength, label);
-    urls.push(await uploadContentImage(env, settings, loaded.bytes, loaded.mime, loaded.filename));
+    try {
+      urls.push(
+        await uploadContentImage(env, settings, loaded.bytes, loaded.mime, loaded.filename, deadline),
+      );
+    } catch (err) {
+      // 超时也要能定位到具体是哪一张，方便判断是图多还是图大。
+      if (err instanceof AppError && /超时/.test(err.message) && !err.message.includes(position)) {
+        throw new AppError(err.code, `${position}：${err.message}`, err.details);
+      }
+      throw err;
+    }
   }
   return urls;
 }
@@ -148,13 +203,16 @@ async function uploadCover(
   env: Env,
   settings: WechatSettings,
   coverUrl: string,
-  source?: PushImageSource,
+  source: PushImageSource | undefined,
+  deadline: Deadline,
 ): Promise<string> {
+  ensureBudget(deadline, '取封面图');
   const loaded = source ?? (await loadImage(
     env,
     coverUrl,
     COVER_MAX_BYTES,
     '封面图超过微信封面 10MB 上限',
+    deadline,
   ));
   if (loaded.bytes.byteLength > COVER_MAX_BYTES) {
     throw AppError.payloadTooLarge(
@@ -166,7 +224,7 @@ async function uploadCover(
       `封面图是 ${loaded.mime || '未知格式'}，微信封面只支持 jpg/png/gif/bmp，请转换后再推送`,
     );
   }
-  return uploadCoverMaterial(env, settings, loaded.bytes, loaded.mime, loaded.filename);
+  return uploadCoverMaterial(env, settings, loaded.bytes, loaded.mime, loaded.filename, deadline);
 }
 
 export interface PushDraftOptions {
@@ -174,6 +232,8 @@ export interface PushDraftOptions {
   siteUrl?: string;
   /** 命中既有草稿时是否改为更新（默认 true）。 */
   updateExisting?: boolean;
+  /** 整条推送的时间预算（毫秒），默认 `WECHAT_PUSH_BUDGET_MS`。 */
+  budgetMs?: number;
 }
 
 /**
@@ -207,6 +267,9 @@ function publicSourceUrl(siteUrl: string | undefined, slug: string): string {
  *
  * 幂等：同一篇文章第二次推送会更新既有草稿（`wechat_drafts` 去重），
  * 避免草稿箱堆重复项。
+ *
+ * 整条链路带总预算（默认 100 秒）：每步外部请求都按剩余预算收窄超时，
+ * 预算耗尽立刻报错并指明卡在哪一步，不会无限等下去。
  */
 export async function pushPostToWechatDraft(
   env: Env,
@@ -220,6 +283,8 @@ export async function pushPostToWechatDraft(
     throw AppError.badRequest('推送草稿需要封面图:请先在文章中设置封面(微信 thumb_media_id 必填)');
   }
 
+  const deadline = new Deadline(options.budgetMs ?? WECHAT_PUSH_BUDGET_MS);
+
   // 1. 装配正文:渲染、插入正文封面、追加小程序卡片。
   //    与编辑器预检共用同一份逻辑,保证字符数口径一致。
   const body = buildWechatBody({
@@ -230,8 +295,9 @@ export async function pushPostToWechatDraft(
   });
 
   // 2. 封面(以及正文里已出现的同一封面地址)只下载一次,复用同一份字节。
+  ensureBudget(deadline, '取封面图');
   const coverSource = body.images.some((image) => image.shareCoverSource)
-    ? await loadImage(env, post.cover_url, COVER_MAX_BYTES, '封面图超过微信封面 10MB 上限')
+    ? await loadImage(env, post.cover_url, COVER_MAX_BYTES, '封面图超过微信封面 10MB 上限', deadline)
     : undefined;
   const images: ContentImage[] = body.images.map((image) => ({
     ...image,
@@ -239,7 +305,7 @@ export async function pushPostToWechatDraft(
   }));
 
   // 3. 正文图片上传。
-  const imageUrls = await uploadContentImages(env, settings, images);
+  const imageUrls = await uploadContentImages(env, settings, images, deadline);
   const content = substituteWechatImages(body.html + body.cardHtml, imageUrls);
 
   // 4. 体积校验（微信 < 2 万字符且 < 1M）。
@@ -247,7 +313,7 @@ export async function pushPostToWechatDraft(
   if (sizeError) throw AppError.badRequest(sizeError);
 
   // 5. 封面永久素材。
-  const thumbMediaId = await uploadCover(env, settings, post.cover_url, coverSource);
+  const thumbMediaId = await uploadCover(env, settings, post.cover_url, coverSource, deadline);
 
   const title = truncateChars(post.title.trim() || '未命名文章', WECHAT_TITLE_MAX);
   const digest = truncateChars(post.excerpt?.trim() ?? '', WECHAT_DIGEST_MAX);
@@ -265,15 +331,16 @@ export async function pushPostToWechatDraft(
   };
 
   // 6. 新建或更新草稿（去重）。
+  ensureBudget(deadline, '写入草稿');
   const existing = options.updateExisting === false ? null : await getWechatDraft(env, post.id);
   let mediaId: string;
   let updated = false;
   if (existing) {
-    await updateDraft(env, settings, existing.media_id, article);
+    await updateDraft(env, settings, existing.media_id, article, deadline);
     mediaId = existing.media_id;
     updated = true;
   } else {
-    mediaId = await addDraft(env, settings, article);
+    mediaId = await addDraft(env, settings, article, deadline);
   }
   await upsertWechatDraft(env, post.id, mediaId, thumbMediaId);
 
@@ -286,7 +353,7 @@ export async function publishWechatDraft(
   settings: WechatSettings,
   mediaId: string,
 ): Promise<string> {
-  return submitPublish(env, settings, mediaId);
+  return submitPublish(env, settings, mediaId, new Deadline(WECHAT_TIMEOUT_MS));
 }
 
 /** 列出已推送过草稿的文章（后台展示用）。 */
