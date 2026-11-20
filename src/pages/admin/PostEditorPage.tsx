@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import type { AiSettingsView, ColumnSummary, MediaItem, PostDetail, PostStatus, WechatSettingsView } from '@shared/types';
+import type { AiSettingsView, ColumnSummary, MediaItem, PostDetail, PostStatus, WechatLengthReport, WechatSettingsView } from '@shared/types';
 import { ApiError, api } from '../../lib/api';
 import { parseSqlDate } from '../../lib/format';
 import { useAsync, useDocumentTitle, useUnsavedChangesGuard } from '../../hooks';
@@ -102,6 +102,7 @@ export function PostEditorPage() {
   const [aiBusy, setAiBusy] = useState<null | 'excerpt' | 'content'>(null);
   const [wechatReady, setWechatReady] = useState(false);
   const [wechatPushing, setWechatPushing] = useState(false);
+  const [wechatLength, setWechatLength] = useState<WechatLengthReport | null>(null);
 
   const draftKey = `${DRAFT_PREFIX}${routeSlug ?? 'new'}`;
   const [baseline, setBaseline] = useState<string>(() => JSON.stringify(EMPTY));
@@ -196,6 +197,33 @@ export function PostEditorPage() {
       cancelled = true;
     };
   }, []);
+
+  // 公众号正文长度预检:微信「2 万字符」统计的是渲染后的 HTML,和 Markdown
+  // 字数差好几倍,所以输入停顿后按推送同一套逻辑算一遍,提前暴露超限。
+  useEffect(() => {
+    if (!wechatReady) {
+      setWechatLength(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      api
+        .post<WechatLengthReport>('/wechat/preflight', {
+          contentMd: form.contentMd,
+          coverUrl: form.coverUrl.trim() || null,
+        })
+        .then(({ data }) => {
+          if (!cancelled) setWechatLength(data);
+        })
+        .catch(() => {
+          if (!cancelled) setWechatLength(null);
+        });
+    }, 800);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [wechatReady, form.contentMd, form.coverUrl]);
 
   // 专栏列表（含隐藏专栏）：文章可以发到隐藏专栏，编辑时也要能选回原专栏。
   const columns = useAsync(
@@ -444,6 +472,20 @@ export function PostEditorPage() {
             <span className="hidden items-center gap-1.5 text-xs text-warning sm:inline-flex">
               <span className="h-1.5 w-1.5 rounded-full bg-warning" />
               未保存
+            </span>
+          )}
+          {wechatReady && wechatLength && (
+            <span
+              className={`hidden items-center gap-1.5 text-xs sm:inline-flex ${
+                wechatLength.ok ? 'text-faint' : 'text-danger'
+              }`}
+              title={`公众号正文 ${wechatLength.chars} 字符(上限 ${wechatLength.limitChars},原文 Markdown ${wechatLength.markdownChars} 字符);可见文字 ${wechatLength.visibleChars} 字符,标签与样式占 ${wechatLength.chars - wechatLength.visibleChars} 字符`}
+            >
+              <Icon name={wechatLength.ok ? 'globe' : 'alert'} size={13} />
+              <span>
+                公众号 {wechatLength.chars} / {wechatLength.limitChars} 字符
+                {wechatLength.ok ? '' : `(需删减 ${wechatLength.overChars})`}
+              </span>
             </span>
           )}
           {editing && wechatReady && (

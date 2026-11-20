@@ -51,7 +51,8 @@ import {
 import { generateCoverImage } from './cover';
 import { compressImage } from './image-codec';
 import { formatBytes } from './image-process';
-import { renderWechatContent, validateWechatContent } from './wechat-render';
+import { buildWechatBody, measureWechatBody, miniProgramCardFromSettings } from './wechat-length';
+import { readWechatSettings } from './wechat-settings';
 
 const MAX_ROUNDS = 6;
 const MAX_HISTORY = 20;
@@ -1103,7 +1104,9 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
       function: {
         name: 'count_chars',
         description:
-          '统计字符数：给出 text 直接统计文本，或给出 postId/slug 统计文章正文。按 Unicode 码点算，一个汉字、一个字母、一个 emoji 都算 1 个字符；同时返回公众号正文的长度校验结果。',
+          '统计字符数(与推送到公众号的精确预检同一口径):给出 text 直接统计,或给出 postId/slug 统计文章正文。' +
+          '返回的是渲染成公众号 HTML 后的字符数——微信「2 万字符」上限统计的就是它,' +
+          '会计入标签、内联样式、图片地址、正文封面与文末小程序卡片,所以通常明显大于 Markdown 字符数。',
         parameters: {
           type: 'object',
           properties: {
@@ -1116,22 +1119,33 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
     },
     countCharsSchema,
     async ({ env }, args) => {
+      // 与编辑器预检同口径:按当前公众号设置算「推给微信的 content」有多少字符。
+      const settings = await readWechatSettings(env);
       let markdown = args.text ?? '';
+      let coverUrl = '';
       let source = '文本';
       if (args.text === undefined) {
         const post = await requirePost(env, args.postId, args.slug);
         markdown = post.content_md ?? '';
+        coverUrl = post.cover_url ?? '';
         source = `文章《${post.title}》`;
       }
-      const stats = charStats(markdown);
-      const rendered = renderWechatContent(markdown);
+      const built = buildWechatBody({
+        markdown,
+        coverUrl,
+        bodyCoverPosition: settings.bodyCoverPosition,
+        card: miniProgramCardFromSettings(settings),
+      });
+      const report = measureWechatBody(built, markdown);
+      const summary = report.ok
+        ? `${source}公众号正文 ${report.chars} / ${report.limitChars} 字符(原文 Markdown ${report.markdownChars} 字符)`
+        : `${source}公众号正文 ${report.chars} 字符,已超出微信 ${report.limitChars} 字符上限,需删减 ${report.overChars} 字符(原文 Markdown ${report.markdownChars} 字符)`;
       return {
-        summary: `${source}共 ${stats.chars} 个字符（不含空白 ${stats.charsNoSpace}）`,
+        summary,
         data: {
           source,
-          ...stats,
-          wechatHtmlChars: Array.from(rendered.html).length,
-          wechatContentError: validateWechatContent(rendered.html),
+          ...report,
+          markdownStats: charStats(markdown),
         },
       };
     },

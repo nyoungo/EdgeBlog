@@ -4,6 +4,7 @@
  *   GET    /api/wechat/settings          读取配置（AppSecret 以 hasAppSecret 掩码）
  *   PATCH  /api/wechat/settings          保存配置（空 appSecret 表示保持不变）
  *   POST   /api/wechat/test              连通性自检（拉一次 access_token）
+ *   POST   /api/wechat/preflight        公众号正文长度预检(不调微信接口,纯本地计算)
  *   POST   /api/wechat/posts/:id/draft   把一篇文章推送到草稿箱
  *   GET    /api/wechat/drafts            已推送过草稿的文章列表
  *
@@ -23,6 +24,7 @@ import { getPostById } from '../lib/posts-repo';
 import { readWechatSettings, wechatConfigured, writeWechatSettings } from '../lib/wechat-settings';
 import { getWechatDraft, listWechatDrafts } from '../lib/wechat-draft';
 import { pushPostToWechatWithRepair } from '../lib/wechat-repair';
+import { buildWechatBody, measureWechatBody, miniProgramCardFromSettings } from '../lib/wechat-length';
 import { testWechatConnection } from '../lib/wechat';
 
 export const wechatRoutes = new Hono<AppEnv>();
@@ -97,6 +99,35 @@ wechatRoutes.post('/test', async (c) => {
   const settings = await requireWechatReady(c.env);
   const message = await testWechatConnection(c.env, settings);
   return ok(c, { message });
+});
+
+const preflightSchema = z.object({
+  contentMd: z.string().max(500_000).default(''),
+  coverUrl: z.string().trim().max(2048).nullable().optional(),
+});
+
+/**
+ * Admin:公众号正文长度预检。
+ *
+ * 微信 2 万字符限制统计的是渲染后的 HTML 字符串,所以这里不猜:直接用与推送
+ * 同一套装配逻辑算一遍,把「渲染后字符数 / 上限」回给编辑器与 AI。
+ * 不调用任何微信接口,纯本地计算。
+ */
+wechatRoutes.post('/preflight', async (c) => {
+  const user = c.get('user');
+  if (!user) throw AppError.unauthorized();
+  // 编辑器输入时会反复调用,给一个宽松但有上限的频次。
+  const limited = await hit(c.env, `wechat:preflight:${user.id}`, 120, 300);
+  if (!limited.allowed) throw AppError.rateLimited('检查过于频繁,请稍后再试');
+  const body = await parseJson(c, preflightSchema);
+  const settings = await readWechatSettings(c.env);
+  const built = buildWechatBody({
+    markdown: body.contentMd,
+    coverUrl: body.coverUrl ?? '',
+    bodyCoverPosition: settings.bodyCoverPosition,
+    card: miniProgramCardFromSettings(settings),
+  });
+  return ok(c, measureWechatBody(built, body.contentMd));
 });
 
 /** Admin: push one post to the official-account draft box. */

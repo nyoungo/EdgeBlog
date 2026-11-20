@@ -229,6 +229,31 @@ Secure）、canonical / RSS 指向 localhost。这些本地覆盖项现在保持
 - 修复后必须把新的正文/封面返回给编辑器并重置 baseline（`PostEditorPage`）。
   否则用户下一次保存会把旧图地址写回去，推送又失败一次。
 
+### 微信的「2 万字符」统计的是渲染后的 HTML,不是 Markdown 字数
+
+`draft/add` 文档对 `content` 的要求是「必须少于 2 万字符,小于 1M」——统计对象是
+**最终发给接口的 HTML 字符串**,标签与内联样式全都算。实测线上文章:Markdown 7078
+字符渲染成 18340 字符(2.6x),表格 / 链接多的到 4–5x。用户报「正文 6102 字却提示
+24961 字符超限」时,那不是统计 bug,就是真实长度。
+
+因为微信会剥掉 `<style>` 与 class 样式,每个 `<p>` / `<li>` / `<td>` 都必须挂内联
+`style`,这部分通常占总长度的 60%–75%。所以**把文章改存 HTML 不会让这个数字变小**,
+只是让你提前看见它。
+
+**口径必须唯一**:`functions/lib/wechat-length.ts` 的 `buildWechatBody` 同时被真实
+推送(`wechat-draft.ts`)、`POST /api/wechat/preflight`(编辑器实时预检)和 AI 的
+`count_chars` 工具使用——任何一处自己再拼一遍正文,数字就会和推送时对不上。
+唯一的估算项是图片地址:真实 mmbiz URL 要到推送时才生成。2026-11 对线上公众号
+连传 4 次 8×8 PNG 实测(`media/uploadimg`),真实地址 154–162 字符、均值 **158**,
+形如 `http://mmbiz.qpic.cn/sz_mmbiz_png/<路径>?wx_fmt=png`,所以
+`WECHAT_IMAGE_URL_CHARS = 158`;每张图误差 ±10 字符以内,报告里同时返回
+`imageUrlChars`,别把它当成精确值。
+
+> 校准这条别去读草稿:`draft/get` 对已发表的草稿返回 `40007`,
+> `freepublish/batchget` 在未认证订阅号上返回 `48001 api unauthorized`。
+> 直接 `uploadimg` 传一张几十字节的合法 PNG 读回长度最省事,也不会在草稿箱留东西。
+> 1×1 PNG 的手抄 base64 会被判 `40137 invalid image format`,自己用 zlib 编一张。
+
 ## 图片处理(WASM)
 
 ### Workers 里没有 sharp/canvas，编解码用 `@jsquash/*`，且必须按相对路径 import `.wasm`

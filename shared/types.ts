@@ -660,7 +660,43 @@ export type WechatSettingsView = Omit<WechatSettings, 'appSecret'> & {
   configured: boolean;
 };
 
-/** 一次草稿推送的结果（后台按钮与定时任务的返回值）。 */
+/**
+ * 公众号正文长度预检结果。
+ *
+ * 微信 `draft/add` 的 `content` 限制是「必须少于 2 万字符且小于 1M」,统计的是
+ * **渲染后的 HTML 字符串**(含标签与 `style` 属性),不是 Markdown 字符数。
+ * 这个结构同时供编辑器实时预检与 AI 的 `count_chars` 工具使用,保证两边口径一致。
+ */
+export interface WechatLengthReport {
+  /** 推送时 content 的字符数(图片地址按典型 mmbiz URL 长度估算)。 */
+  chars: number;
+  /** 同上但图片地址按占位符计,是理论下限。 */
+  charsMin: number;
+  /** 推送时 content 的 UTF-8 字节数(含图片地址估算)。 */
+  bytes: number;
+  limitChars: number;
+  limitBytes: number;
+  /** 超过 2 万字符的字数,未超为 0。 */
+  overChars: number;
+  /** 是否在微信限制内。 */
+  ok: boolean;
+  /** 正文图片张数(含正文封面与小程序卡片配图)。 */
+  imageCount: number;
+  /** 每张图片地址按多少字符估算。 */
+  imageUrlChars: number;
+  /** 原文 Markdown 字符数(仅供参考,微信不按这个算)。 */
+  markdownChars: number;
+  /** 去掉所有标签后的可见文字字符数。 */
+  visibleChars: number;
+  /** 所有 `style="..."` 属性合计字符数,通常是最主要的开销。 */
+  styleChars: number;
+  /** 文末小程序卡片占用的字符数,未启用为 0。 */
+  cardChars: number;
+  /** 与推送时完全一致的超限提示,未超为 null。 */
+  error: string | null;
+}
+
+/** 一次草稿推送的结果(后台按钮与定时任务的返回值)。 */
 export interface WechatPushResult {
   /** 新草稿 media_id，或更新既有草稿时为 null。 */
   mediaId: string | null;

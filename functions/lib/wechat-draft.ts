@@ -16,17 +16,17 @@ import { all, first, run } from './db';
 import { loadImageSource } from './media-ingest';
 import { addDraft, submitPublish, updateDraft, uploadContentImage, uploadCoverMaterial } from './wechat';
 import {
-  insertBodyCover,
-  renderMiniprogramCard,
-  renderWechatContent,
   substituteWechatImages,
   truncateChars,
   validateWechatContent,
   WECHAT_DIGEST_MAX,
   WECHAT_TITLE_MAX,
-  WX_IMAGE_PLACEHOLDER,
-  type WechatMiniProgramCard,
 } from './wechat-render';
+import {
+  buildWechatBody,
+  miniProgramCardFromSettings,
+  type WechatBodyImage,
+} from './wechat-length';
 
 /** 正文图片：微信 uploadimg 仅收 jpg/png 且单张 < 1MB。 */
 const CONTENT_IMAGE_MAX_BYTES = 1024 * 1024;
@@ -104,29 +104,15 @@ function loadImage(
   return loadImageSource(env, url, { maxSize, maxSizeMessage });
 }
 
-/**
- * 上传正文全部图片，返回与占位符一一对应的 mmbiz URL。
- * 遇到不支持的图片时按用户要求直接报错并指明是哪一张（不静默跳过）。
- */
-interface ContentImage {
-  url: string;
-  label: string;
-  /** 同一图片需要作为正文图和封面上传时复用已读取的字节，避免随机外链返回不同图片。 */
+/** 上传正文图片时需要额外携带已读取的字节(封面复用)。 */
+interface ContentImage extends WechatBodyImage {
   source?: PushImageSource;
 }
 
-/** URL fragment 不会随 HTTP 请求发送；比较时去掉 fragment，确保同一资源只取一次。 */
-export function imageSourceKey(rawUrl: string): string {
-  const value = rawUrl.trim();
-  try {
-    const url = new URL(value);
-    url.hash = '';
-    return url.toString();
-  } catch {
-    return value;
-  }
-}
-
+/**
+ * 上传正文全部图片,返回与占位符一一对应的 mmbiz URL。
+ * 遇到不支持的图片时按用户要求直接报错并指明是哪一张(不静默跳过)。
+ */
 async function uploadContentImages(
   env: Env,
   settings: WechatSettings,
@@ -190,22 +176,6 @@ export interface PushDraftOptions {
   updateExisting?: boolean;
 }
 
-/** 从设置组装文末小程序卡片；未启用或缺 AppID/路径时返回 null。 */
-function miniProgramCardFromSettings(settings: WechatSettings): WechatMiniProgramCard | null {
-  if (!settings.miniprogramEnabled) return null;
-  const appId = settings.miniprogramAppId.trim();
-  const path = settings.miniprogramPath.trim();
-  if (!appId || !path) return null;
-  return {
-    appId,
-    path,
-    title: settings.miniprogramTitle.trim() || settings.miniprogramButton.trim() || '点击进入小程序',
-    desc: settings.miniprogramDesc.trim(),
-    image: settings.miniprogramImage.trim(),
-    button: settings.miniprogramButton.trim() || '点击进入小程序',
-  };
-}
-
 /**
  * 组装「阅读原文」地址。微信只接受可公网访问的 http(s) 地址，本地开发
  * （localhost / 127.0.0.1 / 内网）会被拒并返回 41039。这里遇到明显的回环/内网
@@ -245,63 +215,35 @@ export async function pushPostToWechatDraft(
   options: PushDraftOptions = {},
 ): Promise<WechatPushResult> {
   const markdown = (post.content_md ?? '').trim();
-  if (!markdown) throw AppError.badRequest('文章正文为空，无法推送');
-
-  // 1. 渲染（图片先占位），保留来源标签以便错误能指出具体图片。
-  const rendered = renderWechatContent(markdown);
-  const images: ContentImage[] = rendered.images.map((url, index) => ({
-    url,
-    label: `第 ${index + 1} 张正文图片（${url}）`,
-  }));
+  if (!markdown) throw AppError.badRequest('文章正文为空,无法推送');
   if (!post.cover_url) {
-    throw AppError.badRequest('推送草稿需要封面图：请先在文章中设置封面（微信 thumb_media_id 必填）');
+    throw AppError.badRequest('推送草稿需要封面图:请先在文章中设置封面(微信 thumb_media_id 必填)');
   }
 
-  let bodyHtml = rendered.html;
-  let coverSource: PushImageSource | undefined;
-  const coverKey = imageSourceKey(post.cover_url);
-  const existingImages = images.filter((image) => imageSourceKey(image.url) === coverKey);
-  if (settings.bodyCoverPosition !== 'none' || existingImages.length > 0) {
-    // 随机图片接口可能每次访问返回不同图片：同一篇推送里正文封面与
-    // thumb_media_id 必须复用同一次 HTTP 访问读到的同一份字节。
-    coverSource = await loadImage(
-      env,
-      post.cover_url,
-      COVER_MAX_BYTES,
-      '封面图超过微信封面 10MB 上限',
-    );
-    for (const existingImage of existingImages) {
-      existingImage.source = coverSource;
-      existingImage.label = '封面图';
-    }
-    if (settings.bodyCoverPosition !== 'none' && existingImages.length === 0) {
-      const index = images.length;
-      images.push({ url: post.cover_url, label: '封面图', source: coverSource });
-      const coverPlaceholder = `${WX_IMAGE_PLACEHOLDER}${index}}}`;
-      const coverHtml = `<p style="margin:0 0 16px;"><img src="${coverPlaceholder}" alt="封面图" style="max-width:100%;height:auto;display:block;margin:8px auto;" /></p>`;
-      bodyHtml = insertBodyCover(bodyHtml, coverHtml, settings.bodyCoverPosition);
-    }
-  }
+  // 1. 装配正文:渲染、插入正文封面、追加小程序卡片。
+  //    与编辑器预检共用同一份逻辑,保证字符数口径一致。
+  const body = buildWechatBody({
+    markdown,
+    coverUrl: post.cover_url,
+    bodyCoverPosition: settings.bodyCoverPosition,
+    card: miniProgramCardFromSettings(settings),
+  });
 
-  // 2. 文末小程序卡片（可选）：配图同样走 uploadimg，所以先占位再统一替换。
-  const card = miniProgramCardFromSettings(settings);
-  let cardHtml = '';
-  if (card) {
-    let cardImageSrc = '';
-    if (card.image) {
-      const index = images.length;
-      images.push({ url: card.image, label: `小程序卡片配图（${card.image}）` });
-      cardImageSrc = `${WX_IMAGE_PLACEHOLDER}${index}}}`;
-    }
-    cardHtml = renderMiniprogramCard(card, cardImageSrc);
-  }
+  // 2. 封面(以及正文里已出现的同一封面地址)只下载一次,复用同一份字节。
+  const coverSource = body.images.some((image) => image.shareCoverSource)
+    ? await loadImage(env, post.cover_url, COVER_MAX_BYTES, '封面图超过微信封面 10MB 上限')
+    : undefined;
+  const images: ContentImage[] = body.images.map((image) => ({
+    ...image,
+    source: image.shareCoverSource ? coverSource : undefined,
+  }));
 
   // 3. 正文图片上传。
   const imageUrls = await uploadContentImages(env, settings, images);
-  const content = substituteWechatImages(bodyHtml + cardHtml, imageUrls);
+  const content = substituteWechatImages(body.html + body.cardHtml, imageUrls);
 
   // 4. 体积校验（微信 < 2 万字符且 < 1M）。
-  const sizeError = validateWechatContent(content);
+  const sizeError = validateWechatContent(content, Array.from(markdown).length);
   if (sizeError) throw AppError.badRequest(sizeError);
 
   // 5. 封面永久素材。

@@ -280,15 +280,44 @@ export function insertBodyCover(
   return `${html.slice(0, insertionPoint)}${coverHtml}${html.slice(insertionPoint)}`;
 }
 
-/** 正文体积校验：微信要求 < 2 万字符且 < 1M。返回错误信息或 null。 */
-export function validateWechatContent(html: string): string | null {
+/** 正文体积测量结果:微信要求 < 2 万字符且 < 1M。 */
+export interface WechatContentSize {
+  chars: number;
+  bytes: number;
+  /** 至少要删减多少字符才进限制,未超为 0。 */
+  overChars: number;
+  /** 至少要删减多少字节才进限制,未超为 0。 */
+  overBytes: number;
+  ok: boolean;
+}
+
+export function measureWechatContent(html: string): WechatContentSize {
+  // 按 Unicode 码点计数:一个汉字、一个 emoji 都算 1 个字符。
   const chars = Array.from(html).length;
-  if (chars >= WECHAT_CONTENT_MAX_CHARS) {
-    return `正文长度 ${chars} 字符，超过微信 2 万字符上限，请精简后再推送`;
-  }
   const bytes = new TextEncoder().encode(html).byteLength;
-  if (bytes >= WECHAT_CONTENT_MAX_BYTES) {
-    return `正文体积 ${Math.round(bytes / 1024)}KB，超过微信 1MB 上限，请精简后再推送`;
+  return {
+    chars,
+    bytes,
+    overChars: chars >= WECHAT_CONTENT_MAX_CHARS ? chars - WECHAT_CONTENT_MAX_CHARS + 1 : 0,
+    overBytes: bytes >= WECHAT_CONTENT_MAX_BYTES ? bytes - WECHAT_CONTENT_MAX_BYTES + 1 : 0,
+    ok: chars < WECHAT_CONTENT_MAX_CHARS && bytes < WECHAT_CONTENT_MAX_BYTES,
+  };
+}
+
+/**
+ * 正文体积校验:微信要求 < 2 万字符且 < 1M。
+ *
+ * 微信统计的是**渲染后的 HTML 字符串**(含标签与内联样式),不是 Markdown 字数。
+ * `markdownChars` 只用来在报错里点明两个口径的差距,避免误以为正文真有两万多字。
+ */
+export function validateWechatContent(html: string, markdownChars?: number): string | null {
+  const size = measureWechatContent(html);
+  const origin = markdownChars === undefined ? '' : `(原文 Markdown ${markdownChars} 字符)`;
+  if (size.overChars > 0) {
+    return `公众号正文 ${size.chars} 字符${origin},超过微信 2 万字符上限,至少需删减 ${size.overChars} 字符后再推送`;
+  }
+  if (size.overBytes > 0) {
+    return `公众号正文 ${Math.round(size.bytes / 1024)}KB${origin},超过微信 1MB 上限,请精简后再推送`;
   }
   return null;
 }
