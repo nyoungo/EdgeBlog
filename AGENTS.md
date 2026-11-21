@@ -416,11 +416,17 @@ Node/Vite 会把 `.wasm` 当外部模块交给原生 loader，报
 
 ### 媒体「未使用」判定必须偏保守，清理要分批
 
-`functions/lib/media-usage.ts` 的 `MEDIA_IN_USE_SQL` 是唯一口径，列表徽标、`usage`
-筛选、`unusedMediaSummary()` 与 `POST /api/media/cleanup-unused` 都引用它。判定范围
-包括：文章 `cover_url` / `og_image` / `content_md`（含软删除的文章，回收站恢复后图
-还要能用）、专栏封面、定时任务与运行记录封面，以及所有 `settings.value_json` 里出现
-过的 key 或 URL。宁可漏清理，也不能删掉还能显示的图。
+`functions/lib/media-usage.ts` 是唯一口径，列表徽标、`usage` 筛选、
+`unusedMediaSummary()` 与 `POST /api/media/cleanup-unused` 都走它。判定范围包括：
+文章 `cover_url` / `og_image` / `content_md`（含软删除的文章，回收站恢复后图还要
+能用）、专栏封面、定时任务与运行记录封面，以及所有 `settings.value_json` 里出现过
+的 key 或 URL。宁可漏清理，也不能删掉还能显示的图。
+
+运行时先探测每个来源是否存在（`SELECT 列 FROM 表 LIMIT 1`），再拼最终 SQL（每个
+isolate 缓存 5 分钟）。生产库是手工跑迁移的，缺表/缺列时只跳过那一项，媒体库不会
+整页 500；一个来源都探测不到则直接报错，绝不把全部媒体标成「未使用」让清理删光。
+列表接口本身也有降级：统计失败时返回不带 `in_use` 的列表，并把原始错误放进
+`meta.usageError` 显示在页面顶部，避免「服务器内部错误」这种无信息量提示。
 
 清理接口按批删除（默认 20、上限 30），因为免费版每个请求最多 50 个子请求，而每删一个
 对象就是一次 R2 调用；它返回 `remaining`，由前端循环调用到 0。列表接口的

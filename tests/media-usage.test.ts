@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createRequire } from 'node:module';
-import { MEDIA_IN_USE_SQL } from '../functions/lib/media-usage';
+import { MEDIA_IN_USE_SQL, buildMediaInUseSql } from '../functions/lib/media-usage';
 
 /**
  * `node:sqlite` 只在 Node 22.5+ 存在，CI 可能跑在更老的版本上，所以拿不到就
@@ -54,8 +54,7 @@ function isUsed(db: Db, key: string): boolean {
 }
 
 describe('MEDIA_IN_USE_SQL', () => {
-  it('covers every place a media URL can be referenced', () => {
-    // 结构断言：不依赖 SQLite，防止有人删掉某一条引用来源。
+  it('covers every place a media URL can be referenced', () => {    // 结构断言：不依赖 SQLite，防止有人删掉某一条引用来源。
     for (const fragment of [
       'posts p',
       'p.cover_url',
@@ -115,5 +114,24 @@ describe('MEDIA_IN_USE_SQL', () => {
       ('https://cdn.example.com/media/a/other.jpg', NULL, 'text')`);
 
     expect(isUsed(db, 'a/orphan.jpg')).toBe(false);
+  });
+});
+
+describe('buildMediaInUseSql', () => {
+  it('omits references whose table or column is missing', () => {
+    const sql = buildMediaInUseSql(new Set(['posts.cover_url', 'settings.value_json']));
+    expect(sql).toContain('p.cover_url = m.url');
+    expect(sql).toContain('settings s');
+    expect(sql).not.toContain('p.og_image');
+    expect(sql).not.toContain('p.content_md');
+    expect(sql).not.toContain('columns c');
+    expect(sql).not.toContain('automation_tasks');
+    expect(sql).not.toContain('automation_runs');
+  });
+
+  it('ORs every available source together', () => {
+    const sql = buildMediaInUseSql(new Set(['columns.cover_url', 'automation_runs.cover_url']));
+    expect(sql).toMatch(/columns c[\s\S]+OR[\s\S]+automation_runs r/);
+    expect(sql).not.toContain('posts p');
   });
 });

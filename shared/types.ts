@@ -808,6 +808,8 @@ export interface ApiMeta {
   /** 媒体库列表专用：当前未使用的文件数与占用字节（不受分页/筛选影响）。 */
   unused?: number;
   unusedBytes?: number;
+  /** 使用状态统计失败时的原始错误（媒体库会显示提示；筛选/清理仍按准确口径拒绝）。 */
+  usageError?: string;
 }
 
 export type ApiSuccess<T> = { ok: true; data: T; meta?: ApiMeta };

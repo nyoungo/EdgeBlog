@@ -239,6 +239,12 @@ export function MediaAdminPage() {
         />
       </header>
 
+      {meta.usageError && (
+        <p className="mb-4 rounded-xl bg-warning/10 px-3 py-2 text-xs text-warning">
+          未使用统计不可用，文件仍可正常管理：{meta.usageError}
+        </p>
+      )}
+
       <div className="mb-4 flex flex-wrap gap-2">
         <Input
           type="search"

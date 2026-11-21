@@ -12,7 +12,7 @@ import { paginationSchema } from '../lib/validate';
 import { recordAudit } from '../lib/audit';
 import { mediaObjectKey, mediaPublicUrl } from '../lib/media-store';
 import { loadImageSource } from '../lib/media-ingest';
-import { MEDIA_IN_USE_SQL, unusedMediaSummary } from '../lib/media-usage';
+import { mediaInUseSql, unusedMediaSummary } from '../lib/media-usage';
 import {
   EXT_BY_MIME,
   IMAGE_MAX_SIZE,
@@ -66,32 +66,71 @@ mediaRoutes.get('/', async (c) => {
     conditions.push('m.mime LIKE ?');
     binds.push(`${kind}/%`);
   }
-  if (usage === 'used') conditions.push(MEDIA_IN_USE_SQL);
-  else if (usage === 'unused') conditions.push(`NOT ${MEDIA_IN_USE_SQL}`);
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const whereWith = (extra: string | null) => {
+    const clauses = extra ? [...conditions, extra] : conditions;
+    return clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  };
 
-  const [totalRow, summary, rows] = await Promise.all([
-    first<{ total: number }>(c.env, `SELECT COUNT(*) AS total FROM media m ${where}`, ...binds),
-    stats === '1' ? unusedMediaSummary(c.env) : Promise.resolve(null),
-    all<MediaItem>(
-      c.env,
-      `SELECT m.*${stats === '1' ? `, CASE WHEN ${MEDIA_IN_USE_SQL} THEN 1 ELSE 0 END AS in_use` : ''}
-         FROM media m ${where}
-        ORDER BY m.created_at DESC, m.id DESC
-        LIMIT ? OFFSET ?`,
-      ...binds,
+  const wantsUsage = stats === '1' || Boolean(usage);
+
+  /**
+   * 一次查询拿总数、未使用汇总与当前页数据。
+   *
+   * `sql` 为 null 时完全不引用判定条件——用于「使用状态统计失败」后的降级：
+   * 老库缺列/缺表时媒体列表仍要能用，只是不显示徽标。
+   */
+  const runList = async (sql: string | null) => {
+    const usageCondition = usage && sql ? (usage === 'used' ? sql : `NOT ${sql}`) : null;
+    const where = whereWith(usageCondition);
+    const [totalRow, summary, rows] = await Promise.all([
+      first<{ total: number }>(c.env, `SELECT COUNT(*) AS total FROM media m ${where}`, ...binds),
+      sql && stats === '1' ? unusedMediaSummary(c.env, sql) : Promise.resolve(null),
+      all<MediaItem>(
+        c.env,
+        `SELECT m.*${sql && stats === '1' ? `, CASE WHEN ${sql} THEN 1 ELSE 0 END AS in_use` : ''}
+           FROM media m ${where}
+          ORDER BY m.created_at DESC, m.id DESC
+          LIMIT ? OFFSET ?`,
+        ...binds,
+        perPage,
+        (page - 1) * perPage,
+      ),
+    ]);
+    return { total: totalRow?.total ?? 0, summary, rows };
+  };
+
+  const respond = (result: Awaited<ReturnType<typeof runList>>, usageError?: string) =>
+    ok(c, result.rows, {
+      page,
       perPage,
-      (page - 1) * perPage,
-    ),
-  ]);
-  const total = totalRow?.total ?? 0;
-  return ok(c, rows, {
-    page,
-    perPage,
-    total,
-    totalPages: Math.max(1, Math.ceil(total / perPage)),
-    ...(summary ? { unused: summary.count, unusedBytes: summary.bytes } : {}),
-  });
+      total: result.total,
+      totalPages: Math.max(1, Math.ceil(result.total / perPage)),
+      ...(result.summary ? { unused: result.summary.count, unusedBytes: result.summary.bytes } : {}),
+      ...(usageError ? { usageError } : {}),
+    });
+
+  if (!wantsUsage) return respond(await runList(null));
+
+  // 「已使用 / 未使用」筛选与徽标依赖同一份判定 SQL；探测失败时降级。
+  let usageSql: string | null = null;
+  try {
+    usageSql = await mediaInUseSql(c.env);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[media] usage detection failed', err);
+    if (usage) throw AppError.internal(`媒体使用状态查询失败：${message}`);
+    return respond(await runList(null), message);
+  }
+
+  try {
+    return respond(await runList(usageSql));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[media] usage query failed', err);
+    // 用了「已使用 / 未使用」筛选时结果必须准确，不能降级成错误列表。
+    if (usage) throw AppError.internal(`媒体使用状态查询失败：${message}`);
+    return respond(await runList(null), message);
+  }
 });
 
 /**
@@ -133,15 +172,24 @@ mediaRoutes.post('/cleanup-unused', async (c) => {
   const raw = Number.parseInt(c.req.query('limit') ?? '20', 10);
   const limit = Number.isFinite(raw) ? Math.min(30, Math.max(1, raw)) : 20;
 
+  const usageSql = await mediaInUseSql(c.env).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[media] cleanup usage detection failed', err);
+    throw AppError.internal(`清理未使用媒体失败：${message}`);
+  });
   const rows = await all<{ id: number; key: string; thumbnail_url: string | null; size: number }>(
     c.env,
     `SELECT m.id, m.key, m.thumbnail_url, m.size
        FROM media m
-      WHERE NOT ${MEDIA_IN_USE_SQL}
+      WHERE NOT ${usageSql}
       ORDER BY m.created_at ASC, m.id ASC
       LIMIT ?`,
     limit,
-  );
+  ).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[media] cleanup query failed', err);
+    throw AppError.internal(`清理未使用媒体失败：${message}`);
+  });
   if (rows.length === 0) {
     return ok(c, { deleted: 0, remaining: 0, freedBytes: 0, keys: [] as string[] });
   }
@@ -164,7 +212,11 @@ mediaRoutes.post('/cleanup-unused', async (c) => {
     ...rows.map((row) => row.id),
   );
 
-  const summary = await unusedMediaSummary(c.env);
+  const summary = await unusedMediaSummary(c.env, usageSql).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[media] cleanup summary failed', err);
+    throw AppError.internal(`已清理 ${rows.length} 个文件，但统计剩余数量失败：${message}`);
+  });
   await recordAudit(c.env, c.get('user'), 'media.cleanup', 'media', null, {
     deleted: rows.length,
     freedBytes,
