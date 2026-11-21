@@ -439,6 +439,27 @@ Node 22.5+ 才有，所以用例在拿不到时自动 skip（CI 固定 Node 22 �
 
 ## 数据层 / SQLite(D1)
 
+### D1 的 `LIKE` / `GLOB` pattern 上限只有 **50 字节**，模糊匹配一律用 `instr()`
+
+SQLite 默认允许 50000 字节，但 D1 把它压到 50 字节（官方 Limits 表：*Maximum
+characters (bytes) in a LIKE or GLOB pattern = 50 bytes*）。超过就报
+`D1_ERROR: LIKE or GLOB pattern too complex: SQLITE_ERROR`。
+
+最容易踩的是「用列值拼 pattern」：`content_md LIKE '%' || m.key || '%'` 里
+`uploads/2026/11/thumbnail-xxxxxxxx.jpg` 这类 key 有 40+ 字符，加上两个 `%` 立刻超限；
+中文按 UTF-8 3 字节算，搜索词 17 个字就超。**本地 SQLite / `wrangler dev` 不会报错**，
+只有线上 D1 会，所以这类问题必须在代码层面避免，而不是靠本地测试。
+
+**规则**：
+
+- 只是判断「包含」→ `instr(列, ?) > 0`；需要大小写不敏感时
+  `instr(lower(列), lower(?)) > 0`（`lower()` 只折 ASCII，与 `LIKE` 的默认行为一致）；
+- 前缀匹配 → `substr(列, 1, length(?)) = ?` 或区间比较（见 `posts-write.ts` 的 slug 去重）；
+- 只有固定的短 pattern（如 `mime LIKE 'image/%'`、1–2 个字的 FTS 退化搜索）才保留 `LIKE`。
+
+`tests/media-usage.test.ts` 有一条结构断言直接检查判定 SQL 里不出现 `LIKE`，新增
+模糊查询时照着这个思路补测试。
+
 ### 改 / 扩充列上的 CHECK 约束只能重建表,而 DROP TABLE 会级联删除子表行
 
 SQLite 不支持 `ALTER TABLE ... ALTER COLUMN`,要改 `CHECK`(例如给

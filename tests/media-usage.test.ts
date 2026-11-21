@@ -54,7 +54,8 @@ function isUsed(db: Db, key: string): boolean {
 }
 
 describe('MEDIA_IN_USE_SQL', () => {
-  it('covers every place a media URL can be referenced', () => {    // 结构断言：不依赖 SQLite，防止有人删掉某一条引用来源。
+  it('covers every place a media URL can be referenced', () => {
+    // 结构断言：不依赖 SQLite，防止有人删掉某一条引用来源。
     for (const fragment of [
       'posts p',
       'p.cover_url',
@@ -71,6 +72,13 @@ describe('MEDIA_IN_USE_SQL', () => {
     ]) {
       expect(MEDIA_IN_USE_SQL).toContain(fragment);
     }
+  });
+
+  it('never builds a LIKE pattern from a column value', () => {
+    // D1 把 LIKE/GLOB 的 pattern 限制在 50 字节，`'%' || m.key || '%'` 会直接报
+    // 「LIKE or GLOB pattern too complex」。这里锁死：判定 SQL 一律用 instr()。
+    expect(MEDIA_IN_USE_SQL).not.toMatch(/\bLIKE\b/i);
+    expect(MEDIA_IN_USE_SQL).not.toMatch(/\bGLOB\b/i);
   });
 
   const needsSqlite = sqlite ? it : it.skip;

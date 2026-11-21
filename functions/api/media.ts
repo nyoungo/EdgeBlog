@@ -59,8 +59,9 @@ mediaRoutes.get('/', async (c) => {
   const conditions: string[] = [];
   const binds: unknown[] = [];
   if (q) {
-    conditions.push('(m.filename LIKE ? OR m.key LIKE ?)');
-    binds.push(`%${q}%`, `%${q}%`);
+    // D1 的 LIKE pattern 上限 50 字节，长文件名/长关键词会直接报错，改用 instr。
+    conditions.push('(instr(lower(m.filename), lower(?)) > 0 OR instr(lower(m.key), lower(?)) > 0)');
+    binds.push(q, q);
   }
   if (kind) {
     conditions.push('m.mime LIKE ?');
@@ -245,12 +246,12 @@ mediaRoutes.get('/:id/usage', async (c) => {
     c.env,
     `SELECT id, slug, title, status FROM posts
       WHERE deleted_at IS NULL
-        AND (cover_url = ? OR og_image = ? OR content_md LIKE ? OR content_md LIKE ?)
+        AND (cover_url = ? OR og_image = ? OR instr(content_md, ?) > 0 OR instr(content_md, ?) > 0)
       ORDER BY updated_at DESC LIMIT 50`,
     row.url,
     row.url,
-    `%${row.key}%`,
-    `%${row.url}%`,
+    row.key,
+    row.url,
   );
   return ok(c, rows);
 });

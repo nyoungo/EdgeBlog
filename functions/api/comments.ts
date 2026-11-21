@@ -169,8 +169,9 @@ commentRoutes.get('/', requireAuth, async (c) => {
     binds.push(postId);
   }
   if (q) {
-    conditions.push('(c.author LIKE ? OR c.content LIKE ?)');
-    binds.push(`%${q}%`, `%${q}%`);
+    // D1 的 LIKE pattern 上限 50 字节（中文约 16 字就超），改用 instr。
+    conditions.push('(instr(lower(c.author), lower(?)) > 0 OR instr(lower(c.content), lower(?)) > 0)');
+    binds.push(q, q);
   }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 

@@ -22,8 +22,8 @@ auditRoutes.get('/', async (c) => {
   const { page, perPage, action } = parsed.data;
   c.header('Cache-Control', 'no-store');
 
-  const where = action ? 'WHERE action LIKE ?' : '';
-  const binds: unknown[] = action ? [`${action}%`] : [];
+  const where = action ? "WHERE instr(action, ?) > 0" : '';
+  const binds: unknown[] = action ? [action] : [];
 
   const totalRow = await first<{ total: number }>(
     c.env,

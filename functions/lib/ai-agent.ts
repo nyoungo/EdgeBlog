@@ -602,8 +602,9 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
         binds.push(args.status);
       }
       if (args.q) {
-        conditions.push('(p.title LIKE ? OR p.slug LIKE ?)');
-        binds.push(`%${args.q}%`, `%${args.q}%`);
+        // D1 的 LIKE pattern 上限 50 字节，模型给的搜索词可能很长，改用 instr。
+        conditions.push('(instr(lower(p.title), lower(?)) > 0 OR instr(lower(p.slug), lower(?)) > 0)');
+        binds.push(args.q, args.q);
       }
       const limit = args.limit ?? 15;
       const rows = await all<{
@@ -912,8 +913,9 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
         binds.push(`${args.kind}/%`);
       }
       if (args.q) {
-        conditions.push('(filename LIKE ? OR key LIKE ?)');
-        binds.push(`%${args.q}%`, `%${args.q}%`);
+        // 同上：D1 LIKE 上限 50 字节。
+        conditions.push('(instr(lower(filename), lower(?)) > 0 OR instr(lower(key), lower(?)) > 0)');
+        binds.push(args.q, args.q);
       }
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
       const rows = await all<{

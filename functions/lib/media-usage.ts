@@ -53,8 +53,11 @@ export function buildMediaInUseSql(sources: ReadonlySet<UsageSource>): string {
   if (sources.has('posts.cover_url')) postConditions.push('p.cover_url = m.url');
   if (sources.has('posts.og_image')) postConditions.push('p.og_image = m.url');
   if (sources.has('posts.content_md')) {
-    postConditions.push(`p.content_md LIKE '%' || m.key || '%'`);
-    postConditions.push(`p.content_md LIKE '%' || m.url || '%'`);
+    // 用 instr 而不是 LIKE：D1 的 LIKE/GLOB pattern 上限只有 50 字节，
+    // `'%' || m.key || '%'` 对正常长度的文件名就会超限并报
+    // 「LIKE or GLOB pattern too complex」。
+    postConditions.push('instr(p.content_md, m.key) > 0');
+    postConditions.push('instr(p.content_md, m.url) > 0');
   }
   if (postConditions.length > 0) {
     parts.push(`EXISTS (SELECT 1 FROM posts p WHERE ${postConditions.join(' OR ')})`);
@@ -72,8 +75,8 @@ export function buildMediaInUseSql(sources: ReadonlySet<UsageSource>): string {
   if (sources.has('settings.value_json')) {
     parts.push(
       `EXISTS (SELECT 1 FROM settings s
-                WHERE s.value_json LIKE '%' || m.key || '%'
-                   OR s.value_json LIKE '%' || m.url || '%')`,
+                WHERE instr(s.value_json, m.key) > 0
+                   OR instr(s.value_json, m.url) > 0)`,
     );
   }
 
