@@ -333,8 +333,8 @@ export function WechatSettingsPage() {
             label="压缩接口地址"
             value={form.imageCompressUrl}
             onChange={(e) => set('imageCompressUrl', e.target.value)}
-            placeholder="https://uapis.cn/api/v1/image/compress"
-            hint="留空则关闭。接口需接受 multipart 字段 file，返回图片二进制；本项目会附带 format=jpeg&level=1 查询参数。"
+            placeholder="https://uapis.cn/api/v1/image/compress?format=jpeg&level=1"
+            hint="留空则关闭。接口需接受 multipart 字段 file、返回图片二进制；输出格式/压缩等级等参数请直接拼在地址上（如 ?format=jpeg&level=1），代码不会自动追加。"
             autoComplete="off"
           />
           <Input

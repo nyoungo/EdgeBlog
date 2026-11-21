@@ -5,9 +5,10 @@
  * Worker 里，没有浏览器的 Canvas。配置一个 HTTP 压缩接口后，这两条路径都能在
  * 不依赖 wasm 的前提下，把 webp/avif 之类转成微信接受的 jpeg。
  *
- * 约定（以 uapis.cn 的 `/api/v1/image/compress` 为准，2026-11 实测）：
+ * 约定：
  *   - POST multipart/form-data，字段名 `file`；
- *   - 查询参数 `format=jpeg` 控制输出格式，`level=1..5` 控制压缩强度；
+ *   - 输出格式、压缩等级等参数由管理员直接拼在配置的地址上
+ *     （例如 `…/image/compress?format=jpeg&level=1`），代码不写死；
  *   - 成功直接返回图片二进制（`Content-Type: image/*`），失败返回 JSON。
  *
  * 实测限制：
@@ -45,7 +46,7 @@ export interface RemoteCompressResult {
   mime: string;
 }
 
-/** 把配置里的地址补成「要求 jpeg 输出 + 强压缩」的最终 URL。 */
+/** 校验配置里的地址：必须是 https，查询参数由管理员自行拼在地址上。 */
 function buildEndpoint(raw: string): string {
   const value = raw.trim();
   if (!value) throw AppError.badRequest('未配置图片压缩接口地址');
@@ -58,10 +59,8 @@ function buildEndpoint(raw: string): string {
   if (url.protocol !== 'https:') {
     throw AppError.badRequest('图片压缩接口必须使用 https');
   }
-  // 微信正文图只收 jpg/png；统一要求 jpeg，避免对方按原格式返回 webp。
-  url.searchParams.set('format', 'jpeg');
-  // level 越小压缩越强，1 是极限压缩。对方没有宽高参数，只能靠这一档。
-  url.searchParams.set('level', '1');
+  // 原样使用：输出格式 / 压缩等级等参数（如 format=jpeg&level=1）由配置方自己拼，
+  // 不在代码里写死，方便切换到别的接口或调整参数。
   return url.toString();
 }
 

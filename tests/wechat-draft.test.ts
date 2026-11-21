@@ -247,7 +247,7 @@ describe('远程图片压缩接口', () => {
   const REMOTE: WechatSettings = {
     ...SETTINGS,
     serverImageProcessing: false,
-    imageCompressUrl: 'https://compress.example/api/v1/image/compress',
+    imageCompressUrl: 'https://compress.example/api/v1/image/compress?format=jpeg&level=1',
     imageCompressToken: 'secret-key',
   };
   const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43]);
@@ -271,8 +271,8 @@ describe('远程图片压缩接口', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('format=jpeg');
-    expect(url).toContain('level=1');
+    // 查询参数完全来自配置，代码不再自动追加。
+    expect(url).toBe(REMOTE.imageCompressUrl);
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer secret-key');
     // 上传的是远程返回的 jpeg，不是原 webp（Response 会复制字节，比较内容）。
     expect(mocks.uploadCoverMaterial.mock.calls[0]?.[2]).toStrictEqual(JPEG);

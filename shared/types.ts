@@ -650,9 +650,10 @@ export interface WechatSettings {
    * 远程图片压缩接口地址；留空表示不启用。
    *
    * Worker 只做「POST 文件 → 收二进制」这一层 I/O，不消耗 CPU，所以免费版也能用。
-   * 当前按 uapis.cn `/api/v1/image/compress` 的约定实现：multipart 字段 `file`，
-   * 查询参数 `format=jpeg&level=1`。接口没有宽高/目标体积参数，输出仍会按微信
-   * 限制重新校验，不达标就指名报错。
+   * 按 uapis.cn `/api/v1/image/compress` 的约定实现：multipart 字段 `file`；
+   * 输出格式/压缩等级等参数请直接拼在地址上（如 `?format=jpeg&level=1`），
+   * 代码不会自动追加。接口没有宽高/目标体积参数，输出仍会按微信限制重新校验，
+   * 不达标就指名报错。
    */
   imageCompressUrl: string;
   /** 远程压缩接口的 API Key（仅存服务端），留空则匿名调用。 */
