@@ -428,6 +428,14 @@ SQLite 不支持 `ALTER TABLE ... ALTER COLUMN`,要改 `CHECK`(例如给
 (`CREATE TABLE ... AS SELECT *`),重建父表后再原样恢复(恢复前先 `DELETE`,兼容
 「级联未生效」的环境);`DROP TABLE` 会连索引 / 触发器一起删掉,重建后要一并补回。
 
+### 后台文章列表按 `updated_at` 排,不能复用公开列表的「按发布时间」
+
+草稿的 `published_at` 是 `NULL`,公开列表的 `newest`(`published_at DESC NULLS LAST`)
+会把刚写好的草稿全部排到最后。后台关心的是「最近改过哪篇」,所以
+`posts-repo.ts` 用独立的 `ADMIN_SORT_SQL`:newest/oldest/popular 一律按
+`updated_at`(带 `p.id` 兜底,避免同一秒内顺序抖动)。新建的文章
+`updated_at` 就等于创建时间,两种口径自然重合。
+
 ## 前端
 
 ### `cn()` 必须做冲突消解，否则「组件默认值 + 调用方覆盖」会随机失效

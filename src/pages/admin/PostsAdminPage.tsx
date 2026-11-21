@@ -23,8 +23,8 @@ const STATUSES = [
 ];
 
 const SORTS = [
-  { value: 'newest', label: '最新发布' },
-  { value: 'oldest', label: '最早发布' },
+  { value: 'newest', label: '最近更新' },
+  { value: 'oldest', label: '最久未更新' },
   { value: 'popular', label: '浏览量' },
   { value: 'title', label: '标题' },
 ];

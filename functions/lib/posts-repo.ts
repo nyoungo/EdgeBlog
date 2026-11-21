@@ -46,6 +46,20 @@ const SORT_SQL: Record<SortOption, string> = {
   title: 'p.title ASC',
 };
 
+/**
+ * 后台列表的排序。
+ *
+ * 草稿没有 `published_at`，沿用公开列表的「按发布时间」会把刚写好的草稿沉到
+ * 最后一页。管理员关心的是「最近改过哪篇」，所以 newest/oldest 都按 `updated_at`；
+ * 刚创建的文章 `updated_at` 就等于创建时间，两种口径在这里是重合的。
+ */
+const ADMIN_SORT_SQL: Record<SortOption, string> = {
+  newest: 'p.updated_at DESC, p.id DESC',
+  oldest: 'p.updated_at ASC, p.id ASC',
+  popular: 'p.views DESC, p.updated_at DESC',
+  title: 'p.title ASC, p.id ASC',
+};
+
 /** Escape a user query for FTS5 phrase matching. */
 export function ftsQuery(input: string): string {
   return `"${input.replace(/"/g, '""')}"`;
@@ -177,7 +191,7 @@ export async function listPosts(
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const sortOrder = SORT_SQL[opts.sort ?? 'newest'];
+  const sortOrder = (opts.admin ? ADMIN_SORT_SQL : SORT_SQL)[opts.sort ?? 'newest'];
   const orderBy = opts.admin ? sortOrder : `p.pinned DESC, ${sortOrder}`;
   const offset = (opts.page - 1) * opts.perPage;
 
