@@ -207,7 +207,8 @@ export function CommentsAdminPage() {
           {comments.map((comment) => (
             <Card
               key={comment.id}
-              className={cn('p-4', selected.has(comment.id) && 'border-brand/40 bg-brand/5')}
+              variant="section"
+              className={cn('p-4', selected.has(comment.id) && 'bg-brand/5 ring-1 ring-brand/40')}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">

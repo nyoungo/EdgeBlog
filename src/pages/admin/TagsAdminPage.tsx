@@ -2,7 +2,8 @@ import { useState, type FormEvent } from 'react';
 import type { Tag } from '@shared/types';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Field';
-import { Card, EmptyState, Skeleton } from '../../components/ui/Feedback';
+import { EmptyState, Skeleton } from '../../components/ui/Feedback';
+import { Section } from '../../components/ui/Section';
 import { Icon } from '../../components/ui/icons';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { api } from '../../lib/api';
@@ -115,8 +116,7 @@ export function TagsAdminPage() {
         left ~half the content area blank).
       */}
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
-        <Card className="p-4 lg:sticky lg:top-24">
-          <h2 className="mb-3 text-sm font-semibold text-fg">新建标签</h2>
+        <Section title="新建标签" description="标签用于聚合相关文章。" icon="tag" className="lg:sticky lg:top-24">
           <form onSubmit={create} className="flex flex-col gap-3">
             <Input
               label="标签名"
@@ -140,7 +140,7 @@ export function TagsAdminPage() {
               添加标签
             </Button>
           </form>
-        </Card>
+        </Section>
 
         <div className="min-w-0">
           {loading && !data ? (
@@ -156,7 +156,12 @@ export function TagsAdminPage() {
               description={needle ? `没有找到与「${filter}」相关的标签。` : '在左侧创建第一个标签。'}
             />
           ) : (
-            <Card className="divide-y divide-border">
+            <Section
+              title="全部标签"
+              description={`共 ${visible.length} 个标签`}
+              icon="tag"
+              bodyClassName="space-y-0 divide-y divide-border p-0"
+            >
               {visible.map((tag) => (
                 <div key={tag.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                   {editingId === tag.id ? (
@@ -211,7 +216,7 @@ export function TagsAdminPage() {
                   )}
                 </div>
               ))}
-            </Card>
+            </Section>
           )}
         </div>
       </div>

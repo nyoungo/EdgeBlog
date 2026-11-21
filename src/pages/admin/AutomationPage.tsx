@@ -280,7 +280,7 @@ export function AutomationPage() {
           {rows.map((task) => {
             const status = task.last_status ? LAST_STATUS[task.last_status] : null;
             return (
-              <Card key={task.id} className="p-4">
+              <Card key={task.id} variant="section" className="p-4">
                 <div className="flex flex-wrap items-start gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">

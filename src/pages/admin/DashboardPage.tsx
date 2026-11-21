@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Card, Centered, ErrorState, Spinner } from '../../components/ui/Feedback';
+import { Section } from '../../components/ui/Section';
 import { StatusBadge } from '../../components/ui/Badge';
 import { Icon, type IconName } from '../../components/ui/icons';
 import { api } from '../../lib/api';
@@ -25,7 +26,7 @@ interface Stats {
 
 function StatCard({ label, value, icon, hint }: { label: string; value: string | number; icon: IconName; hint?: string }) {
   return (
-    <Card className="p-5">
+    <Card variant="section" className="p-5">
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted">{label}</span>
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand/10 text-brand">
@@ -102,13 +103,16 @@ export function DashboardPage() {
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <Card className="overflow-hidden">
-          <div className="flex items-center justify-between bg-surface-2/40 px-5 py-4">
-            <h2 className="text-sm font-semibold text-fg">最近文章</h2>
+        <Section
+          title="最近文章"
+          icon="fileText"
+          bodyClassName="p-0"
+          actions={
             <Link to="/admin/posts" className="text-xs text-muted hover:text-brand">
               全部
             </Link>
-          </div>
+          }
+        >
           <ul className="divide-y divide-border">
             {data.recentPosts.length === 0 && (
               <li className="px-5 py-8 text-center text-sm text-faint">暂无文章</li>
@@ -125,15 +129,18 @@ export function DashboardPage() {
               </li>
             ))}
           </ul>
-        </Card>
+        </Section>
 
-        <Card className="overflow-hidden">
-          <div className="flex items-center justify-between bg-surface-2/40 px-5 py-4">
-            <h2 className="text-sm font-semibold text-fg">最新评论</h2>
+        <Section
+          title="最新评论"
+          icon="message"
+          bodyClassName="p-0"
+          actions={
             <Link to="/admin/comments" className="text-xs text-muted hover:text-brand">
               全部
             </Link>
-          </div>
+          }
+        >
           <ul className="divide-y divide-border">
             {data.recentComments.length === 0 && (
               <li className="px-5 py-8 text-center text-sm text-faint">暂无评论</li>
@@ -149,7 +156,7 @@ export function DashboardPage() {
               </li>
             ))}
           </ul>
-        </Card>
+        </Section>
       </div>
     </div>
   );

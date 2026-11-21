@@ -3,7 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import type { ApiMeta, ColumnSummary, PostSummary } from '@shared/types';
 import { Button } from '../../components/ui/Button';
 import { Input, Select } from '../../components/ui/Field';
-import { Card, EmptyState, Skeleton } from '../../components/ui/Feedback';
+import { EmptyState, Skeleton } from '../../components/ui/Feedback';
+import { Section } from '../../components/ui/Section';
 import { StatusBadge } from '../../components/ui/Badge';
 import { Icon } from '../../components/ui/icons';
 import { Pagination } from '../../components/ui/Pagination';
@@ -311,7 +312,14 @@ export function PostsAdminPage() {
           }
         />
       ) : (
-        <Card className="overflow-hidden">
+        <Section
+          title={trash ? '回收站列表' : '文章列表'}
+          description={
+            trash ? '删除的文章可随时恢复，或在这里彻底删除。' : '按更新时间倒序；点击标题进入编辑。'
+          }
+          icon={trash ? 'trash' : 'fileText'}
+          bodyClassName="p-0"
+        >
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-sm">
               <thead>
@@ -452,7 +460,7 @@ export function PostsAdminPage() {
               </tbody>
             </table>
           </div>
-        </Card>
+        </Section>
       )}
 
       <Pagination

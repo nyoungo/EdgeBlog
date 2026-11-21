@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import type { AiSettingsView, AiProvider } from '@shared/types';
 import { AI_DEFAULTS } from '@shared/settings-defaults';
 import { api } from '../../lib/api';
@@ -9,8 +9,8 @@ import { Button } from '../../components/ui/Button';
 import { Input, Select, Textarea } from '../../components/ui/Field';
 import { ComboBox } from '../../components/ui/ComboBox';
 import { Switch } from '../../components/ui/Switch';
-import { Card } from '../../components/ui/Feedback';
-import { Icon, type IconName } from '../../components/ui/icons';
+import { Section } from '../../components/ui/Section';
+import { Icon } from '../../components/ui/icons';
 import { cn } from '../../lib/utils';
 
 const PROVIDERS: Array<{ value: AiProvider; label: string; baseUrl: string; model: string }> = [
@@ -50,37 +50,6 @@ function defaultsForm(flags: {
 }): FormState {
   const { apiKey: _apiKey, monidApiKey: _monidApiKey, ...rest } = AI_DEFAULTS;
   return toForm({ ...rest, ...flags, ready: false });
-}
-
-function Section({
-  title,
-  description,
-  icon,
-  children,
-  className,
-}: {
-  title: string;
-  description?: string;
-  icon?: IconName;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <Card className={cn('flex flex-col p-5', className)}>
-      <div className="mb-4 flex items-start gap-3">
-        {icon && (
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
-            <Icon name={icon} size={17} />
-          </span>
-        )}
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-fg">{title}</h3>
-          {description && <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p>}
-        </div>
-      </div>
-      <div className="space-y-4">{children}</div>
-    </Card>
-  );
 }
 
 export function AiSettingsPage() {

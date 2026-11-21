@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { ApiMeta, AuditLogEntry } from '@shared/types';
 import { Input, Select } from '../../components/ui/Field';
-import { Card, EmptyState, Skeleton } from '../../components/ui/Feedback';
+import { EmptyState, Skeleton } from '../../components/ui/Feedback';
+import { Section } from '../../components/ui/Section';
 import { Pagination } from '../../components/ui/Pagination';
 import { api, qs } from '../../lib/api';
 import { formatDateTime } from '../../lib/format';
@@ -116,7 +117,7 @@ export function AuditLogPage() {
       ) : visible.length === 0 ? (
         <EmptyState icon="clock" title="没有记录" description="还没有符合条件的管理操作。" />
       ) : (
-        <Card className="overflow-hidden">
+        <Section title="日志明细" description="按时间倒序，每页 30 条。" icon="clock" bodyClassName="p-0">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-sm">
               <thead>
@@ -164,7 +165,7 @@ export function AuditLogPage() {
               </tbody>
             </table>
           </div>
-        </Card>
+        </Section>
       )}
 
       <Pagination

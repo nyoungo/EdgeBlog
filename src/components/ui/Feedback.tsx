@@ -85,13 +85,23 @@ export function Card({
   children,
   className,
   as: Tag = 'div',
+  variant = 'card',
 }: {
   children: ReactNode;
   className?: string;
   as?: 'div' | 'article' | 'section' | 'li';
+  /** `section` 与站点设置的卡片同款：更大圆角 + 更明显的投影。 */
+  variant?: 'card' | 'section';
 }) {
   return (
-    <Tag className={cn('rounded-2xl bg-surface shadow-card', className)}>
+    <Tag
+      className={cn(
+        variant === 'section'
+          ? 'rounded-3xl bg-surface shadow-lift'
+          : 'rounded-2xl bg-surface shadow-card',
+        className,
+      )}
+    >
       {children}
     </Tag>
   );

@@ -173,7 +173,7 @@ export function ColumnsAdminPage() {
       ) : (
         <div className="space-y-3">
           {rows.map((column) => (
-            <Card key={column.id} className="flex flex-wrap items-start gap-4 p-4">
+            <Card key={column.id} variant="section" className="flex flex-wrap items-start gap-4 p-4">
               <div className="h-16 w-24 shrink-0 overflow-hidden rounded-lg bg-surface-2">
                 {column.cover_url ? (
                   <img src={column.cover_url} alt="" className="h-full w-full object-cover" />

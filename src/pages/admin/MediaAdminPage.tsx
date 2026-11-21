@@ -218,7 +218,7 @@ export function MediaAdminPage() {
       ) : (
         <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
           {items.map((item) => (
-            <div key={item.id} className="group overflow-hidden rounded-2xl bg-surface shadow-card">
+            <div key={item.id} className="group overflow-hidden rounded-3xl bg-surface shadow-lift">
               <div className="relative aspect-square">
                 {isVideo(item) ? (
                   <>

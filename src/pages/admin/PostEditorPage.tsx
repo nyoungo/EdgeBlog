@@ -10,7 +10,8 @@ import { useToast } from '../../providers/ToastProvider';
 import { Button } from '../../components/ui/Button';
 import { Input, Select, Textarea } from '../../components/ui/Field';
 import { Switch } from '../../components/ui/Switch';
-import { Card, Centered, Spinner } from '../../components/ui/Feedback';
+import { Centered, Spinner } from '../../components/ui/Feedback';
+import { Section } from '../../components/ui/Section';
 import { Icon } from '../../components/ui/icons';
 import { MediaPicker } from '../../components/admin/MediaPicker';
 import { MarkdownEditor } from '../../components/admin/MarkdownEditor';
@@ -533,7 +534,7 @@ export function PostEditorPage() {
         </div>
 
         <aside className="space-y-4">
-          <Card className="space-y-4 p-4">
+          <Section title="发布设置" description="决定文章出现在哪里、何时上线。" icon="upload">
             <Select
               label="发布到"
               value={form.columnId}
@@ -572,9 +573,9 @@ export function PostEditorPage() {
                 description="显示在首页精选模块"
               />
             )}
-          </Card>
+          </Section>
 
-          <Card className="space-y-4 p-4">
+          <Section title="文章信息" description="Slug、摘要和标签。" icon="fileText">
             <Input
               label="Slug"
               value={form.slug}
@@ -616,11 +617,10 @@ export function PostEditorPage() {
             {inColumn && (
               <p className="text-xs text-faint">专栏文章不参与标签体系；发布到博客后才可以加标签。</p>
             )}
-          </Card>
+          </Section>
 
-          <Card className="space-y-4 p-4">
+          <Section title="封面图" description="用于列表卡片与分享缩略图。" icon="image">
             <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-fg">封面图</span>
               {form.coverUrl && (
                 <img src={form.coverUrl} alt="封面预览" className="aspect-video w-full rounded-xl object-cover ring-1 ring-fg/10" />
               )}
@@ -636,9 +636,9 @@ export function PostEditorPage() {
                 </Button>
               </div>
             </div>
-          </Card>
+          </Section>
 
-          <Card className="space-y-4 p-4">
+          <Section title="SEO 与分享" description="搜索引擎与社交平台读取的标题、描述和图片。" icon="search">
             <Input label="SEO 标题" value={form.metaTitle} onChange={(e) => set('metaTitle', e.target.value)} placeholder="留空使用文章标题" />
             <Textarea
               label="SEO 描述"
@@ -656,7 +656,7 @@ export function PostEditorPage() {
                 </Button>
               </div>
             </div>
-          </Card>
+          </Section>
         </aside>
       </div>
 

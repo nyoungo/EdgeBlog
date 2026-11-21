@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { WechatSettingsView } from '@shared/types';
 import { WECHAT_DEFAULTS } from '@shared/settings-defaults';
@@ -10,10 +10,10 @@ import { useToast } from '../../providers/ToastProvider';
 import { Button } from '../../components/ui/Button';
 import { Input, Select, Textarea } from '../../components/ui/Field';
 import { Switch } from '../../components/ui/Switch';
-import { Card, EmptyState } from '../../components/ui/Feedback';
-import { Icon, type IconName } from '../../components/ui/icons';
+import { EmptyState } from '../../components/ui/Feedback';
+import { Section } from '../../components/ui/Section';
+import { Icon } from '../../components/ui/icons';
 import { MediaPicker } from '../../components/admin/MediaPicker';
-import { cn } from '../../lib/utils';
 
 type FormState = Omit<
   WechatSettingsView,
@@ -44,37 +44,6 @@ function toForm(view: WechatSettingsView): FormState {
 function defaultsForm(hasAppSecret: boolean, hasImageCompressToken: boolean): FormState {
   const { appSecret: _appSecret, imageCompressToken: _token, ...rest } = WECHAT_DEFAULTS;
   return toForm({ ...rest, hasAppSecret, hasImageCompressToken, configured: false });
-}
-
-function Section({
-  title,
-  description,
-  icon,
-  children,
-  className,
-}: {
-  title: string;
-  description?: string;
-  icon?: IconName;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <Card className={cn('flex flex-col p-5', className)}>
-      <div className="mb-4 flex items-start gap-3">
-        {icon && (
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
-            <Icon name={icon} size={17} />
-          </span>
-        )}
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-fg">{title}</h3>
-          {description && <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p>}
-        </div>
-      </div>
-      <div className="space-y-4">{children}</div>
-    </Card>
-  );
 }
 
 /**

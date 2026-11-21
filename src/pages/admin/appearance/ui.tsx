@@ -5,47 +5,10 @@ import { Icon, type IconName } from '../../../components/ui/icons';
 import { cn } from '../../../lib/utils';
 
 /**
- * 分区面板:圆角卡片 + 浅底标题栏 + 分隔线。
- * 标题栏用浅色底和正文拉开层次,一眼能看出每一块设置的边界。
+ * 分区面板复用全局 Section，保证「站点设置」与其它后台页面完全同款。
+ * 这里保留再导出，老代码里的 `from './ui'` 不用改。
  */
-export function Section({
-  title,
-  description,
-  icon,
-  actions,
-  children,
-  className,
-}: {
-  title: string;
-  description?: string;
-  icon?: IconName;
-  actions?: ReactNode;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <section
-      className={cn(
-        'flex min-w-0 flex-col overflow-hidden rounded-3xl bg-surface shadow-lift',
-        className,
-      )}
-    >
-      <header className="flex items-start gap-3 bg-surface-2/50 px-5 py-4">
-        {icon && (
-          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
-            <Icon name={icon} size={16} />
-          </span>
-        )}
-        <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold text-fg">{title}</h3>
-          {description && <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p>}
-        </div>
-        {actions && <div className="shrink-0">{actions}</div>}
-      </header>
-      <div className="flex-1 space-y-4 px-5 py-5">{children}</div>
-    </section>
-  );
-}
+export { Section } from '../../../components/ui/Section';
 
 /** 标签在左、控件在右的一行设置(窄屏堆叠)。 */
 export function Row({

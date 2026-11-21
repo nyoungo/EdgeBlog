@@ -450,6 +450,20 @@ SQLite 不支持 `ALTER TABLE ... ALTER COLUMN`,要改 `CHECK`(例如给
 因此在 `src/lib/utils.ts` 里用 `extendTailwindMerge` 登记这些 token；**新增自定义
 工具类时要同步登记**，否则那一个 token 的覆盖会静默失效。
 
+### 后台卡片统一走 `ui/Section`，不要再手搓「Card + 标题 + 内边距」
+
+站点设置里的卡片（圆角 3xl、`shadow-lift`、浅底标题栏 + 图标 + 描述）已抽成
+`src/components/ui/Section.tsx`，`appearance/ui.tsx` 只是再导出。新增后台页面时：
+
+- 有标题的区块（设置、表单、表格、列表）→ `<Section title description icon actions>`；
+- 表格 / `divide-y` 列表 → 传 `bodyClassName="p-0"`（列表再加 `space-y-0`，
+  否则默认的 `space-y-4` 会和 `divide-y` 打架）；
+- 只是想要同一套外壳（统计卡、媒体格子、逐条评论卡）→ `<Card variant="section">`，
+  它只替换圆角和投影，不改变内容留白。
+
+不要在页面里再定义局部 `Section`（`WechatSettingsPage` / `AiSettingsPage` 曾经各有一份，
+样式与站点设置不一致）。
+
 ### Modal 面板必须能约束高度并内部滚动
 
 面板加了 `max-h-full` + `flex flex-col`，内容区 `min-h-0 flex-1 overflow-y-auto`，

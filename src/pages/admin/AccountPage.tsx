@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Field';
-import { Card } from '../../components/ui/Feedback';
+import { Section } from '../../components/ui/Section';
 import { Icon } from '../../components/ui/icons';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { api } from '../../lib/api';
@@ -83,7 +83,12 @@ export function AccountPage() {
         Source order stays identity → password → sessions for phones.
       */}
       <div className="grid gap-4 lg:grid-cols-12">
-        <Card className="p-5 lg:col-span-4 lg:col-start-1 lg:row-start-1">
+        <Section
+          title="当前账号"
+          description="正在使用的管理员身份"
+          icon="login"
+          className="lg:col-span-4 lg:col-start-1 lg:row-start-1"
+        >
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand/10 text-brand">
               <Icon name="lock" size={18} />
@@ -95,14 +100,15 @@ export function AccountPage() {
               </p>
             </div>
           </div>
-        </Card>
+        </Section>
 
-        <Card className="p-5 lg:col-span-8 lg:col-start-5 lg:row-span-2 lg:row-start-1">
-          <h2 className="text-sm font-semibold text-fg">修改密码</h2>
-          <p className="mt-1 text-xs text-muted">
-            修改后,其他设备/浏览器上的登录会立即失效(当前会话会保持登录)。
-          </p>
-          <form onSubmit={submit} className="mt-4 space-y-3">
+        <Section
+          title="修改密码"
+          description="修改后，其他设备/浏览器上的登录会立即失效（当前会话会保持登录）。"
+          icon="lock"
+          className="lg:col-span-8 lg:col-start-5 lg:row-span-2 lg:row-start-1"
+        >
+          <form onSubmit={submit} className="space-y-3">
             <Input
               label="当前密码"
               type="password"
@@ -135,20 +141,19 @@ export function AccountPage() {
               </Button>
             </div>
           </form>
-        </Card>
+        </Section>
 
-        <Card className="p-5 lg:col-span-4 lg:col-start-1 lg:row-start-2">
-          <h2 className="text-sm font-semibold text-fg">登录会话</h2>
-          <p className="mt-1 text-xs text-muted">
-            如果怀疑账号在别处被登录,可以让所有设备立即退出。你当前这台设备也需要重新登录。
-          </p>
-          <div className="mt-4">
-            <Button variant="outline" onClick={() => setConfirmLogoutAll(true)}>
-              <Icon name="logout" size={16} />
-              退出所有设备
-            </Button>
-          </div>
-        </Card>
+        <Section
+          title="登录会话"
+          description="如果怀疑账号在别处被登录，可以让所有设备立即退出。你当前这台设备也需要重新登录。"
+          icon="monitor"
+          className="lg:col-span-4 lg:col-start-1 lg:row-start-2"
+        >
+          <Button variant="outline" onClick={() => setConfirmLogoutAll(true)}>
+            <Icon name="logout" size={16} />
+            退出所有设备
+          </Button>
+        </Section>
       </div>
 
       <ConfirmDialog
