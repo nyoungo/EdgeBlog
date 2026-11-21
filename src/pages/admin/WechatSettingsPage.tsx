@@ -333,10 +333,54 @@ export function WechatSettingsPage() {
             label="压缩接口地址"
             value={form.imageCompressUrl}
             onChange={(e) => set('imageCompressUrl', e.target.value)}
-            placeholder="https://uapis.cn/api/v1/image/compress?format=jpeg&level=1"
-            hint="留空则关闭。接口需接受 multipart 字段 file、返回图片二进制；输出格式/压缩等级等参数请直接拼在地址上（如 ?format=jpeg&level=1），代码不会自动追加。"
+            placeholder="https://compress.scdn.io/api/compress.php"
+            hint="留空则关闭。需使用 https；查询参数可直接拼在地址上（如 uapis 的 ?format=jpeg&level=1）。"
             autoComplete="off"
           />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                set('imageCompressUrl', 'https://uapis.cn/api/v1/image/compress?format=jpeg&level=1');
+                set('imageCompressField', 'file');
+                set('imageCompressParams', '');
+              }}
+            >
+              填入 uapis.cn 示例
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                set('imageCompressUrl', 'https://compress.scdn.io/api/compress.php');
+                set('imageCompressField', 'image');
+                set('imageCompressParams', 'quality=75&outputFormat=jpeg&response=binary');
+              }}
+            >
+              填入 compress.scdn.io 示例
+            </Button>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input
+              label="文件字段名"
+              value={form.imageCompressField}
+              onChange={(e) => set('imageCompressField', e.target.value)}
+              placeholder="file"
+              hint="multipart 里放图片的字段名：uapis 是 file，scdn 是 image。"
+              autoComplete="off"
+            />
+            <Input
+              label="附加表单参数（选填）"
+              value={form.imageCompressParams}
+              onChange={(e) => set('imageCompressParams', e.target.value)}
+              placeholder="quality=75&outputFormat=jpeg&response=binary"
+              hint="按表单字段追加，留空不传；scdn 建议加 response=binary（省 33% 带宽）。"
+              autoComplete="off"
+            />
+          </div>
           <Input
             label="接口 API Key（选填）"
             type="password"
@@ -370,8 +414,9 @@ export function WechatSettingsPage() {
           )}
           <p className="text-xs leading-relaxed text-faint">
             只对「微信不能直接收」的图调用（webp/avif、正文图 ≥1MB），合规的 jpg/png 不会浪费额度。
-            实测 uapis.cn：100KB 约 2 秒、4MB 约 37 秒、10MB 会 524；匿名额度约 1500 积分/30 天、
-            每次 2 积分。该接口没有宽高/目标体积参数，压缩后仍超过 1MB 时会指名报错，请先用编辑器压缩。
+            返回图片二进制或 JSON（base64 在 data 字段）都支持。实测 uapis.cn：100KB 约 2 秒、
+            4MB 约 37 秒、10MB 会 524；匿名额度约 1500 积分/30 天、每次 2 积分。
+            这些接口没有宽高/目标体积参数，压缩后仍超过 1MB 时会指名报错，请先用编辑器压缩。
           </p>
         </Section>
 

@@ -249,6 +249,8 @@ describe('远程图片压缩接口', () => {
     serverImageProcessing: false,
     imageCompressUrl: 'https://compress.example/api/v1/image/compress?format=jpeg&level=1',
     imageCompressToken: 'secret-key',
+    imageCompressField: 'file',
+    imageCompressParams: '',
   };
   const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43]);
 
@@ -313,6 +315,66 @@ describe('远程图片压缩接口', () => {
 
     await expect(pushPostToWechatDraft({} as Env, REMOTE, post('普通正文'))).rejects.toThrow(
       /远程压缩返回了 image\/webp/,
+    );
+  });
+
+  it('兼容 scdn 风格：字段名 image、表单参数与 JSON(base64) 响应', async () => {
+    const settings: WechatSettings = {
+      ...REMOTE,
+      imageCompressUrl: 'https://compress.example/api/compress.php',
+      imageCompressField: 'image',
+      imageCompressParams: 'quality=75&outputFormat=jpeg&response=binary',
+    };
+    mocks.loadImageSource.mockResolvedValue({
+      bytes: new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50]),
+      mime: 'image/webp',
+      filename: 'cover.webp',
+    });
+    const json = JSON.stringify({
+      success: true,
+      data: btoa(String.fromCharCode(...JPEG)),
+      format: 'image/jpeg',
+      originalSize: 12,
+      compressedSize: JPEG.byteLength,
+      compressionRatio: 50,
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(json, { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await pushPostToWechatDraft({} as Env, settings, post('只有普通文字的正文'));
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(settings.imageCompressUrl);
+    const body = init.body as FormData;
+    expect((body.get('image') as File).name).toBe('cover.webp');
+    expect(body.get('file')).toBeNull();
+    expect(body.get('quality')).toBe('75');
+    expect(body.get('outputFormat')).toBe('jpeg');
+    expect(body.get('response')).toBe('binary');
+
+    // JSON 里的 base64 被解码后上传。
+    expect(mocks.uploadCoverMaterial.mock.calls[0]?.[2]).toStrictEqual(JPEG);
+    expect(mocks.uploadCoverMaterial.mock.calls[0]?.[3]).toBe('image/jpeg');
+  });
+
+  it('JSON 返回 success=false 时带出对方的 message', async () => {
+    mocks.loadImageSource.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mime: 'image/webp',
+      filename: 'cover.webp',
+    });
+    const json = JSON.stringify({ success: false, message: '文件格式不受支持' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(json, { status: 200, headers: { 'content-type': 'application/json' } }),
+      ),
+    );
+
+    await expect(pushPostToWechatDraft({} as Env, REMOTE, post('普通正文'))).rejects.toThrow(
+      /远程压缩失败：文件格式不受支持/,
     );
   });
 

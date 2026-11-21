@@ -6,10 +6,11 @@
  * 不依赖 wasm 的前提下，把 webp/avif 之类转成微信接受的 jpeg。
  *
  * 约定：
- *   - POST multipart/form-data，字段名 `file`；
- *   - 输出格式、压缩等级等参数由管理员直接拼在配置的地址上
- *     （例如 `…/image/compress?format=jpeg&level=1`），代码不写死；
- *   - 成功直接返回图片二进制（`Content-Type: image/*`），失败返回 JSON。
+ *   - POST multipart/form-data；文件字段名可配置（uapis 为 `file`，scdn 为 `image`）；
+ *   - 附加参数可配置为表单字段（`quality=70&outputFormat=jpeg&response=binary`），
+ *     也可以由管理员直接拼在 URL 查询串上，代码不写死；
+ *   - 成功可以返回图片二进制（`Content-Type: image/*`），也可以返回 JSON
+ *     （`{ success, data: base64, format }`）。这里两种都识别。
  *
  * 实测限制：
  *   - 100KB 图约 2 秒；4MB 图约 37 秒；10MB 图对方直接 524；
@@ -31,6 +32,9 @@ const MAX_INPUT_BYTES = 14 * 1024 * 1024;
 
 /** 远程接口返回的最大字节数：超过这个值只能说明对方没有压缩，直接报错。 */
 const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
+
+/** JSON 响应里 base64 文本的长度上限（10MB 二进制约对应 13.4M 字符）。 */
+const MAX_BASE64_CHARS = 20 * 1024 * 1024;
 
 /** 只接受微信能用的两种格式。 */
 const REMOTE_OUTPUT_MIMES = new Set(['image/jpeg', 'image/png']);
@@ -71,6 +75,83 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return copy.buffer;
 }
 
+/** 把配置里的表单参数（`a=1&b=2`）逐项追加；同名参数允许重复。 */
+function appendParams(form: FormData, raw: string): void {
+  const value = raw.trim().replace(/^\?/, '');
+  if (!value) return;
+  for (const [key, item] of new URLSearchParams(value)) {
+    if (key) form.append(key, item);
+  }
+}
+
+/** 响应看起来是不是 JSON 信封（Content-Type 或首个非空白字符为 `{`）。 */
+function looksLikeJson(bytes: Uint8Array, contentType: string): boolean {
+  if (/json/i.test(contentType)) return true;
+  let i = 0;
+  // 跳过 UTF-8 BOM 与前导空白。
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) i = 3;
+  while (i < bytes.length && (bytes[i] === 0x20 || bytes[i] === 0x09 || bytes[i] === 0x0a || bytes[i] === 0x0d)) {
+    i += 1;
+  }
+  return bytes[i] === 0x7b; // '{'
+}
+
+/** 解 base64（兼容 `data:image/…;base64,` 前缀）。 */
+function base64ToBytes(label: string, value: string): Uint8Array {
+  if (value.length > MAX_BASE64_CHARS) {
+    throw AppError.payloadTooLarge(`${label} 远程压缩返回的 base64 数据过大`);
+  }
+  const clean = value.replace(/^data:[^;]+;base64,/, '').replace(/\s+/g, '');
+  let binary: string;
+  try {
+    binary = atob(clean);
+  } catch {
+    throw AppError.upstream(`${label} 远程压缩返回了无效的 base64 数据`);
+  }
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+interface RemoteJsonEnvelope {
+  success?: boolean;
+  data?: string;
+  format?: string;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * 兼容两种成功响应：图片二进制，或 `{ success, data(base64), format }` JSON。
+ *
+ * 后者是 compress.scdn.io 的默认形式（可用 `response=binary` 改成二进制）；
+ * 无论哪种，最终都会再按文件头重新判定 MIME。
+ */
+function decodePayload(
+  label: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Uint8Array {
+  if (!looksLikeJson(bytes, contentType)) return bytes;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw AppError.upstream(`${label} 远程压缩返回了无法解析的 JSON`);
+  }
+  const envelope = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as RemoteJsonEnvelope;
+  if (envelope.success === false) {
+    throw AppError.upstream(
+      `${label} 远程压缩失败：${envelope.message || envelope.error || '接口返回 success=false'}`,
+    );
+  }
+  if (typeof envelope.data !== 'string' || envelope.data === '') {
+    throw AppError.upstream(`${label} 远程压缩返回的 JSON 里没有 data 字段`);
+  }
+  return base64ToBytes(label, envelope.data);
+}
+
 /**
  * 调远程接口把一张图转成 jpeg/png。
  *
@@ -80,7 +161,13 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 export async function compressImageRemotely(
   image: RemoteCompressInput,
   label: string,
-  settings: Pick<WechatSettings, 'imageCompressUrl' | 'imageCompressToken'>,
+  settings: Pick<
+    WechatSettings,
+    | 'imageCompressUrl'
+    | 'imageCompressToken'
+    | 'imageCompressField'
+    | 'imageCompressParams'
+  >,
   deadline: Deadline,
 ): Promise<RemoteCompressResult> {
   if (image.bytes.byteLength > MAX_INPUT_BYTES) {
@@ -95,12 +182,14 @@ export async function compressImageRemotely(
     `${label} 远程压缩前推送预算已用完`,
   );
 
+  const field = (settings.imageCompressField || 'file').replace(/[^\w-]/g, '') || 'file';
   const form = new FormData();
   form.append(
-    'file',
+    field,
     new Blob([toArrayBuffer(image.bytes)], { type: image.mime || 'application/octet-stream' }),
     image.filename || 'image',
   );
+  appendParams(form, settings.imageCompressParams);
 
   const headers: Record<string, string> = {};
   const token = settings.imageCompressToken.trim();
@@ -125,22 +214,23 @@ export async function compressImageRemotely(
     `${label} 远程压缩超时（已等待 ${Math.round(timeout / 1000)} 秒）`,
   );
 
-  if (response.bytes.byteLength === 0) {
+  const output = decodePayload(label, response.bytes, response.contentType);
+  if (output.byteLength === 0) {
     throw AppError.upstream(`${label} 远程压缩返回了空内容`);
   }
-  if (response.bytes.byteLength > MAX_OUTPUT_BYTES) {
+  if (output.byteLength > MAX_OUTPUT_BYTES) {
     throw AppError.payloadTooLarge(
-      `${label} 远程压缩后仍有 ${Math.round(response.bytes.byteLength / 1024)}KB，超过 10MB`,
+      `${label} 远程压缩后仍有 ${Math.round(output.byteLength / 1024)}KB，超过 10MB`,
     );
   }
 
   // 不信任 Content-Type：按文件头重新判定，防止对方把 JSON 错误页当图片返回。
-  const mime = sniffImageMime(response.bytes);
+  const mime = sniffImageMime(output);
   if (!mime || !REMOTE_OUTPUT_MIMES.has(mime)) {
     throw AppError.unsupportedMedia(
       `${label} 远程压缩返回了 ${mime || '无法识别的格式'}（Content-Type: ${response.contentType || '空'}），微信只收 jpg/png`,
     );
   }
 
-  return { bytes: response.bytes, mime };
+  return { bytes: output, mime };
 }

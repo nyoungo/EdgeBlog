@@ -42,6 +42,15 @@ function normalize(value: unknown): WechatSettings {
     ),
     imageCompressUrl: str(src['imageCompressUrl'], WECHAT_DEFAULTS.imageCompressUrl).trim(),
     imageCompressToken: str(src['imageCompressToken'], WECHAT_DEFAULTS.imageCompressToken).trim(),
+    // 字段名只允许常规 token，空值回落到 file，避免拼出非法 multipart。
+    imageCompressField:
+      str(src['imageCompressField'], WECHAT_DEFAULTS.imageCompressField)
+        .trim()
+        .replace(/[^\w-]/g, '') || WECHAT_DEFAULTS.imageCompressField,
+    imageCompressParams: str(
+      src['imageCompressParams'],
+      WECHAT_DEFAULTS.imageCompressParams,
+    ).trim(),
     miniprogramEnabled: bool(src['miniprogramEnabled'], WECHAT_DEFAULTS.miniprogramEnabled),
     miniprogramAppId: str(src['miniprogramAppId'], WECHAT_DEFAULTS.miniprogramAppId).trim(),
     miniprogramPath: str(src['miniprogramPath'], WECHAT_DEFAULTS.miniprogramPath).trim(),

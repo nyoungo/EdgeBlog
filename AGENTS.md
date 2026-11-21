@@ -237,18 +237,27 @@ Worker 把图片 POST 过去、拿回二进制，全程 I/O，不占 CPU。实�
 `wechat-draft.ts` 的 `preparePushImage()`：付费版 wasm > 远程接口 > 指名报错，
 合规的 jpg/png 直接上传，不会白耗额度。
 
-按 uapis.cn `/api/v1/image/compress` 实现（2026-11 实测，务必记住这些数字）：
+按两种真实接口实现，差异都收进了设置，不要为某个服务写死：
 
-- 成功直接返回 `image/*` 二进制，失败是 JSON；文件字段名是 `file`，而
-  `format=jpeg`、`level=1` 这类参数**由管理员直接拼在配置的地址上**，代码不再
-  自动追加（换接口或调参不用改代码，但地址里没写对就会因输出不是 jpg/png 报错）；
-- 100KB 图约 **2 秒**；4MB 图约 **37 秒**；10MB 图对方直接 **524**——所以单张
-  超时必须独立收窄（`REMOTE_COMPRESS_TIMEOUT_MS = 25s`，且不超推送总预算），
-  否则会把整条 100 秒预算耗光；
-- 接口**没有宽高 / 目标体积参数**，4MB 的图压完仍可能 >1MB。因此输出必须重新
+| 设置 | uapis.cn | compress.scdn.io |
+| --- | --- | --- |
+| `imageCompressUrl` | `…/compress?format=jpeg&level=1` | `…/compress.php` |
+| `imageCompressField` | `file` | `image` |
+| `imageCompressParams` | 空（参数走 URL 查询串） | `quality=75&outputFormat=jpeg&response=binary` |
+| 成功响应 | `image/*` 二进制 | 默认 JSON（base64 在 `data`），`response=binary` 时为二进制 |
+
+要点：
+
+- 文件字段名与附加表单参数都可配置；代码不再自动追加任何查询参数或表单参数。
+  管理员在地址/参数里没写对时，输出仍会按微信 jpg/png 与体积限制校验并指名报错；
+- 响应两种都识别：`Content-Type` 含 json（或正文以 `{` 开头）就按
+  `{ success, data, format }` 解析并解 base64；`success=false` 时把 `message` 带进错误；
+- uapis 实测：100KB 图约 **2 秒**；4MB 图约 **37 秒**；10MB 图对方直接 **524**——
+  所以单张超时必须独立收窄（`REMOTE_COMPRESS_TIMEOUT_MS = 25s`，且不超推送总预算）；
+- 两个接口都**没有宽高 / 目标体积参数**，4MB 的图压完仍可能 >1MB。因此输出必须重新
   sniff 文件头 + 按微信限制校验，不达标就指名报错，不能假设「压过就合规」；
-- 匿名额度约 1500 积分/30 天、2 积分/次（≈750 次），4 QPS；只有「微信不能直接收
-  的图」才调用，重复推送不会重复计费；
+- uapis 匿名额度约 1500 积分/30 天、2 积分/次（≈750 次），4 QPS；scdn 接口无需鉴权。
+  只有「微信不能直接收的图」才调用，重复推送不会重复计费；
 - 支持可选 `Authorization: Bearer <key>`，Key 与 AppSecret 同等待遇（只存服务端、
   视图里只回 `hasImageCompressToken`）。
 

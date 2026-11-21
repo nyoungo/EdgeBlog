@@ -225,6 +225,8 @@ export const WECHAT_DEFAULTS: WechatSettings = {
   // 远程压缩接口：留空关闭。免费版可配它来替代 wasm（Worker 只做 I/O）。
   imageCompressUrl: '',
   imageCompressToken: '',
+  imageCompressField: 'file',
+  imageCompressParams: '',
   miniprogramEnabled: false,
   miniprogramAppId: '',
   miniprogramPath: '',

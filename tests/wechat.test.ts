@@ -19,6 +19,8 @@ const SETTINGS: WechatSettings = {
   serverImageProcessing: true,
   imageCompressUrl: '',
   imageCompressToken: '',
+  imageCompressField: 'file',
+  imageCompressParams: '',
   miniprogramEnabled: false,
   miniprogramAppId: '',
   miniprogramPath: '',

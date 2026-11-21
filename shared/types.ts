@@ -658,6 +658,18 @@ export interface WechatSettings {
   imageCompressUrl: string;
   /** 远程压缩接口的 API Key（仅存服务端），留空则匿名调用。 */
   imageCompressToken: string;
+  /**
+   * multipart 上传时的文件字段名，默认 `file`。
+   * 例：uapis.cn 用 `file`，compress.scdn.io 用 `image`。
+   */
+  imageCompressField: string;
+  /**
+   * 额外的表单字段（URL 编码形式，如 `quality=70&outputFormat=jpeg&response=binary`）。
+   *
+   * 不同接口对参数位置要求不同：uapis 走查询参数（拼在 URL 上），scdn 走表单字段。
+   * 这里统一按表单字段追加，留空则不传。
+   */
+  imageCompressParams: string;
   /** 是否在每篇推送文章末尾追加「小程序卡片」。 */
   miniprogramEnabled: boolean;
   /** 卡片跳转的小程序 AppID。 */
