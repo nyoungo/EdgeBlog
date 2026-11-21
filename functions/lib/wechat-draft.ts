@@ -23,6 +23,7 @@ import { Deadline } from './deadline';
 import { loadImageSource } from './media-ingest';
 import { EXT_BY_MIME, IMAGE_MAX_SIZE } from './media-file';
 import { prepareImageForUpload } from './image-codec';
+import { compressImageRemotely } from './image-compress-remote';
 import { DECODABLE_IMAGE_MIMES } from './image-process';
 import {
   addDraft,
@@ -214,8 +215,7 @@ function coverImageProblem(image: PushImageSource): ImageProblem | null {
 }
 
 /** 取图片二进制：本站读 R2，外链走带 SSRF 防护与体积上限的下载。 */
-function loadImage(
-  env: Env,
+function loadImage(  env: Env,
   url: string,
   maxSize: number,
   maxSizeMessage: string,
@@ -235,6 +235,51 @@ function withMimeExtension(filename: string, mime: string): string {
   if (!ext) return filename;
   const base = filename.replace(/\.[^./\\]+$/, '') || 'image';
   return `${base}.${ext}`;
+}
+
+/**
+ * 把一张「微信不能直接收」的图转成 jpg/png，返回可直接上传的结果。
+ *
+ * 优先级（与设置页一致）：
+ *   1. `serverImageProcessing`（Workers 付费版）→ 本地 wasm 压缩；
+ *   2. 配置了 `imageCompressUrl` → 远程接口转码/压缩（Worker 只做 I/O，免费版可用）；
+ *   3. 都没有 → 指名报错，提示用编辑器在浏览器侧先转。
+ *
+ * 合规的图直接返回，不为「重推一次」白耗远程接口的额度和时间。
+ */
+async function preparePushImage(
+  settings: WechatSettings,
+  loaded: PushImageSource,
+  label: string,
+  deadline: Deadline,
+  kind: 'content' | 'cover',
+): Promise<PushImageSource> {
+  if (settings.serverImageProcessing) {
+    // 付费版沿用原来的行为：总是交给 wasm（内部对合规图有直通分支）。
+    return compressForPush(loaded, label, deadline);
+  }
+
+  const problem = kind === 'cover' ? coverImageProblem(loaded) : contentImageProblem(loaded);
+  if (!problem) return loaded;
+
+  if (settings.imageCompressUrl.trim()) {
+    const remote = await compressImageRemotely(loaded, label, settings, deadline);
+    const prepared: PushImageSource = {
+      bytes: remote.bytes,
+      mime: remote.mime,
+      filename: withMimeExtension(loaded.filename, remote.mime),
+    };
+    const still = kind === 'cover' ? coverImageProblem(prepared) : contentImageProblem(prepared);
+    if (still) {
+      throw new AppError(
+        still.code,
+        `${label}${still.message}；远程压缩后仍不达标（该接口没有宽高/目标体积参数），请先用编辑器压缩后再推送`,
+      );
+    }
+    return prepared;
+  }
+
+  throw new AppError(problem.code, `${label}${problem.message}；${CLIENT_PREPARE_HINT}`);
 }
 
 /**
@@ -310,15 +355,8 @@ async function uploadContentImages(
       prepared =
         image.source ??
         (await loadImage(env, source, IMAGE_MAX_SIZE, `${label} 超过 8MB，无法推送`, deadline));
-      if (settings.serverImageProcessing) {
-        if (!shared) prepared = await compressForPush(prepared, label, deadline);
-      } else {
-        // 免费版没有 CPU 预算做 wasm 解码：只校验，需要转换时指名报错。
-        const problem = contentImageProblem(prepared);
-        if (problem) {
-          throw new AppError(problem.code, `${position}${problem.message}；${CLIENT_PREPARE_HINT}`);
-        }
-      }
+      // 共享的封面字节在调用方已经处理过，这里不再重复转码 / 消耗远程额度。
+      if (!shared) prepared = await preparePushImage(settings, prepared, label, deadline, 'content');
     } catch (err) {
       // 超时类错误已经写明卡在哪一步，不再套一层图名。
       if (err instanceof AppError && !err.message.includes(label) && !err.message.startsWith('推送超时')) {
@@ -438,23 +476,22 @@ export async function pushPostToWechatDraft(
   });
 
   // 2. 封面（以及正文里已出现的同一封面地址）只下载一次，两边复用同一份字节。
-  //    默认不在服务端解码：免费版 10ms CPU 跑不完 wasm，会直接 1102。
+  //    默认不在服务端解码：免费版 10ms CPU 跑不完 wasm，会直接 1102；
+  //    配了远程压缩接口时改由它转码，Worker 只做 I/O。
   ensureBudget(deadline, '取封面图');
-  let coverSource = await loadImage(
-    env,
-    post.cover_url,
-    COVER_MAX_BYTES,
-    '封面图超过微信封面 10MB 上限',
+  const coverSource = await preparePushImage(
+    settings,
+    await loadImage(
+      env,
+      post.cover_url,
+      COVER_MAX_BYTES,
+      '封面图超过微信封面 10MB 上限',
+      deadline,
+    ),
+    '封面图',
     deadline,
+    'cover',
   );
-  if (settings.serverImageProcessing) {
-    coverSource = await compressForPush(coverSource, '封面图', deadline);
-  } else {
-    const problem = coverImageProblem(coverSource);
-    if (problem) {
-      throw new AppError(problem.code, `封面图${problem.message}；${CLIENT_PREPARE_HINT}`);
-    }
-  }
   const images: ContentImage[] = body.images.map((image) => ({
     ...image,
     source: image.shareCoverSource ? coverSource : undefined,

@@ -40,6 +40,8 @@ function normalize(value: unknown): WechatSettings {
       src['serverImageProcessing'],
       WECHAT_DEFAULTS.serverImageProcessing,
     ),
+    imageCompressUrl: str(src['imageCompressUrl'], WECHAT_DEFAULTS.imageCompressUrl).trim(),
+    imageCompressToken: str(src['imageCompressToken'], WECHAT_DEFAULTS.imageCompressToken).trim(),
     miniprogramEnabled: bool(src['miniprogramEnabled'], WECHAT_DEFAULTS.miniprogramEnabled),
     miniprogramAppId: str(src['miniprogramAppId'], WECHAT_DEFAULTS.miniprogramAppId).trim(),
     miniprogramPath: str(src['miniprogramPath'], WECHAT_DEFAULTS.miniprogramPath).trim(),

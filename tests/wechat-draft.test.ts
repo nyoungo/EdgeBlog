@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Post, WechatSettings } from '../shared/types';
 import type { Env } from '../functions/lib/env';
 
@@ -51,6 +51,8 @@ const SETTINGS: WechatSettings = {
   bodyCoverPosition: 'top',
   repairPushFailures: true,
   serverImageProcessing: true,
+  imageCompressUrl: '',
+  imageCompressToken: '',
   miniprogramEnabled: false,
   miniprogramAppId: '',
   miniprogramPath: '',
@@ -237,6 +239,91 @@ describe('免费版：服务端不做图片解码', () => {
       pushPostToWechatDraft({} as Env, NO_PROCESS, post('![配图](https://images.example/photo.webp)')),
     ).rejects.toThrow(/第 1 张正文图片\(https:\/\/images\.example\/photo\.webp\)是 image\/webp/);
 
+    expect(mocks.prepareImageForUpload).not.toHaveBeenCalled();
+  });
+});
+
+describe('远程图片压缩接口', () => {
+  const REMOTE: WechatSettings = {
+    ...SETTINGS,
+    serverImageProcessing: false,
+    imageCompressUrl: 'https://compress.example/api/v1/image/compress',
+    imageCompressToken: 'secret-key',
+  };
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43]);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('webp 封面交给远程接口转成 jpeg 后再上传', async () => {
+    mocks.loadImageSource.mockResolvedValue({
+      bytes: new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50]),
+      mime: 'image/webp',
+      filename: 'cover.webp',
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JPEG, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await pushPostToWechatDraft({} as Env, REMOTE, post('只有普通文字的正文'));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('format=jpeg');
+    expect(url).toContain('level=1');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer secret-key');
+    // 上传的是远程返回的 jpeg，不是原 webp（Response 会复制字节，比较内容）。
+    expect(mocks.uploadCoverMaterial.mock.calls[0]?.[2]).toStrictEqual(JPEG);
+    expect(mocks.uploadCoverMaterial.mock.calls[0]?.[3]).toBe('image/jpeg');
+    expect(mocks.uploadCoverMaterial.mock.calls[0]?.[4]).toBe('cover.jpg');
+    // 免费版路径下绝不该碰 wasm。
+    expect(mocks.prepareImageForUpload).not.toHaveBeenCalled();
+  });
+
+  it('远程接口 524 时报出图名与 HTTP 状态', async () => {
+    mocks.loadImageSource.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mime: 'image/webp',
+      filename: 'cover.webp',
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('timeout', { status: 524 })));
+
+    await expect(pushPostToWechatDraft({} as Env, REMOTE, post('普通正文'))).rejects.toThrow(
+      /封面图 远程压缩失败（HTTP 524/,
+    );
+    expect(mocks.uploadCoverMaterial).not.toHaveBeenCalled();
+    expect(mocks.addDraft).not.toHaveBeenCalled();
+  });
+
+  it('远程接口返回的仍是 webp 时拒绝上传，不静默放行', async () => {
+    mocks.loadImageSource.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mime: 'image/webp',
+      filename: 'cover.webp',
+    });
+    const webp = new Uint8Array([0x52, 0x49, 0x46, 0x46, 8, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(webp, { status: 200, headers: { 'content-type': 'image/webp' } }),
+      ),
+    );
+
+    await expect(pushPostToWechatDraft({} as Env, REMOTE, post('普通正文'))).rejects.toThrow(
+      /远程压缩返回了 image\/webp/,
+    );
+  });
+
+  it('已经合规的 jpg 封面不调用远程接口，省额度', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await pushPostToWechatDraft({} as Env, REMOTE, post('只有普通文字的正文'));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.uploadCoverMaterial.mock.calls[0]?.[2]).toBe(COVER_BYTES);
     expect(mocks.prepareImageForUpload).not.toHaveBeenCalled();
   });
 });

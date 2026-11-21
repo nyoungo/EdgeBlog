@@ -15,7 +15,10 @@ import { Icon, type IconName } from '../../components/ui/icons';
 import { MediaPicker } from '../../components/admin/MediaPicker';
 import { cn } from '../../lib/utils';
 
-type FormState = Omit<WechatSettingsView, 'hasAppSecret' | 'configured'>;
+type FormState = Omit<
+  WechatSettingsView,
+  'hasAppSecret' | 'hasImageCompressToken' | 'configured' | 'imageCompressToken'
+>;
 
 interface DraftRow {
   id: number;
@@ -28,14 +31,19 @@ interface DraftRow {
 }
 
 function toForm(view: WechatSettingsView): FormState {
-  const { hasAppSecret: _hasAppSecret, configured: _configured, ...rest } = view;
+  const {
+    hasAppSecret: _hasAppSecret,
+    hasImageCompressToken: _hasImageCompressToken,
+    configured: _configured,
+    ...rest
+  } = view;
   return rest;
 }
 
-/** Defaults with the view-only flags filled in; the stored secret is never loaded. */
-function defaultsForm(hasAppSecret: boolean): FormState {
-  const { appSecret: _appSecret, ...rest } = WECHAT_DEFAULTS;
-  return toForm({ ...rest, hasAppSecret, configured: false });
+/** Defaults with the view-only flags filled in; stored secrets are never loaded. */
+function defaultsForm(hasAppSecret: boolean, hasImageCompressToken: boolean): FormState {
+  const { appSecret: _appSecret, imageCompressToken: _token, ...rest } = WECHAT_DEFAULTS;
+  return toForm({ ...rest, hasAppSecret, hasImageCompressToken, configured: false });
 }
 
 function Section({
@@ -77,10 +85,13 @@ export function WechatSettingsPage() {
   const { settings } = useSettings();
   const { success, error: toastError } = useToast();
 
-  const [form, setForm] = useState<FormState>(() => defaultsForm(false));
+  const [form, setForm] = useState<FormState>(() => defaultsForm(false, false));
   const [hasAppSecret, setHasAppSecret] = useState(false);
   const [appSecret, setAppSecret] = useState('');
   const [clearSecret, setClearSecret] = useState(false);
+  const [hasCompressToken, setHasCompressToken] = useState(false);
+  const [compressToken, setCompressToken] = useState('');
+  const [clearCompressToken, setClearCompressToken] = useState(false);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -105,6 +116,7 @@ export function WechatSettingsPage() {
         if (cancelled) return;
         setForm(toForm(data));
         setHasAppSecret(data.hasAppSecret);
+        setHasCompressToken(data.hasImageCompressToken);
       } catch (err) {
         if (!cancelled) toastError(err instanceof Error ? err.message : '加载公众号设置失败');
       } finally {
@@ -122,6 +134,7 @@ export function WechatSettingsPage() {
 
   const secretConfigured = hasAppSecret && !clearSecret;
   const configured = form.appId.trim().length > 0 && secretConfigured;
+  const compressConfigured = form.imageCompressUrl.trim().length > 0;
 
   const save = async () => {
     setSaving(true);
@@ -129,11 +142,16 @@ export function WechatSettingsPage() {
       const patch: Record<string, unknown> = { ...form };
       if (clearSecret) patch['clearAppSecret'] = true;
       else if (appSecret.trim() !== '') patch['appSecret'] = appSecret.trim();
+      if (clearCompressToken) patch['clearImageCompressToken'] = true;
+      else if (compressToken.trim() !== '') patch['imageCompressToken'] = compressToken.trim();
       const { data } = await api.patch<WechatSettingsView>('/wechat/settings', patch);
       setForm(toForm(data));
       setHasAppSecret(data.hasAppSecret);
+      setHasCompressToken(data.hasImageCompressToken);
       setAppSecret('');
       setClearSecret(false);
+      setCompressToken('');
+      setClearCompressToken(false);
       success('公众号设置已保存');
     } catch (err) {
       toastError(err instanceof Error ? err.message : '保存失败');
@@ -301,9 +319,60 @@ export function WechatSettingsPage() {
           <Switch
             checked={form.serverImageProcessing}
             onChange={(v) => set('serverImageProcessing', v)}
-            label="在服务端压缩/转换图片（需要 Workers 付费版）"
-            description="免费版每个请求只有 10ms CPU，开启后推送会在 wasm 压缩阶段被 Cloudflare 终止（Error 1102）。保持关闭时，请用文章编辑页的推送按钮，浏览器会先把图片转成 jpg。"
+            label="在服务端用 wasm 压缩/转换图片（需要 Workers 付费版）"
+            description="免费版每个请求只有 10ms CPU，开启后推送会在 wasm 压缩阶段被 Cloudflare 终止（Error 1102）。免费版请改用下方「远程图片压缩接口」，或直接用编辑器推送（浏览器会先转成 jpg）。"
           />
+        </Section>
+
+        <Section
+          title="远程图片压缩（可选）"
+          description="免费版替代 wasm 的方案：Worker 只把图片 POST 给该接口，做的是 I/O，不占 CPU"
+          icon="image"
+        >
+          <Input
+            label="压缩接口地址"
+            value={form.imageCompressUrl}
+            onChange={(e) => set('imageCompressUrl', e.target.value)}
+            placeholder="https://uapis.cn/api/v1/image/compress"
+            hint="留空则关闭。接口需接受 multipart 字段 file，返回图片二进制；本项目会附带 format=jpeg&level=1 查询参数。"
+            autoComplete="off"
+          />
+          <Input
+            label="接口 API Key（选填）"
+            type="password"
+            value={compressToken}
+            onChange={(e) => {
+              setCompressToken(e.target.value);
+              if (e.target.value) setClearCompressToken(false);
+            }}
+            placeholder={compressConfigured ? '留空表示保持不变' : '匿名调用可留空'}
+            autoComplete="off"
+            disabled={clearCompressToken}
+            hint="以 Authorization: Bearer <key> 发送，只保存在服务端。"
+          />
+          {hasCompressToken && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-muted">
+                {clearCompressToken ? '保存后将清除已存的 API Key' : '已保存一个 API Key'}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setClearCompressToken((v) => !v);
+                  setCompressToken('');
+                }}
+              >
+                {clearCompressToken ? '取消清除' : '清除'}
+              </Button>
+            </div>
+          )}
+          <p className="text-xs leading-relaxed text-faint">
+            只对「微信不能直接收」的图调用（webp/avif、正文图 ≥1MB），合规的 jpg/png 不会浪费额度。
+            实测 uapis.cn：100KB 约 2 秒、4MB 约 37 秒、10MB 会 524；匿名额度约 1500 积分/30 天、
+            每次 2 积分。该接口没有宽高/目标体积参数，压缩后仍超过 1MB 时会指名报错，请先用编辑器压缩。
+          </p>
         </Section>
 
         <Section

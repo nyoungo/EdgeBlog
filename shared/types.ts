@@ -646,6 +646,17 @@ export interface WechatSettings {
    * 由文章编辑器在浏览器侧（Canvas）先转成微信能接收的 jpg/png。
    */
   serverImageProcessing: boolean;
+  /**
+   * 远程图片压缩接口地址；留空表示不启用。
+   *
+   * Worker 只做「POST 文件 → 收二进制」这一层 I/O，不消耗 CPU，所以免费版也能用。
+   * 当前按 uapis.cn `/api/v1/image/compress` 的约定实现：multipart 字段 `file`，
+   * 查询参数 `format=jpeg&level=1`。接口没有宽高/目标体积参数，输出仍会按微信
+   * 限制重新校验，不达标就指名报错。
+   */
+  imageCompressUrl: string;
+  /** 远程压缩接口的 API Key（仅存服务端），留空则匿名调用。 */
+  imageCompressToken: string;
   /** 是否在每篇推送文章末尾追加「小程序卡片」。 */
   miniprogramEnabled: boolean;
   /** 卡片跳转的小程序 AppID。 */
@@ -663,8 +674,10 @@ export interface WechatSettings {
 }
 
 /** WeChat settings safe to return to the admin UI (secret replaced by a flag). */
-export type WechatSettingsView = Omit<WechatSettings, 'appSecret'> & {
+export type WechatSettingsView = Omit<WechatSettings, 'appSecret' | 'imageCompressToken'> & {
   hasAppSecret: boolean;
+  /** 已保存远程压缩接口的 API Key（不回显明文）。 */
+  hasImageCompressToken: boolean;
   /** AppID 与 AppSecret 均已填写。 */
   configured: boolean;
 };

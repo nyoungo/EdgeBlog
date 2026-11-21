@@ -205,7 +205,9 @@ wasm 解码/编码一张图要 100ms 以上，请求会被边缘直接终止并�
   到媒体库 → 改写正文/封面地址 → 先保存再推送）。定时任务跑在 Worker 里，
   **没有 Canvas**，所以只有生成出来的 PNG（flux）或已合规的 jpg/png 封面能推；
   外链 webp 封面会带图名报错并跳过公众号同步（正文照常发布）。
-- 开启时（付费版）：恢复服务端压缩，逻辑如下：
+- 配了远程压缩接口（`imageCompressUrl`，见下）时：需要转换的图先 POST 给该接口，
+  返回 jpeg/png 后再上传。Worker 只做 I/O，免费版也能用。
+- 开启 `serverImageProcessing` 时（付费版）：恢复服务端 wasm 压缩，逻辑如下：
 
 - 已经合规的 jpg/png 走直通分支，**不碰 wasm**，既不慢也没有 128MB 内存风险；
 - webp / 超宽 / 超重的图在内存里解码 → JS 盒式缩放 → 重编码成 jpeg；
@@ -226,6 +228,31 @@ wasm 解码/编码一张图要 100ms 以上，请求会被边缘直接终止并�
 > 前端拿不到 JSON 时别只显示「请求失败」：`src/lib/api.ts` 的
 > `describeNonJsonResponse()` 会把 `Error 1102` 等边缘错误翻成可读原因，
 > 这是区分「应用报错」与「Worker 被终止」的唯一线索。
+
+### 远程压缩接口：可行，但只能当「转码 + 中度压缩」，不能当 resize 用
+
+免费版替代 wasm 的另一条路是配 `wechat.imageCompressUrl`（默认空 = 关闭）：
+Worker 把图片 POST 过去、拿回二进制，全程 I/O，不占 CPU。实现见
+`functions/lib/image-compress-remote.ts`，调用点统一收在
+`wechat-draft.ts` 的 `preparePushImage()`：付费版 wasm > 远程接口 > 指名报错，
+合规的 jpg/png 直接上传，不会白耗额度。
+
+按 uapis.cn `/api/v1/image/compress` 实现（2026-11 实测，务必记住这些数字）：
+
+- 成功直接返回 `image/*` 二进制，失败是 JSON；`format=jpeg`、`level=1` 通过
+  **查询参数**传，文件字段名是 `file`；
+- 100KB 图约 **2 秒**；4MB 图约 **37 秒**；10MB 图对方直接 **524**——所以单张
+  超时必须独立收窄（`REMOTE_COMPRESS_TIMEOUT_MS = 25s`，且不超推送总预算），
+  否则会把整条 100 秒预算耗光；
+- 接口**没有宽高 / 目标体积参数**，4MB 的图压完仍可能 >1MB。因此输出必须重新
+  sniff 文件头 + 按微信限制校验，不达标就指名报错，不能假设「压过就合规」；
+- 匿名额度约 1500 积分/30 天、2 积分/次（≈750 次），4 QPS；只有「微信不能直接收
+  的图」才调用，重复推送不会重复计费；
+- 支持可选 `Authorization: Bearer <key>`，Key 与 AppSecret 同等待遇（只存服务端、
+  视图里只回 `hasImageCompressToken`）。
+
+不要把它接成「先传原图再替换」或「每次推送都压一遍」：前者白存原图，后者既慢
+又烧额度。定时任务的外链 webp 封面是它最主要的用武之地。
 
 ### `draft/add` 的 `thumb_media_id` 必填，且必须是永久素材 id
 

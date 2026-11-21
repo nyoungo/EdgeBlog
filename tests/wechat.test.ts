@@ -17,6 +17,8 @@ const SETTINGS: WechatSettings = {
   bodyCoverPosition: 'none',
   repairPushFailures: true,
   serverImageProcessing: true,
+  imageCompressUrl: '',
+  imageCompressToken: '',
   miniprogramEnabled: false,
   miniprogramAppId: '',
   miniprogramPath: '',

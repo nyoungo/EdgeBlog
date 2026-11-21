@@ -31,12 +31,13 @@ export const wechatRoutes = new Hono<AppEnv>();
 
 wechatRoutes.use('*', requireAdmin);
 
-/** 掩码后的配置视图：绝不把 AppSecret 交给前端。 */
+/** 掩码后的配置视图：绝不把 AppSecret / 压缩接口 Key 交给前端。 */
 function view(settings: WechatSettings): WechatSettingsView {
-  const { appSecret, ...rest } = settings;
+  const { appSecret, imageCompressToken, ...rest } = settings;
   return {
     ...rest,
     hasAppSecret: appSecret.trim().length > 0,
+    hasImageCompressToken: imageCompressToken.trim().length > 0,
     configured: wechatConfigured(settings),
   };
 }
@@ -67,6 +68,9 @@ const patchSchema = z
     bodyCoverPosition: z.enum(['none', 'top', 'middle', 'bottom']),
     repairPushFailures: z.boolean(),
     serverImageProcessing: z.boolean(),
+    imageCompressUrl: z.string().trim().max(512),
+    imageCompressToken: z.string().max(256),
+    clearImageCompressToken: z.boolean(),
     miniprogramEnabled: z.boolean(),
     miniprogramAppId: z.string().trim().max(64),
     miniprogramPath: z.string().trim().max(256),
@@ -79,10 +83,15 @@ const patchSchema = z
 
 /** Admin: patch the config. An empty `appSecret` keeps the stored one. */
 wechatRoutes.patch('/settings', async (c) => {
-  const { clearAppSecret, appSecret, ...rest } = await parseJson(c, patchSchema);
+  const { clearAppSecret, appSecret, clearImageCompressToken, imageCompressToken, ...rest } =
+    await parseJson(c, patchSchema);
   const patch: Partial<WechatSettings> = { ...rest };
   if (clearAppSecret) patch.appSecret = '';
   else if (appSecret !== undefined && appSecret.trim() !== '') patch.appSecret = appSecret.trim();
+  if (clearImageCompressToken) patch.imageCompressToken = '';
+  else if (imageCompressToken !== undefined && imageCompressToken.trim() !== '') {
+    patch.imageCompressToken = imageCompressToken.trim();
+  }
   const saved = await writeWechatSettings(c.env, patch);
   await recordAudit(c.env, c.get('user'), 'wechat.settings.update', 'setting', null, {
     enabled: saved.enabled,
