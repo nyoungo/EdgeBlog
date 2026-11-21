@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ApiMeta, MediaItem, MediaUsage } from '@shared/types';
+import type { ApiMeta, MediaCleanupResult, MediaItem, MediaUsage } from '@shared/types';
 import { Button } from '../../components/ui/Button';
 import { Input, Select } from '../../components/ui/Field';
 import { EmptyState, Spinner } from '../../components/ui/Feedback';
@@ -31,6 +31,7 @@ export function MediaAdminPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const q = useDebounced(search.trim(), 350);
+  const [usageFilter, setUsageFilter] = useState<'' | 'used' | 'unused'>('');
   const [uploading, setUploading] = useState(false);
   const [compress, setCompress] = useState<CompressLevel>(getCompressLevel);
   const [format, setFormat] = useState<ImageFormat>(getImageFormat);
@@ -38,22 +39,29 @@ export function MediaAdminPage() {
   const [usage, setUsage] = useState<MediaUsage[] | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [preview, setPreview] = useState<MediaItem | null>(null);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanupDone, setCleanupDone] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useDocumentTitle('媒体库', settings.site.name);
 
-  // Reset to the first page whenever the search term changes.
+  // Reset to the first page whenever the search term or filter changes.
   useEffect(() => {
     setPage(1);
-  }, [q]);
+  }, [q, usageFilter]);
 
   const { data, loading, reload } = useAsync(
-    () => api.get<MediaItem[]>(`/media${qs({ page, perPage: 24, q: q || undefined })}`),
-    [page, q],
+    () =>
+      api.get<MediaItem[]>(
+        `/media${qs({ page, perPage: 24, q: q || undefined, usage: usageFilter || undefined, stats: 1 })}`,
+      ),
+    [page, q, usageFilter],
   );
 
   const items = data?.data ?? [];
   const meta: ApiMeta = data?.meta ?? {};
+  const unusedCount = meta.unused ?? 0;
 
   const onUpload = async (files: FileList) => {
     setUploading(true);
@@ -128,6 +136,38 @@ export function MediaAdminPage() {
     }
   };
 
+  /**
+   * 分批清理未使用媒体。服务端一次最多删 30 个（免费版子请求上限），
+   * 所以这里循环调用，直到 `remaining` 为 0。
+   */
+  const runCleanup = async () => {
+    setCleaning(true);
+    setCleanupDone(0);
+    let deleted = 0;
+    let freed = 0;
+    try {
+      for (let round = 0; round < 200; round += 1) {
+        const { data: result } = await api.post<MediaCleanupResult>('/media/cleanup-unused?limit=20');
+        deleted += result.deleted;
+        freed += result.freedBytes;
+        setCleanupDone(deleted);
+        if (result.deleted === 0 || result.remaining === 0) break;
+      }
+      success(
+        deleted > 0
+          ? `已清理 ${deleted} 个未使用文件，释放 ${humanSize(freed)}`
+          : '没有可清理的文件',
+      );
+      setCleanupOpen(false);
+    } catch (err) {
+      error(err instanceof Error ? err.message : '清理失败');
+    } finally {
+      setCleaning(false);
+      setCleanupDone(0);
+      reload();
+    }
+  };
+
   const deleteDescription = pendingDelete
     ? usage && usage.length > 0
       ? `「${pendingDelete.filename ?? pendingDelete.key}」正被 ${usage.length} 篇文章引用(${usage
@@ -144,6 +184,7 @@ export function MediaAdminPage() {
           <h1 className="text-xl font-bold tracking-tight text-fg">媒体库</h1>
           <p className="mt-1 text-sm text-muted">
             {meta.total != null ? `共 ${meta.total} 个文件` : '管理上传的图片与视频'} · 图片 ≤ 8MB / 视频 ≤ 25MB
+            {unusedCount > 0 ? ` · ${unusedCount} 个未使用` : ''}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -176,6 +217,15 @@ export function MediaAdminPage() {
             <Icon name="upload" size={16} />
             上传图片 / 视频
           </Button>
+          <Button
+            variant="secondary"
+            disabled={unusedCount === 0 || uploading || cleaning}
+            onClick={() => setCleanupOpen(true)}
+            title={unusedCount === 0 ? '没有未使用的文件' : `清理 ${unusedCount} 个未使用文件`}
+          >
+            <Icon name="trash" size={16} />
+            清理未使用{unusedCount > 0 ? ` (${unusedCount})` : ''}
+          </Button>
         </div>
         <input
           ref={fileRef}
@@ -189,7 +239,7 @@ export function MediaAdminPage() {
         />
       </header>
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap gap-2">
         <Input
           type="search"
           placeholder="按文件名搜索..."
@@ -197,6 +247,16 @@ export function MediaAdminPage() {
           wrapperClassName="w-56"
           onChange={(e) => setSearch(e.target.value)}
         />
+        <Select
+          value={usageFilter}
+          onChange={(e) => setUsageFilter(e.target.value as '' | 'used' | 'unused')}
+          wrapperClassName="w-40"
+          aria-label="按使用状态筛选"
+        >
+          <option value="">全部文件</option>
+          <option value="unused">仅未使用</option>
+          <option value="used">仅使用中</option>
+        </Select>
       </div>
 
       {loading && !data ? (
@@ -204,8 +264,14 @@ export function MediaAdminPage() {
       ) : items.length === 0 ? (
         <EmptyState
           icon="image"
-          title={q ? '没有匹配的文件' : '媒体库为空'}
-          description={q ? `没有找到与「${q}」相关的文件。` : '上传图片或视频后，可在文章编辑器中直接引用。'}
+          title={q ? '没有匹配的文件' : usageFilter === 'unused' ? '没有未使用的文件' : '媒体库为空'}
+          description={
+            q
+              ? `没有找到与「${q}」相关的文件。`
+              : usageFilter === 'unused'
+                ? '当前所有媒体都被文章、专栏或设置引用。'
+                : '上传图片或视频后，可在文章编辑器中直接引用。'
+          }
           action={
             !q ? (
               <Button onClick={() => fileRef.current?.click()}>
@@ -249,6 +315,11 @@ export function MediaAdminPage() {
                     loading="lazy"
                     className="h-full w-full object-cover"
                   />
+                )}
+                {item.in_use === 0 && (
+                  <span className="pointer-events-none absolute right-1.5 top-1.5 rounded bg-warning/90 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                    未使用
+                  </span>
                 )}
                 <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-black/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                   {isVideo(item) && (
@@ -326,11 +397,32 @@ export function MediaAdminPage() {
         }}
       />
 
+      <ConfirmDialog
+        open={cleanupOpen}
+        title="清理未使用媒体"
+        description={
+          cleaning
+            ? `正在清理，已删除 ${cleanupDone} 个文件，请勿关闭页面。`
+            : `将永久删除 ${unusedCount} 个未在文章正文、封面、OG、专栏、定时任务或站点设置里出现的文件（约 ${humanSize(meta.unusedBytes ?? 0)}）。此操作无法撤销。`
+        }
+        confirmLabel={cleaning ? '清理中…' : '开始清理'}
+        danger
+        loading={cleaning}
+        onConfirm={() => void runCleanup()}
+        onClose={() => {
+          if (!cleaning) setCleanupOpen(false);
+        }}
+      />
+
       <Modal
         open={Boolean(preview)}
         onClose={() => setPreview(null)}
         title={preview?.filename ?? '视频预览'}
-        description={preview ? `${preview.mime} · ${humanSize(preview.size)}` : undefined}
+        description={
+          preview
+            ? `${preview.mime} · ${humanSize(preview.size)}${preview.in_use === 0 ? ' · 未使用' : ''}`
+            : undefined
+        }
         className="max-w-3xl"
       >
         {preview && (

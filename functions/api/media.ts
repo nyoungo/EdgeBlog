@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { MediaItem, MediaUsage } from '@shared/types';
 import { requireAuth } from '../lib/auth';
 import { hashIp } from '../lib/crypto';
-import { all, first, run } from '../lib/db';
+import { all, first, placeholders, run } from '../lib/db';
 import type { AppEnv } from '../lib/env';
 import { AppError } from '../lib/errors';
 import { hit } from '../lib/rate-limit';
@@ -12,6 +12,7 @@ import { paginationSchema } from '../lib/validate';
 import { recordAudit } from '../lib/audit';
 import { mediaObjectKey, mediaPublicUrl } from '../lib/media-store';
 import { loadImageSource } from '../lib/media-ingest';
+import { MEDIA_IN_USE_SQL, unusedMediaSummary } from '../lib/media-usage';
 import {
   EXT_BY_MIME,
   IMAGE_MAX_SIZE,
@@ -45,42 +46,51 @@ mediaRoutes.get('/', async (c) => {
       q: z.string().trim().max(100).optional(),
       /** Restrict the picker to images or videos. */
       kind: z.enum(['image', 'video']).optional(),
+      /** 媒体库筛选用：只看已使用 / 未使用的文件。 */
+      usage: z.enum(['used', 'unused']).optional(),
+      /** 传 `1` 才计算「是否使用」与未使用汇总；媒体选择器不需要，省一次全表扫描。 */
+      stats: z.literal('1').optional(),
     })
     .safeParse(c.req.query());
   if (!parsed.success) throw AppError.validation('查询参数校验失败', parsed.error.flatten());
-  const { page, perPage, q, kind } = parsed.data;
+  const { page, perPage, q, kind, usage, stats } = parsed.data;
   c.header('Cache-Control', 'no-store');
 
   const conditions: string[] = [];
   const binds: unknown[] = [];
   if (q) {
-    conditions.push('(filename LIKE ? OR key LIKE ?)');
+    conditions.push('(m.filename LIKE ? OR m.key LIKE ?)');
     binds.push(`%${q}%`, `%${q}%`);
   }
   if (kind) {
-    conditions.push('mime LIKE ?');
+    conditions.push('m.mime LIKE ?');
     binds.push(`${kind}/%`);
   }
+  if (usage === 'used') conditions.push(MEDIA_IN_USE_SQL);
+  else if (usage === 'unused') conditions.push(`NOT ${MEDIA_IN_USE_SQL}`);
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const totalRow = await first<{ total: number }>(
-    c.env,
-    `SELECT COUNT(*) AS total FROM media ${where}`,
-    ...binds,
-  );
+  const [totalRow, summary, rows] = await Promise.all([
+    first<{ total: number }>(c.env, `SELECT COUNT(*) AS total FROM media m ${where}`, ...binds),
+    stats === '1' ? unusedMediaSummary(c.env) : Promise.resolve(null),
+    all<MediaItem>(
+      c.env,
+      `SELECT m.*${stats === '1' ? `, CASE WHEN ${MEDIA_IN_USE_SQL} THEN 1 ELSE 0 END AS in_use` : ''}
+         FROM media m ${where}
+        ORDER BY m.created_at DESC, m.id DESC
+        LIMIT ? OFFSET ?`,
+      ...binds,
+      perPage,
+      (page - 1) * perPage,
+    ),
+  ]);
   const total = totalRow?.total ?? 0;
-  const rows = await all<MediaItem>(
-    c.env,
-    `SELECT * FROM media ${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
-    ...binds,
-    perPage,
-    (page - 1) * perPage,
-  );
   return ok(c, rows, {
     page,
     perPage,
     total,
     totalPages: Math.max(1, Math.ceil(total / perPage)),
+    ...(summary ? { unused: summary.count, unusedBytes: summary.bytes } : {}),
   });
 });
 
@@ -109,6 +119,62 @@ mediaRoutes.get('/proxy', async (c) => {
       'Cache-Control': 'private, max-age=600',
       'X-Content-Type-Options': 'nosniff',
     },
+  });
+});
+
+/**
+ * 清理未使用的媒体（分批）。
+ *
+ * 免费版每个请求最多 50 个子请求，而每删一个对象就是一次 R2 调用，所以单批
+ * 默认 20、上限 30，并返回 `remaining`，由前端循环调用直到清空。
+ * 判定口径与列表里的「未使用」完全一致（`MEDIA_IN_USE_SQL`）。
+ */
+mediaRoutes.post('/cleanup-unused', async (c) => {
+  const raw = Number.parseInt(c.req.query('limit') ?? '20', 10);
+  const limit = Number.isFinite(raw) ? Math.min(30, Math.max(1, raw)) : 20;
+
+  const rows = await all<{ id: number; key: string; thumbnail_url: string | null; size: number }>(
+    c.env,
+    `SELECT m.id, m.key, m.thumbnail_url, m.size
+       FROM media m
+      WHERE NOT ${MEDIA_IN_USE_SQL}
+      ORDER BY m.created_at ASC, m.id ASC
+      LIMIT ?`,
+    limit,
+  );
+  if (rows.length === 0) {
+    return ok(c, { deleted: 0, remaining: 0, freedBytes: 0, keys: [] as string[] });
+  }
+
+  let freedBytes = 0;
+  for (const row of rows) {
+    // 先删对象再删索引：R2 失败就让整批失败，避免留下「有记录、无对象」的死链。
+    await c.env.MEDIA.delete(row.key);
+    if (row.thumbnail_url) {
+      const thumbKey = keyFromPublicUrl(row.thumbnail_url, c.env.MEDIA_PUBLIC_BASE ?? '');
+      if (thumbKey && thumbKey !== row.key) {
+        await c.env.MEDIA.delete(thumbKey).catch(() => undefined);
+      }
+    }
+    freedBytes += row.size;
+  }
+  await run(
+    c.env,
+    `DELETE FROM media WHERE id IN (${placeholders(rows.length)})`,
+    ...rows.map((row) => row.id),
+  );
+
+  const summary = await unusedMediaSummary(c.env);
+  await recordAudit(c.env, c.get('user'), 'media.cleanup', 'media', null, {
+    deleted: rows.length,
+    freedBytes,
+    keys: rows.slice(0, 10).map((row) => row.key),
+  });
+  return ok(c, {
+    deleted: rows.length,
+    remaining: summary.count,
+    freedBytes,
+    keys: rows.map((row) => row.key),
   });
 });
 

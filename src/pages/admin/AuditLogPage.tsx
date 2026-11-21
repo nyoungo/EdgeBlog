@@ -34,6 +34,7 @@ const ACTION_LABELS: Record<string, string> = {
   'comment.batch.spam': '批量标记垃圾',
   'comment.batch.delete': '批量删除评论',
   'media.delete': '删除媒体',
+  'media.cleanup': '清理未使用媒体',
   'tag.create': '创建标签',
   'tag.update': '更新标签',
   'tag.delete': '删除标签',

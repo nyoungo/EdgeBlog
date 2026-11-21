@@ -180,6 +180,19 @@ export interface MediaItem {
   /** 视频封面图地址（上传时由首帧生成）；旧数据或图片为 null。 */
   thumbnail_url: string | null;
   created_at: string;
+  /**
+   * 是否正被文章 / 专栏 / 定时任务 / 设置引用（列表接口计算，1 = 已使用）。
+   * 单条接口（上传、删除）不会带这个字段。
+   */
+  in_use?: number;
+}
+
+/** 一次「清理未使用媒体」的结果（接口按批删除，前端循环调用直到 remaining = 0）。 */
+export interface MediaCleanupResult {
+  deleted: number;
+  remaining: number;
+  freedBytes: number;
+  keys: string[];
 }
 
 /** A post that references a media object — used before deleting an image. */
@@ -792,6 +805,9 @@ export interface ApiMeta {
   perPage?: number;
   total?: number;
   totalPages?: number;
+  /** 媒体库列表专用：当前未使用的文件数与占用字节（不受分页/筛选影响）。 */
+  unused?: number;
+  unusedBytes?: number;
 }
 
 export type ApiSuccess<T> = { ok: true; data: T; meta?: ApiMeta };
