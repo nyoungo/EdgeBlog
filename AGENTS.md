@@ -426,6 +426,11 @@ Node/Vite 会把 `.wasm` 当外部模块交给原生 loader，报
 对象就是一次 R2 调用；它返回 `remaining`，由前端循环调用到 0。列表接口的
 `stats=1` 才会计算 `in_use` 与未使用汇总——媒体选择器不传这个参数，省掉一次全表扫描。
 
+`tests/media-usage.test.ts` 用 Node 内置 `node:sqlite` 真跑一遍判定 SQL。该模块只有
+Node 22.5+ 才有，所以用例在拿不到时自动 skip（CI 固定 Node 22 以覆盖真实 SQL），
+另有一条不依赖运行时的结构断言始终执行。注意 Vite 会把 `import ... from
+'node:sqlite'` 误解析成裸模块 `sqlite`，测试里用 `createRequire` 加载。
+
 ## 数据层 / SQLite(D1)
 
 ### 改 / 扩充列上的 CHECK 约束只能重建表,而 DROP TABLE 会级联删除子表行

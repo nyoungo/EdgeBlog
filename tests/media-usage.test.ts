@@ -2,15 +2,29 @@ import { describe, expect, it } from 'vitest';
 import { createRequire } from 'node:module';
 import { MEDIA_IN_USE_SQL } from '../functions/lib/media-usage';
 
-// Vite 会把 `import ... from 'node:sqlite'` 误解析成裸模块 `sqlite`，改用 require。
-const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+/**
+ * `node:sqlite` 只在 Node 22.5+ 存在，CI 可能跑在更老的版本上，所以拿不到就
+ * 跳过真实 SQL 用例（下面的结构断言仍会执行）。
+ *
+ * 另外 Vite 会把 `import ... from 'node:sqlite'` 误解析成裸模块 `sqlite`，
+ * 这里用 require 绕开静态分析。
+ */
+const sqlite = (() => {
+  try {
+    return createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+  } catch {
+    return null;
+  }
+})();
+
+type Db = InstanceType<NonNullable<typeof sqlite>['DatabaseSync']>;
 
 /**
  * 「未使用」判定直接决定清理会删掉哪些文件，所以用真实 SQLite 跑一遍，
  * 防止后续改动 WHERE 条件时误删仍在引用的图片。
  */
-function makeDb(): DatabaseSync {
-  const db = new DatabaseSync(':memory:');
+function makeDb(): Db {
+  const db = new sqlite!.DatabaseSync(':memory:');
   db.exec(`
     CREATE TABLE media (id INTEGER PRIMARY KEY, key TEXT, url TEXT, size INTEGER);
     CREATE TABLE posts (cover_url TEXT, og_image TEXT, content_md TEXT);
@@ -22,14 +36,14 @@ function makeDb(): DatabaseSync {
   return db;
 }
 
-function addMedia(db: DatabaseSync, key: string): void {
+function addMedia(db: Db, key: string): void {
   db.prepare('INSERT INTO media (key, url, size) VALUES (?, ?, 100)').run(
     key,
     `https://cdn.example.com/media/${key}`,
   );
 }
 
-function isUsed(db: DatabaseSync, key: string): boolean {
+function isUsed(db: Db, key: string): boolean {
   const row = db
     .prepare(
       `SELECT CASE WHEN ${MEDIA_IN_USE_SQL} THEN 1 ELSE 0 END AS in_use
@@ -40,7 +54,29 @@ function isUsed(db: DatabaseSync, key: string): boolean {
 }
 
 describe('MEDIA_IN_USE_SQL', () => {
-  it('counts posts covers, OG images and inline Markdown references', () => {
+  it('covers every place a media URL can be referenced', () => {
+    // 结构断言：不依赖 SQLite，防止有人删掉某一条引用来源。
+    for (const fragment of [
+      'posts p',
+      'p.cover_url',
+      'p.og_image',
+      'p.content_md',
+      'columns c',
+      'c.cover_url',
+      'automation_tasks t',
+      't.cover_url',
+      'automation_runs r',
+      'r.cover_url',
+      'settings s',
+      's.value_json',
+    ]) {
+      expect(MEDIA_IN_USE_SQL).toContain(fragment);
+    }
+  });
+
+  const needsSqlite = sqlite ? it : it.skip;
+
+  needsSqlite('counts posts covers, OG images and inline Markdown references', () => {
     const db = makeDb();
     addMedia(db, 'a/cover.jpg');
     addMedia(db, 'a/og.jpg');
@@ -55,7 +91,7 @@ describe('MEDIA_IN_USE_SQL', () => {
     expect(isUsed(db, 'a/inline.png')).toBe(true);
   });
 
-  it('counts column, automation and settings references', () => {
+  needsSqlite('counts column, automation and settings references', () => {
     const db = makeDb();
     addMedia(db, 'a/column.png');
     addMedia(db, 'a/task.png');
@@ -72,7 +108,7 @@ describe('MEDIA_IN_USE_SQL', () => {
     expect(isUsed(db, 'a/setting.webp')).toBe(true);
   });
 
-  it('treats files nobody references as unused', () => {
+  needsSqlite('treats files nobody references as unused', () => {
     const db = makeDb();
     addMedia(db, 'a/orphan.jpg');
     db.exec(`INSERT INTO posts (cover_url, og_image, content_md) VALUES
