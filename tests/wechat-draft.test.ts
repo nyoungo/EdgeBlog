@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   first: vi.fn(),
   run: vi.fn(),
   loadImageSource: vi.fn(),
+  prepareImageForUpload: vi.fn(),
   addDraft: vi.fn(),
   updateDraft: vi.fn(),
   uploadContentImage: vi.fn(),
@@ -22,6 +23,12 @@ vi.mock('../functions/lib/db', () => ({
 
 vi.mock('../functions/lib/media-ingest', () => ({
   loadImageSource: mocks.loadImageSource,
+}));
+
+// 真正的压缩在 Worker 里由 wasm 完成（Node 下无法解码），这里只模拟「压缩完成」的结果，
+// 用来验证编排顺序：先压缩、再把压缩结果上传。
+vi.mock('../functions/lib/image-codec', () => ({
+  prepareImageForUpload: mocks.prepareImageForUpload,
 }));
 
 vi.mock('../functions/lib/wechat', () => ({
@@ -85,6 +92,18 @@ beforeEach(() => {
   mocks.first.mockResolvedValue(null);
   mocks.run.mockResolvedValue({ meta: { changes: 1, last_row_id: 1 } });
   mocks.loadImageSource.mockResolvedValue(COVER_SOURCE);
+  // 默认「原图已合规」：原样返回，字节不变。
+  mocks.prepareImageForUpload.mockImplementation(async (bytes: Uint8Array, mime: string) => ({
+    bytes,
+    mime,
+    width: 100,
+    height: 100,
+    attempts: 0,
+    sourceWidth: 100,
+    sourceHeight: 100,
+    sourceBytes: bytes.byteLength,
+    reencoded: false,
+  }));
   mocks.uploadContentImage.mockResolvedValue('https://mmbiz.example/body-image.jpg');
   mocks.uploadCoverMaterial.mockResolvedValue('permanent-cover-id');
   mocks.addDraft.mockResolvedValue('draft-media-id');
@@ -118,6 +137,57 @@ describe('公众号封面复用同一次图片读取', () => {
     expect(mocks.uploadCoverMaterial).toHaveBeenCalledTimes(1);
     expect(mocks.uploadContentImage.mock.calls[0]?.[2]).toBe(COVER_BYTES);
     expect(mocks.uploadCoverMaterial.mock.calls[0]?.[2]).toBe(COVER_BYTES);
+  });
+});
+
+describe('推送前压缩图片', () => {
+  it('正文图与封面都先压缩，上传的是压缩后的字节与格式', async () => {
+    const compressed = new Uint8Array([1, 2, 3, 4, 5]);
+    mocks.prepareImageForUpload.mockResolvedValue({
+      bytes: compressed,
+      mime: 'image/jpeg',
+      width: 1440,
+      height: 1080,
+      attempts: 2,
+      sourceWidth: 4032,
+      sourceHeight: 3024,
+      sourceBytes: 5_000_000,
+      reencoded: true,
+    });
+    // 正文图是 webp，封面是 jpg：压缩后两者都变成 jpeg。
+    mocks.loadImageSource.mockImplementation(async (_env: unknown, url: string) =>
+      url.includes('photo.webp')
+        ? { bytes: new Uint8Array([9, 9]), mime: 'image/webp', filename: 'photo.webp' }
+        : COVER_SOURCE,
+    );
+
+    await pushPostToWechatDraft(
+      {} as Env,
+      SETTINGS,
+      post('![配图](https://images.example/photo.webp)'),
+    );
+
+    // 正文图 + 封面各压一次（正文里没有封面 URL，插入的正文封面复用封面字节）。
+    expect(mocks.prepareImageForUpload).toHaveBeenCalledTimes(2);
+    // 压缩目标与微信正文图限制一致。
+    expect(mocks.prepareImageForUpload).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      'image/webp',
+      expect.objectContaining({ maxBytes: 900_000, maxWidth: 1440 }),
+    );
+
+    // 先压缩，再上传：上传拿到的必须是压缩结果，而不是原图。
+    expect(mocks.prepareImageForUpload.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.uploadContentImage.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(mocks.uploadContentImage).toHaveBeenCalledTimes(2);
+    for (const call of mocks.uploadContentImage.mock.calls) {
+      expect(call[2]).toBe(compressed);
+      expect(call[3]).toBe('image/jpeg');
+    }
+    // 格式从 webp 转成 jpeg 后，文件名后缀要跟着换。
+    expect(mocks.uploadContentImage.mock.calls[0]?.[4]).toBe('photo.jpg');
+    expect(mocks.uploadCoverMaterial.mock.calls[0]?.[2]).toBe(compressed);
   });
 });
 

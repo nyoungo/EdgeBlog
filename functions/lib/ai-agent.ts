@@ -49,7 +49,7 @@ import {
   storeImageInMedia,
 } from './media-ingest';
 import { generateCoverImage } from './cover';
-import { compressImage } from './image-codec';
+import { compressImage, prepareImageForUpload } from './image-codec';
 import { formatBytes } from './image-process';
 import { isAbortError, withTimeout } from './deadline';
 import { buildWechatBody, measureWechatBody, miniProgramCardFromSettings } from './wechat-length';
@@ -1173,7 +1173,8 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
       function: {
         name: 'compress_image_from_url',
         description:
-          '从 URL 或本站 /media/ 地址取图，缩放到指定宽度并压缩到目标体积以内，然后存入媒体库并返回新地址。适合修复公众号正文图超过 1MB、尺寸过大的问题。',
+          '一步完成「下载 → 压缩 → 入库」：从图片地址取图，先在内存里缩放到 maxWidth 以内、压到 maxBytes 以内，再把压缩后的结果写入媒体库并返回新地址。' +
+          '原图不会先入库，也不需要再调用 replace_post_image 替换自己。已经符合要求的图会原样入库（不重新编码）。',
         parameters: {
           type: 'object',
           properties: {
@@ -1187,7 +1188,7 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
             format: {
               type: 'string',
               enum: ['jpeg', 'png', 'auto'],
-              description: '输出格式，auto 默认转 jpeg。',
+              description: '输出格式：auto 表示原图合规就保留原格式，需要重编码时转 jpeg。',
             },
             filename: { type: 'string', description: '可选文件名，用于生成可读的存储路径。' },
           },
@@ -1197,28 +1198,35 @@ const TOOL_ENTRIES: Record<string, ToolEntry> = {
     },
     compressImageSchema,
     async ({ env }, args) => {
+      // 先取原图（内存里），压完只上传一次；不写「先传原图再替换」的两步流程。
       const source = await loadImageSource(env, args.url, {
         maxSize: IMAGE_MAX_SIZE,
         maxSizeMessage: '原图超过 8MB，无法压缩',
       });
-      const compressed = await compressImage(source.bytes, source.mime, {
+      const prepared = await prepareImageForUpload(source.bytes, source.mime, {
         maxBytes: args.maxBytes ?? 900_000,
         maxWidth: args.maxWidth ?? 1440,
         quality: args.quality ?? 82,
         format: args.format ?? 'auto',
       });
-      const filename = args.filename || filenameFromUrl(args.url) || 'image';
-      const stored = await storeImageInMedia(env, compressed.bytes, compressed.mime, filename);
+      const filename = args.filename || source.filename || filenameFromUrl(args.url) || 'image';
+      const stored = await storeImageInMedia(env, prepared.bytes, prepared.mime, filename);
+      const summary = prepared.reencoded
+        ? `已压缩并上传：${formatBytes(prepared.sourceBytes)} → ${formatBytes(stored.size)}（${prepared.sourceWidth}×${prepared.sourceHeight} → ${prepared.width}×${prepared.height}，编码 ${prepared.attempts} 次）`
+        : `原图已符合要求，直接上传：${formatBytes(stored.size)}（${prepared.width}×${prepared.height}）`;
       return {
-        summary: `已压缩并上传：${formatBytes(source.bytes.byteLength)} → ${formatBytes(stored.size)}（${compressed.width}×${compressed.height}）`,
+        summary,
         data: {
           id: stored.id,
           url: stored.url,
           mime: stored.mime,
           size: stored.size,
-          width: compressed.width,
-          height: compressed.height,
-          attempts: compressed.attempts,
+          width: prepared.width,
+          height: prepared.height,
+          compressed: prepared.reencoded,
+          sourceSize: prepared.sourceBytes,
+          sourceWidth: prepared.sourceWidth,
+          sourceHeight: prepared.sourceHeight,
         },
       };
     },
@@ -1633,7 +1641,7 @@ function buildSystemPrompt(context?: AiChatContext): string {
   if (context?.postId) lines.push(`当前正在编辑的文章 id：${context.postId}`);
   lines.push(
     '',
-    '你可以调用工具:查询/创建/修改/删除文章,查询标签,查询媒体库,从 URL 上传图片或视频,给视频设置封面,用 Workers AI 生成封面图,统计文章字符数,压缩图片或转换图片格式并替换文章里的图片地址,查询和审核评论,查看统计和站点信息,联网搜索,读取指定网页的正文。',
+    '你可以调用工具:查询/创建/修改/删除文章,查询标签,查询媒体库,从 URL 上传图片或视频,给视频设置封面,用 Workers AI 生成封面图,统计文章字符数,把图片压到指定体积/宽度后入库,转换图片格式,替换文章里的图片地址,查询和审核评论,查看统计和站点信息,联网搜索,读取指定网页的正文。',
     '',
     '规则：',
     '1. 需要执行操作时优先调用工具，不要只在回复里描述操作。',
@@ -1648,6 +1656,7 @@ function buildSystemPrompt(context?: AiChatContext): string {
     '10. 需要最新信息、事实核查或找资料时先调用 web_search；不要凭记忆编造链接，只使用搜索结果里给出的地址。调用时 query 必须是完整关键词(如「雷军」「小米SU7 价格」),绝不能只传一个字。',
     '11. 用户给出网页链接并希望你参考/改写时，用 fetch_web_page 读取正文；改写要保持原意，不要凭空补充事实，并在回复里注明来源链接。同一个链接不要重复抓取。',
     '12. 读取网页失败（登录墙、纯脚本渲染、非网页资源）时如实说明原因，不要猜造页面内容；搜索无结果时也如实说明，不要编造结果。',
+    '13. 图片要满足公众号限制（jpg/png、单张 < 1MB、宽度 ≤ 1440）时，直接用 compress_image_from_url 传图片原始地址，一步完成压缩入库；不要先用 upload_media_from_url 传原图再压缩替换。',
   );
   return lines.join('\n');
 }

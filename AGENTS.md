@@ -188,6 +188,26 @@ Cloudflare 边缘 **125 秒的 Proxy Read Timeout**(`Error 524: a timeout occurr
 （封面永久素材）才收 bmp/png/jpeg/jpg/gif 且 ≤10MB。两者的限制不同，不要混用。
 按用户要求，格式/体积不符一律**指名报错**（第 N 张 / 封面），不静默跳过或降级。
 
+### 推送前统一压缩：正文图、封面、卡片配图都先压再传
+
+早期是「取图 → 校验 → 不达标就报错」，用户得自己先把图压好。现在改为
+`pushPostToWechatDraft` 在 `uploadimg` / `add_material` 之前调用
+`compressForPush()`（内部是 `prepareImageForUpload`，目标 1440px / 900KB）：
+
+- 已经合规的 jpg/png 走直通分支，**不碰 wasm**，既不慢也没有 128MB 内存风险；
+- webp / 超宽 / 超重的图在内存里解码 → JS 盒式缩放 → 重编码成 jpeg；
+- GIF / BMP 没有解码器，原样返回：封面接口本身收这两种格式，正文接口不收，
+  仍由 `validateWechatContentImage()` 指名报错（不要为此把它们也丢进 wasm）；
+- 封面只读一次、压一次，`bodyCoverPosition` 插入正文的那张（`shareCoverSource`）
+  与 `thumb_media_id` 复用同一份字节——随机图片接口每次访问可能返回不同图片；
+- 压缩后格式可能从 webp 变成 jpeg，文件名后缀要跟着换（`withMimeExtension()`），
+  否则微信按后缀判类型；
+- 压缩耗时计入整条推送的 100 秒预算，所以 `compressForPush()` 先
+  `ensureBudget()`，超时报「卡在压缩第 N 张正文图片」，而不是让边缘先 524。
+
+压缩仍然失败（图太大压不下去、文件损坏）时保留原有的「指名报错 + AI 修复重推」
+兜底（`wechat-repair.ts`），不要为了「能推上去」静默降级。
+
 ### `draft/add` 的 `thumb_media_id` 必填，且必须是永久素材 id
 
 `thumb_media_id` 不能用 `uploadimg` 那种临时 URL，必须来自
@@ -285,16 +305,51 @@ Cloudflare 边缘 **125 秒的 Proxy Read Timeout**(`Error 524: a timeout occurr
 
 - Workers 运行时没有 DOM、不能装原生模块，`sharp` 不可用；浏览器端的 Canvas 压缩
   （`src/lib/image-compress.ts`）也搬不过来。
-- 本项目用 `@jsquash/jpeg` / `png` / `webp` / `resize`。WebP **只用于解码**：
-  编码器 `webp_enc.wasm` 走 SIMD 动态导入，Workers 里不可靠，所以输出只有 JPEG/PNG。
+- 本项目用 `@jsquash/jpeg` / `png` / `webp` 做解码，`jpeg` / `png` 做编码。WebP
+  **只用于解码**：编码器 `webp_enc.wasm` 走 SIMD 动态导入，Workers 里不可靠，
+  所以输出只有 JPEG/PNG。
+- **缩放不用 `@jsquash/resize`**（已移除依赖）：它会把整张源位图再拷进 wasm 堆，
+  12MP 的图光这一步就多占 48MB。改用 `image-process.ts` 的 `downscaleRgba()`
+  做 JS 盒式缩放，只多分配目标尺寸的小缓冲区。
 - wrangler 的 module collector 只认**相对路径**：`import wasm from
   '../../node_modules/@jsquash/png/codec/pkg/squoosh_png_bg.wasm'`。写成包名
   （`'@jsquash/png/...wasm'`）会被当成相对源码目录的路径，报 `ENOENT`。
-- `@jsquash/png` 与 `@jsquash/resize` 的包里自带 `xxx_bg.wasm.d.ts`（wasm-bindgen
-  导出的函数声明，没有 default），会**盖住** `%.wasm` 的通配声明；这两处用
+- `@jsquash/png` 包里自带的 `squoosh_png_bg.wasm.d.ts`（wasm-bindgen 导出的函数
+  声明，没有 default）会**盖住** `%.wasm` 的通配声明，这一处用
   `// @ts-expect-error` 放行，其它 wasm 不需要。
-- 体积：5 个 wasm 原始约 780KB、gzip 约 200KB，整个 Worker dry-run 后 gzip 约 450KB。
+- 体积：4 个 wasm 原始约 740KB、gzip 约 200KB，整个 Worker dry-run 后 gzip 约 450KB。
   改 wasm 依赖后用 `npx wrangler deploy --dry-run` 核对（Workers 免费版压缩上限 1MB）。
+
+### 图片工具报 `unreachable` = wasm 内存不足，不是「图坏了」
+
+`WebAssembly.RuntimeError: unreachable` 是 Rust/wasm-bindgen 侧的 abort：`squoosh_png`
+与 `squoosh_resize` 在内存增长失败时只会抛这一句，没有任何上下文。Worker 只有 128MB，
+一张 12MP 的图解码成 RGBA 就要 48MB，wasm 内部再放一份就是 96MB——加上原来的
+`@jsquash/resize` 再拷一份，必然顶穿。更糟的是 **trap 之后这个 isolate 里的 wasm
+实例已经被搞坏**，jsquash 的 `init()` 又是「已初始化就跳过」，后续所有图片处理都会
+继续报 `unreachable`，直到 isolate 被回收。
+
+**解决**（`image-codec.ts` + `image-size.ts` + `image-process.ts`）：
+
+- `readImageSize()` 直接读文件头（PNG IHDR / JPEG SOFn / WebP VP8·VP8L·VP8X）拿尺寸，
+  解码前按 `宽×高×4×2 + 输入×2` 估峰值，超过 `IMAGE_WORKING_BUDGET_BYTES`（104MB，
+  约 14MP）直接给可读报错，不让 wasm 去撞内存墙；
+- 解码结果**不整张复制**：jpeg/webp 解码器返回的是 wasm 堆里的视图，直接读它做缩放；
+- 缩放改 JS 盒式缩放，编码器永远只看到缩放后的小图；
+- 所有 wasm 调用用 `withWasmLock()` 串行化——jsquash 是 isolate 级单例，并发解码会
+  互相覆盖同一块线性内存；
+- 仍然可能出现的 trap 由 `runWasm()` 翻译成「超出 Worker 内存上限」的
+  `PAYLOAD_TOO_LARGE`，而不是把 `unreachable` 直接抛给用户。
+
+### 图片工具必须「先压缩再上传」，不要先传原图再替换
+
+`compress_image_from_url` 的语义是**一次成型**：下载 → 内存里缩放/压缩 →
+只把压缩结果写进 R2 与 `media` 表。不要写成「先 `upload_media_from_url` 传原图，
+再压缩一份去 `replace_post_image` 替换」——那会白存一份原图、白做一次编码，
+而且压缩失败时文章里留着的是超限的原图。
+
+已经合规的图（jpg/png、宽度 ≤ maxWidth、体积 ≤ maxBytes）走
+`prepareImageForUpload()` 的直通分支，**完全不碰 wasm**，既快也没有内存风险。
 
 ### Vitest 不能直接 import `.wasm`：用 `resolveId` 换成空模块
 

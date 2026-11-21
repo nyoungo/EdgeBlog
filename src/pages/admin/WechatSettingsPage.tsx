@@ -281,7 +281,7 @@ export function WechatSettingsPage() {
             label="正文中的封面位置"
             value={form.bodyCoverPosition}
             onChange={(e) => set('bodyCoverPosition', e.target.value as FormState['bodyCoverPosition'])}
-            hint="仅影响公众号草稿正文，不修改站点文章；插入正文的图片需为小于 1MB 的 JPG/PNG。"
+            hint="仅影响公众号草稿正文，不修改站点文章；图片会在推送前自动压缩到 1MB 以内。"
           >
             <option value="none">不插入</option>
             <option value="top">正文顶部</option>
@@ -290,7 +290,7 @@ export function WechatSettingsPage() {
           </Select>
           <p className="text-xs leading-relaxed text-faint">
             封面取文章的封面图（微信 thumb_media_id 必填，无封面会拒绝推送）；正文图片会逐张上传到微信，
-            仅支持 jpg/png 且单张小于 1MB。
+            推送前统一压缩到 jpg/png、单张 1MB 以内。
           </p>
           <Switch
             checked={form.repairPushFailures}
@@ -363,7 +363,7 @@ export function WechatSettingsPage() {
                 </Button>
               </div>
               <p className="text-xs text-faint">
-                正文图要求 jpg/png 且单张小于 1MB；留空则渲染无图卡片。
+                卡片配图会在推送前自动压缩到 1MB 以内；留空则渲染无图卡片。
               </p>
               {form.miniprogramImage && (
                 <img

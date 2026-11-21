@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  downscaleRgba,
+  estimateDecodePeakBytes,
   fitDimensions,
   formatBytes,
+  isWithinDecodeBudget,
+  maxDecodablePixels,
   nextCompressionStep,
   pickOutputFormat,
+  rgbaBytes,
 } from '../functions/lib/image-process';
 
 describe('fitDimensions', () => {
@@ -72,5 +77,63 @@ describe('formatBytes', () => {
   it('大于等于 1MB 用 MB,保留两位小数', () => {
     expect(formatBytes(1024 * 1024)).toBe('1.00MB');
     expect(formatBytes(1.5 * 1024 * 1024)).toBe('1.50MB');
+  });
+});
+
+describe('内存预算', () => {
+  it('RGBA 位图按 4 字节/像素计算', () => {
+    expect(rgbaBytes(100, 50)).toBe(20_000);
+    expect(rgbaBytes(0, 50)).toBe(0);
+    expect(rgbaBytes(Number.NaN, 50)).toBe(0);
+  });
+
+  it('解码峰值按位图的两倍估算,并计入输入字节', () => {
+    expect(estimateDecodePeakBytes(1000, 1000, 0)).toBe(8_000_000);
+    expect(estimateDecodePeakBytes(1000, 1000, 1000)).toBe(8_002_000);
+  });
+
+  it('常见的手机照片在预算内,超大图会被拦下', () => {
+    expect(isWithinDecodeBudget(4032, 3024, 3 * 1024 * 1024)).toBe(true);
+    expect(isWithinDecodeBudget(12000, 9000, 5 * 1024 * 1024)).toBe(false);
+  });
+
+  it('预算上限换算成像素数后仍是正数', () => {
+    expect(maxDecodablePixels()).toBeGreaterThan(10_000_000);
+  });
+});
+
+describe('downscaleRgba', () => {
+  /** 造一张纯色图,方便验证求平均的结果。 */
+  function solid(width: number, height: number, rgba: [number, number, number, number]) {
+    const data = new Uint8ClampedArray(width * height * 4);
+    for (let i = 0; i < width * height; i++) data.set(rgba, i * 4);
+    return data;
+  }
+
+  it('尺寸相同时原样返回', () => {
+    const data = solid(4, 4, [1, 2, 3, 255]);
+    expect(downscaleRgba(data, 4, 4, 4, 4)).toBe(data);
+  });
+
+  it('纯色图缩小后颜色不变', () => {
+    const out = downscaleRgba(solid(100, 100, [10, 20, 30, 255]), 100, 100, 25, 25);
+    expect(out.length).toBe(25 * 25 * 4);
+    expect(Array.from(out.slice(0, 4))).toEqual([10, 20, 30, 255]);
+  });
+
+  it('按覆盖区域求平均,而不是取最近像素', () => {
+    // 2x1: 黑 + 白 → 缩成 1x1 应得到中间灰
+    const data = new Uint8ClampedArray([0, 0, 0, 255, 255, 255, 255, 255]);
+    const out = downscaleRgba(data, 2, 1, 1, 1);
+    expect(Array.from(out)).toEqual([128, 128, 128, 255]);
+  });
+
+  it('等比缩小时保持宽高比', () => {
+    const out = downscaleRgba(solid(3000, 2000, [0, 0, 0, 255]), 3000, 2000, 1440, 960);
+    expect(out.length).toBe(1440 * 960 * 4);
+  });
+
+  it('非法尺寸返回空数组,不抛错', () => {
+    expect(downscaleRgba(new Uint8ClampedArray(0), 0, 0, 10, 10).length).toBe(0);
   });
 });
