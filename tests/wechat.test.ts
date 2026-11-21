@@ -16,6 +16,7 @@ const SETTINGS: WechatSettings = {
   onlyFansCanComment: false,
   bodyCoverPosition: 'none',
   repairPushFailures: true,
+  serverImageProcessing: true,
   miniprogramEnabled: false,
   miniprogramAppId: '',
   miniprogramPath: '',

@@ -11,6 +11,7 @@ import { created, ok } from '../lib/response';
 import { paginationSchema } from '../lib/validate';
 import { recordAudit } from '../lib/audit';
 import { mediaObjectKey, mediaPublicUrl } from '../lib/media-store';
+import { loadImageSource } from '../lib/media-ingest';
 import {
   EXT_BY_MIME,
   IMAGE_MAX_SIZE,
@@ -80,6 +81,34 @@ mediaRoutes.get('/', async (c) => {
     perPage,
     total,
     totalPages: Math.max(1, Math.ceil(total / perPage)),
+  });
+});
+
+/**
+ * Admin: 取回一张图片的原始字节（文章编辑器推送前在浏览器里转码用）。
+ *
+ * 只做「读 R2 / 下载外链 + 原样返回」，**不解码也不压缩**：免费版 Worker 每个
+ * 请求只有 10ms CPU，这里必须是可以忽略的搬运工作。外链沿用
+ * `loadImageSource` 的 SSRF 防护与体积上限。
+ */
+mediaRoutes.get('/proxy', async (c) => {
+  const raw = (c.req.query('url') ?? '').trim();
+  if (!raw) throw AppError.badRequest('缺少 url 参数');
+  const isHttp = /^https?:\/\//i.test(raw);
+  const isLocal = raw.startsWith('/') && !raw.startsWith('//');
+  if (!isHttp && !isLocal) throw AppError.badRequest('url 必须是 http(s) 地址或站内 /media/ 路径');
+
+  const loaded = await loadImageSource(c.env, raw, {
+    maxSize: IMAGE_MAX_SIZE,
+    maxSizeMessage: '图片超过 8MB 限制',
+  });
+  return new Response(loaded.bytes, {
+    headers: {
+      'Content-Type': loaded.mime || 'application/octet-stream',
+      'Content-Length': String(loaded.bytes.byteLength),
+      'Cache-Control': 'private, max-age=600',
+      'X-Content-Type-Options': 'nosniff',
+    },
   });
 });
 

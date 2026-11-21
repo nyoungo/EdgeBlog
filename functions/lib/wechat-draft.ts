@@ -3,12 +3,17 @@
  *
  * 链路：
  *   1. 读文章（Markdown）→ 服务端渲染成内联样式 HTML（图片先占位）
- *   2. 逐张取正文图片（本站 /media/... 读 R2；外链先下载）→ **压缩到微信能收的范围** → uploadimg
- *   3. 封面（cover_url）→ 压缩 → add_material → 永久 thumb_media_id
+ *   2. 逐张取正文图片（本站 /media/... 读 R2；外链先下载）→ uploadimg
+ *   3. 封面（cover_url）→ add_material → 永久 thumb_media_id
  *   4. draft/add 新建草稿，或在命中既有草稿时 draft/update
  *
- * 图片约束按用户要求**不静默降级**：压缩仍然不达标、或格式根本无法解码时直接报错
- * 并指明是哪张图。合规的图走直通分支，不重新编码。
+ * 图片约束按用户要求**不静默降级**：格式/体积不达标、或服务端处理开关关闭时
+ * 需要转换的图片，都直接报错并指明是哪张。
+ *
+ * 注意：默认**不在服务端解码图片**。Cloudflare Workers 免费版每请求只有 10ms
+ * CPU，wasm 解码/编码一张图要 100ms 以上，请求会被边缘终止（Error 1102），
+ * 浏览器只能看到「请求失败」。需要转换的图片由文章编辑器在浏览器侧（Canvas）
+ * 先转好再落库；只有付费版才建议打开 `serverImageProcessing`。
  */
 import type { Post, WechatPushResult, WechatSettings } from '@shared/types';
 import { AppError } from './errors';
@@ -81,6 +86,16 @@ function pushTimeout(stage: string, deadline: Deadline): AppError {
   );
 }
 
+/**
+ * 服务端不做图片处理时的统一提示。
+ *
+ * 免费版 Worker 只有 10ms CPU，wasm 解码/编码一张图要 100ms 以上，请求会被
+ * 边缘终止（1102），浏览器只看到「请求失败」。所以默认不在服务端转图，改由
+ * 编辑器在浏览器侧转换后落库；这里只负责把「哪张图需要转换」说清楚。
+ */
+const CLIENT_PREPARE_HINT =
+  '请在文章编辑页点「推送到公众号草稿」，编辑器会先在浏览器里把图片转成微信能接收的格式；也可以先手动转成 jpg/png 再上传';
+
 /** 预算已经耗尽就立刻报错，不再发起下一步外部请求。 */
 function ensureBudget(deadline: Deadline, stage: string): void {
   if (deadline.remainingMs() <= 0) throw pushTimeout(stage, deadline);
@@ -142,6 +157,60 @@ export interface PushImageSource {
   bytes: Uint8Array;
   mime: string;
   filename: string;
+}
+
+/** 「不转格式也能直接上传」的判定结果。 */
+interface ImageProblem {
+  code: 'PAYLOAD_TOO_LARGE' | 'UNSUPPORTED_MEDIA_TYPE';
+  message: string;
+}
+
+function kb(size: number): string {
+  return `${Math.round(size / 1024)}KB`;
+}
+
+/**
+ * 只按文件头 MIME 与体积判断能不能交给微信正文接口（不解码、不占 CPU）。
+ *
+ * 微信 `media/uploadimg` 只收 jpg/png 且单张 < 1MB；webp/avif/gif/bmp 都需要
+ * 先转换，这一步交给浏览器（编辑器推送前用 Canvas 转好），Worker 不再解码。
+ */
+function contentImageProblem(image: PushImageSource): ImageProblem | null {
+  if (!CONTENT_IMAGE_MIMES.has(image.mime)) {
+    return {
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+      message: `是 ${image.mime || '未知格式'}，微信正文图只支持 jpg/png`,
+    };
+  }
+  if (image.bytes.byteLength >= CONTENT_IMAGE_MAX_BYTES) {
+    return {
+      code: 'PAYLOAD_TOO_LARGE',
+      message: `体积 ${kb(image.bytes.byteLength)}，超过微信正文图 1MB 上限`,
+    };
+  }
+  return null;
+}
+
+/**
+ * 封面可以直接上传的条件：jpg/png/gif/bmp 且 ≤10MB。
+ *
+ * 封面接口本身接受这些格式，所以不再为了「1440px」去重编码——免费版正是
+ * 卡在这一步。只有真正不支持的格式（webp/avif）或超限才要求先转换。
+ */
+function coverImageProblem(image: PushImageSource): ImageProblem | null {
+  if (!COVER_MIMES.has(image.mime)) {
+    return {
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+      message: `是 ${image.mime || '未知格式'}，微信封面只支持 jpg/png/gif/bmp`,
+    };
+  }
+  if (image.bytes.byteLength > COVER_MAX_BYTES) {
+    return {
+      code: 'PAYLOAD_TOO_LARGE',
+      message: `体积 ${kb(image.bytes.byteLength)}，超过微信封面 10MB 上限`,
+    };
+  }
+  return null;
 }
 
 /** 取图片二进制：本站读 R2，外链走带 SSRF 防护与体积上限的下载。 */
@@ -228,19 +297,28 @@ async function uploadContentImages(
     if (!image) continue;
     const source = image.url;
     const label = image.label;
-    const position = `第 ${i + 1} 张正文图片（${label}）`;
+    // label 由 `buildWechatBody` 生成，已经写明「第 N 张正文图片(url)」「封面图」等
+    // 定位信息，这里不再叠加一层，否则报错会变成
+    //「第 1 张正文图片（第 1 张正文图片(...)）」。
+    const position = label;
     ensureBudget(deadline, `取${position}`);
     let prepared: PushImageSource;
     try {
-      // 原图上限放到 8MB：正文图经常超 1MB，先取回来压缩，而不是直接拒。
-      // 封面图在调用方已经压好并共享字节，这里不再重复压缩。
+      // 原图上限放到 8MB：正文图经常超 1MB，先取回来再说。
+      // 封面图在调用方已经处理并共享字节，这里既不重复读取，也不重复压缩。
+      const shared = image.source !== undefined;
       prepared =
         image.source ??
-        (await compressForPush(
-          await loadImage(env, source, IMAGE_MAX_SIZE, `${label} 超过 8MB，无法压缩后推送`, deadline),
-          label,
-          deadline,
-        ));
+        (await loadImage(env, source, IMAGE_MAX_SIZE, `${label} 超过 8MB，无法推送`, deadline));
+      if (settings.serverImageProcessing) {
+        if (!shared) prepared = await compressForPush(prepared, label, deadline);
+      } else {
+        // 免费版没有 CPU 预算做 wasm 解码：只校验，需要转换时指名报错。
+        const problem = contentImageProblem(prepared);
+        if (problem) {
+          throw new AppError(problem.code, `${position}${problem.message}；${CLIENT_PREPARE_HINT}`);
+        }
+      }
     } catch (err) {
       // 超时类错误已经写明卡在哪一步，不再套一层图名。
       if (err instanceof AppError && !err.message.includes(label) && !err.message.startsWith('推送超时')) {
@@ -264,7 +342,7 @@ async function uploadContentImages(
   return urls;
 }
 
-/** 上传封面为永久素材；字节已在调用方压缩好，这里只做微信侧的格式/体积兜底。 */
+/** 上传封面为永久素材；字节已在调用方处理过，这里只做微信侧的格式/体积兜底。 */
 async function uploadCover(
   env: Env,
   settings: WechatSettings,
@@ -359,13 +437,24 @@ export async function pushPostToWechatDraft(
     card: miniProgramCardFromSettings(settings),
   });
 
-  // 2. 封面（以及正文里已出现的同一封面地址）只下载 + 压缩一次，两边复用同一份字节。
+  // 2. 封面（以及正文里已出现的同一封面地址）只下载一次，两边复用同一份字节。
+  //    默认不在服务端解码：免费版 10ms CPU 跑不完 wasm，会直接 1102。
   ensureBudget(deadline, '取封面图');
-  const coverSource = await compressForPush(
-    await loadImage(env, post.cover_url, COVER_MAX_BYTES, '封面图超过微信封面 10MB 上限', deadline),
-    '封面图',
+  let coverSource = await loadImage(
+    env,
+    post.cover_url,
+    COVER_MAX_BYTES,
+    '封面图超过微信封面 10MB 上限',
     deadline,
   );
+  if (settings.serverImageProcessing) {
+    coverSource = await compressForPush(coverSource, '封面图', deadline);
+  } else {
+    const problem = coverImageProblem(coverSource);
+    if (problem) {
+      throw new AppError(problem.code, `封面图${problem.message}；${CLIENT_PREPARE_HINT}`);
+    }
+  }
   const images: ContentImage[] = body.images.map((image) => ({
     ...image,
     source: image.shareCoverSource ? coverSource : undefined,

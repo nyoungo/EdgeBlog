@@ -36,6 +36,10 @@ function normalize(value: unknown): WechatSettings {
       ? (src['bodyCoverPosition'] as WechatSettings['bodyCoverPosition'])
       : WECHAT_DEFAULTS.bodyCoverPosition,
     repairPushFailures: bool(src['repairPushFailures'], WECHAT_DEFAULTS.repairPushFailures),
+    serverImageProcessing: bool(
+      src['serverImageProcessing'],
+      WECHAT_DEFAULTS.serverImageProcessing,
+    ),
     miniprogramEnabled: bool(src['miniprogramEnabled'], WECHAT_DEFAULTS.miniprogramEnabled),
     miniprogramAppId: str(src['miniprogramAppId'], WECHAT_DEFAULTS.miniprogramAppId).trim(),
     miniprogramPath: str(src['miniprogramPath'], WECHAT_DEFAULTS.miniprogramPath).trim(),

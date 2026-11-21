@@ -58,6 +58,42 @@ function timeoutError(ms: number): ApiError {
 }
 
 /**
+ * 非 JSON 响应的可读描述。
+ *
+ * API 自身出错一定会走 `fail()` 返回 JSON 信封；拿不到 JSON 说明响应来自边缘
+ * 而不是应用代码（HTTP/2 下 `statusText` 还是空字符串，只显示「请求失败」根本
+ * 没法定位）。这里把状态码、边缘错误码和正文片段带出来，尤其要点明
+ * `Error 1102`：免费版 Worker 的 CPU 上限只有 10ms，图片压缩这类 wasm 计算
+ * 必然被终止，看起来就是「点了没反应/请求失败」。
+ */
+function describeNonJsonResponse(res: Response, text: string): string {
+  const marker = /Error\s*(\d{4})[^<]*/i.exec(text);
+  if (marker) {
+    const code = marker[1];
+    if (code === '1102') {
+      return '边缘返回 Error 1102：Worker 超出资源限制（免费版 CPU 上限 10ms，图片压缩等重计算跑不完），请检查 Workers 计划或改为在浏览器侧压缩图片';
+    }
+    if (code === '1101') {
+      return '边缘返回 Error 1101：Worker 抛出了未捕获的异常，请查看 Workers 实时日志';
+    }
+    return `边缘返回 Error ${code}：${marker[0].slice(0, 120)}`;
+  }
+  if (res.status === 524) {
+    return '边缘等待超时（HTTP 524）：服务端在 Cloudflare 的代理读超时内没有返回';
+  }
+  if (res.status === 502 || res.status === 503) {
+    return `边缘无法连接 Worker（HTTP ${res.status}）`;
+  }
+  const snippet = text
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+  const base = `服务器返回了非 JSON 响应（HTTP ${res.status}）`;
+  return snippet ? `${base}：${snippet}` : base;
+}
+
+/**
  * Called when a request that needed a session came back 401 (expired cookie,
  * revoked session after a password change on another device, …). AuthProvider
  * registers this so the UI drops stale state instead of silently showing
@@ -116,7 +152,7 @@ async function request<T>(
     const error =
       json && json.ok === false
         ? json.error
-        : { code: `HTTP_${res.status}`, message: res.statusText || '请求失败' };
+        : { code: `HTTP_${res.status}`, message: describeNonJsonResponse(res, text) };
     const apiError = new ApiError(res.status, error.code, error.message, error.details);
     if (apiError.status === 401 && !AUTH_PROBES.has(path)) {
       unauthorizedHandler?.(apiError);

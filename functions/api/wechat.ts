@@ -66,6 +66,7 @@ const patchSchema = z
     onlyFansCanComment: z.boolean(),
     bodyCoverPosition: z.enum(['none', 'top', 'middle', 'bottom']),
     repairPushFailures: z.boolean(),
+    serverImageProcessing: z.boolean(),
     miniprogramEnabled: z.boolean(),
     miniprogramAppId: z.string().trim().max(64),
     miniprogramPath: z.string().trim().max(256),

@@ -281,7 +281,7 @@ export function WechatSettingsPage() {
             label="正文中的封面位置"
             value={form.bodyCoverPosition}
             onChange={(e) => set('bodyCoverPosition', e.target.value as FormState['bodyCoverPosition'])}
-            hint="仅影响公众号草稿正文，不修改站点文章；图片会在推送前自动压缩到 1MB 以内。"
+            hint="仅影响公众号草稿正文，不修改站点文章；正文图需为 jpg/png 且单张小于 1MB。"
           >
             <option value="none">不插入</option>
             <option value="top">正文顶部</option>
@@ -290,13 +290,19 @@ export function WechatSettingsPage() {
           </Select>
           <p className="text-xs leading-relaxed text-faint">
             封面取文章的封面图（微信 thumb_media_id 必填，无封面会拒绝推送）；正文图片会逐张上传到微信，
-            推送前统一压缩到 jpg/png、单张 1MB 以内。
+            只接受 jpg/png、单张 1MB 以内。编辑器点推送时会先在浏览器里把 webp 等格式自动转成 jpg。
           </p>
           <Switch
             checked={form.repairPushFailures}
             onChange={(v) => set('repairPushFailures', v)}
             label="图片错误时自动修复并重推一次"
-            description="仅处理公众号正文/封面的图片格式或体积问题；AI 会生成新图并替换文章中的图片地址。"
+            description="仅处理公众号正文/封面的图片格式或体积问题；需要同时开启下方「在服务端压缩图片」，且只在 Workers 付费版可用。"
+          />
+          <Switch
+            checked={form.serverImageProcessing}
+            onChange={(v) => set('serverImageProcessing', v)}
+            label="在服务端压缩/转换图片（需要 Workers 付费版）"
+            description="免费版每个请求只有 10ms CPU，开启后推送会在 wasm 压缩阶段被 Cloudflare 终止（Error 1102）。保持关闭时，请用文章编辑页的推送按钮，浏览器会先把图片转成 jpg。"
           />
         </Section>
 
@@ -363,7 +369,7 @@ export function WechatSettingsPage() {
                 </Button>
               </div>
               <p className="text-xs text-faint">
-                卡片配图会在推送前自动压缩到 1MB 以内；留空则渲染无图卡片。
+                卡片配图需为 jpg/png 且小于 1MB（微信正文图限制），留空则渲染无图卡片。
               </p>
               {form.miniprogramImage && (
                 <img

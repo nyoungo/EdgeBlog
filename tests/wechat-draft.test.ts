@@ -50,6 +50,7 @@ const SETTINGS: WechatSettings = {
   onlyFansCanComment: false,
   bodyCoverPosition: 'top',
   repairPushFailures: true,
+  serverImageProcessing: true,
   miniprogramEnabled: false,
   miniprogramAppId: '',
   miniprogramPath: '',
@@ -188,6 +189,55 @@ describe('推送前压缩图片', () => {
     // 格式从 webp 转成 jpeg 后，文件名后缀要跟着换。
     expect(mocks.uploadContentImage.mock.calls[0]?.[4]).toBe('photo.jpg');
     expect(mocks.uploadCoverMaterial.mock.calls[0]?.[2]).toBe(compressed);
+  });
+});
+
+describe('免费版：服务端不做图片解码', () => {
+  const NO_PROCESS: WechatSettings = { ...SETTINGS, serverImageProcessing: false };
+
+  it('webp 封面不做 wasm 压缩，指名报错并提示在浏览器侧转换', async () => {
+    mocks.loadImageSource.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mime: 'image/webp',
+      filename: 'cover.webp',
+    });
+
+    await expect(
+      pushPostToWechatDraft({} as Env, NO_PROCESS, post('只有普通文字的正文')),
+    ).rejects.toThrow(/封面图.*webp.*jpg\/png/);
+
+    // 关键：一次 wasm 都不该调用（免费版 10ms CPU 会直接 1102）。
+    expect(mocks.prepareImageForUpload).not.toHaveBeenCalled();
+    expect(mocks.uploadCoverMaterial).not.toHaveBeenCalled();
+    expect(mocks.addDraft).not.toHaveBeenCalled();
+  });
+
+  it('合规的 jpg 封面即使尺寸很大也原样上传，不为了 1440px 重编码', async () => {
+    const cover = new Uint8Array(200_000).fill(0xff);
+    mocks.loadImageSource.mockResolvedValue({
+      bytes: cover,
+      mime: 'image/jpeg',
+      filename: 'cover.jpg',
+    });
+
+    await pushPostToWechatDraft({} as Env, NO_PROCESS, post('只有普通文字的正文'));
+
+    expect(mocks.prepareImageForUpload).not.toHaveBeenCalled();
+    expect(mocks.uploadCoverMaterial.mock.calls[0]?.[2]).toBe(cover);
+  });
+
+  it('正文里的 webp 图片指名报错，说明是哪一张', async () => {
+    mocks.loadImageSource.mockImplementation(async (_env: unknown, url: string) =>
+      url.includes('photo.webp')
+        ? { bytes: new Uint8Array([9]), mime: 'image/webp', filename: 'photo.webp' }
+        : COVER_SOURCE,
+    );
+
+    await expect(
+      pushPostToWechatDraft({} as Env, NO_PROCESS, post('![配图](https://images.example/photo.webp)')),
+    ).rejects.toThrow(/第 1 张正文图片\(https:\/\/images\.example\/photo\.webp\)是 image\/webp/);
+
+    expect(mocks.prepareImageForUpload).not.toHaveBeenCalled();
   });
 });
 

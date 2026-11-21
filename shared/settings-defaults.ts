@@ -220,6 +220,8 @@ export const WECHAT_DEFAULTS: WechatSettings = {
   onlyFansCanComment: false,
   bodyCoverPosition: 'none',
   repairPushFailures: true,
+  // 免费版 Worker 的 10ms CPU 跑不完 wasm 图片压缩，默认关闭；付费版再打开。
+  serverImageProcessing: false,
   miniprogramEnabled: false,
   miniprogramAppId: '',
   miniprogramPath: '',

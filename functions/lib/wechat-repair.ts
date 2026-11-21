@@ -156,7 +156,16 @@ export async function pushPostToWechatWithRepair(
   try {
     return { ...(await pushPostToWechatDraft(env, settings, post, pushOptions)), repaired: false };
   } catch (err) {
-    if (!settings.repairPushFailures || !actor || !isRepairableWechatError(err)) throw err;
+    // 图片修复工具本身要做 wasm 压缩/转码，只有开启服务端图片处理（付费版）才可能跑完；
+    // 免费版上重试只会再被 10ms CPU 上限终止一次。
+    if (
+      !settings.repairPushFailures ||
+      !settings.serverImageProcessing ||
+      !actor ||
+      !isRepairableWechatError(err)
+    ) {
+      throw err;
+    }
 
     // 修复最多用到「总预算 − 重推保底」，推不动时直接放弃修复、抛出原始错误。
     const repairBudget = Math.min(REPAIR_BUDGET_MS, deadline.remainingMs() - REPUSH_RESERVE_MS);

@@ -637,6 +637,15 @@ export interface WechatSettings {
   bodyCoverPosition: 'none' | 'top' | 'middle' | 'bottom';
   /** 推送因图片格式/体积失败时，是否让 AI 自动压缩或转换后重试一次。 */
   repairPushFailures: boolean;
+  /**
+   * 是否允许 Worker 在推送时解码/压缩图片。
+   *
+   * 需要 Workers 付费版：免费版每个请求只有 **10ms CPU**，wasm 解码/编码一张
+   * 图就要 100ms 以上，请求会被边缘直接终止（Error 1102），前端只能看到
+   * 「请求失败」。关闭时推送只按文件头/体积做校验，需要转换的图片带图名报错，
+   * 由文章编辑器在浏览器侧（Canvas）先转成微信能接收的 jpg/png。
+   */
+  serverImageProcessing: boolean;
   /** 是否在每篇推送文章末尾追加「小程序卡片」。 */
   miniprogramEnabled: boolean;
   /** 卡片跳转的小程序 AppID。 */

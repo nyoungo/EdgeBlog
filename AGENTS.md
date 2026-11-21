@@ -190,23 +190,42 @@ Cloudflare 边缘 **125 秒的 Proxy Read Timeout**(`Error 524: a timeout occurr
 
 ### 推送前统一压缩：正文图、封面、卡片配图都先压再传
 
-早期是「取图 → 校验 → 不达标就报错」，用户得自己先把图压好。现在改为
+早期是「取图 → 校验 → 不达标就报错」，用户得自己先把图压好。后来改成
 `pushPostToWechatDraft` 在 `uploadimg` / `add_material` 之前调用
-`compressForPush()`（内部是 `prepareImageForUpload`，目标 1440px / 900KB）：
+`compressForPush()`（内部是 `prepareImageForUpload`，目标 1440px / 900KB）。
+
+**但这条路径只在 Workers 付费版可用**：免费版每个请求只有 **10ms CPU**，
+wasm 解码/编码一张图要 100ms 以上，请求会被边缘直接终止并返回 `Error 1102`，
+前端拿不到 JSON，只能显示「请求失败」。所以默认
+`wechat.serverImageProcessing = false`：
+
+- 关闭时（默认，免费版）：Worker 只按文件头 MIME 与体积做校验，需要转换的图
+  （webp/avif、正文图 >1MB）**指名报错**；转换由文章编辑页在浏览器侧完成
+  （`src/lib/wechat-prepare.ts`：Canvas 解码 → 缩到 ≤1440px → JPEG → 重新上传
+  到媒体库 → 改写正文/封面地址 → 先保存再推送）。定时任务跑在 Worker 里，
+  **没有 Canvas**，所以只有生成出来的 PNG（flux）或已合规的 jpg/png 封面能推；
+  外链 webp 封面会带图名报错并跳过公众号同步（正文照常发布）。
+- 开启时（付费版）：恢复服务端压缩，逻辑如下：
 
 - 已经合规的 jpg/png 走直通分支，**不碰 wasm**，既不慢也没有 128MB 内存风险；
 - webp / 超宽 / 超重的图在内存里解码 → JS 盒式缩放 → 重编码成 jpeg；
 - GIF / BMP 没有解码器，原样返回：封面接口本身收这两种格式，正文接口不收，
   仍由 `validateWechatContentImage()` 指名报错（不要为此把它们也丢进 wasm）；
 - 封面只读一次、压一次，`bodyCoverPosition` 插入正文的那张（`shareCoverSource`）
-  与 `thumb_media_id` 复用同一份字节——随机图片接口每次访问可能返回不同图片；
+  与 `thumb_media_id` 复用同一份字节（不接受二次压缩）——随机图片接口每次访问
+  可能返回不同图片；
 - 压缩后格式可能从 webp 变成 jpeg，文件名后缀要跟着换（`withMimeExtension()`），
   否则微信按后缀判类型；
 - 压缩耗时计入整条推送的 100 秒预算，所以 `compressForPush()` 先
   `ensureBudget()`，超时报「卡在压缩第 N 张正文图片」，而不是让边缘先 524。
 
 压缩仍然失败（图太大压不下去、文件损坏）时保留原有的「指名报错 + AI 修复重推」
-兜底（`wechat-repair.ts`），不要为了「能推上去」静默降级。
+兜底（`wechat-repair.ts`）；AI 修复同样依赖 wasm，所以只在
+`serverImageProcessing` 开启时才触发。
+
+> 前端拿不到 JSON 时别只显示「请求失败」：`src/lib/api.ts` 的
+> `describeNonJsonResponse()` 会把 `Error 1102` 等边缘错误翻成可读原因，
+> 这是区分「应用报错」与「Worker 被终止」的唯一线索。
 
 ### `draft/add` 的 `thumb_media_id` 必填，且必须是永久素材 id
 
