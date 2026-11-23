@@ -20,8 +20,8 @@ export function ContentTab() {
           <SwitchTile
             checked={features.views}
             onChange={(views) => setFeatures({ views })}
-            label="浏览量"
-            description="记录并显示文章阅读量"
+            label="显示浏览量"
+            description="前台展示文章阅读量；关闭后仍照常统计"
           />
           <SwitchTile
             checked={features.relatedPosts}

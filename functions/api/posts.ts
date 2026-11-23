@@ -362,16 +362,15 @@ postRoutes.delete('/:id/purge', requireAuth, async (c) => {
 });
 
 postRoutes.post('/:slug/view', async (c) => {
-  const settings = await getSettings(c.env);
   const slug = c.req.param('slug');
   // 隐藏专栏里的文章对外等于不存在，浏览计数也不该继续增长。
+  // 注意：后台「浏览量」开关只控制前台是否展示，浏览量本身始终照常统计。
   const post = await first<{ id: number; views: number }>(
     c.env,
     `SELECT p.id, p.views FROM posts p WHERE p.slug = ? AND (${PUBLIC_POST_SQL})`,
     slug,
   );
   if (!post) throw AppError.notFound('文章不存在');
-  if (!settings.features.views) return ok(c, { views: post.views, counted: false });
 
   const ip = c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? 'unknown';
   const ipHash = await hashIp(ip, c.env.JWT_SECRET);

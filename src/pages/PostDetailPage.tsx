@@ -63,13 +63,14 @@ export function PostDetailPage() {
   useMetaDescription(detail?.meta_description || detail?.excerpt);
 
   // Count a view once per browser session.
+  // 「浏览量」开关只影响展示，计数始终上报。
   useEffect(() => {
-    if (!detail || !features.views) return;
+    if (!detail) return;
     const key = `eb:view:${detail.slug}`;
     if (sessionStorage.getItem(key)) return;
     sessionStorage.setItem(key, '1');
     void api.post(`/posts/${detail.slug}/view`).catch(() => undefined);
-  }, [detail, features.views]);
+  }, [detail]);
 
   // A failed request is not a missing article — say so and offer a retry.
   if (post.error) {
