@@ -381,11 +381,25 @@ export function WechatSettingsPage() {
               </Button>
             </div>
           )}
+          <Input
+            label="图片转码接口地址（定时发文兜底）"
+            value={form.imageTransformUrl}
+            onChange={(e) => set('imageTransformUrl', e.target.value)}
+            placeholder="https://wsrv.nl/?output=jpg&q=75&w=1440&we&bg=ffffff&url="
+            hint="GET 方式：地址以 ?url= 或 &url= 结尾，代码只追加原图地址，宽高/质量由你拼好。留空表示不启用。"
+            autoComplete="off"
+          />
+          <p className="text-xs leading-relaxed text-faint">
+            定时任务跑在 Worker 里，既没有浏览器的 Canvas，免费版也跑不了 wasm，只能靠上面两个接口；
+            而上传式接口普遍带 JS 反爬，Worker 出站请求会被拦成 HTTP 456 + _guard 脚本（手动推送因为
+            浏览器先压好了图，不会走到这里）。所以默认再用 wsrv.nl 做「按 URL 转码」兜底：它走
+            Cloudflare，Worker 出站可达。注意它按域名策略拒绝部分 TLD（实测 .xyz 被拒），站内
+            /media 图片若超限仍需要在编辑器里先压缩。
+          </p>
           <p className="text-xs leading-relaxed text-faint">
             只对「微信不能直接收」的图调用（webp/avif、正文图 ≥1MB），合规的 jpg/png 不会浪费额度。
             返回图片二进制或 JSON（base64 在 data 字段）都支持。实测 uapis.cn：100KB 约 2 秒、
             4MB 约 37 秒、10MB 会 524；匿名额度约 1500 积分/30 天、每次 2 积分。
-            这些接口没有宽高/目标体积参数，压缩后仍超过 1MB 时会指名报错，请先用编辑器压缩。
           </p>
         </Section>
 

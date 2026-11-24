@@ -264,6 +264,31 @@ Worker 把图片 POST 过去、拿回二进制，全程 I/O，不占 CPU。实�
 不要把它接成「先传原图再替换」或「每次推送都压一遍」：前者白存原图，后者既慢
 又烧额度。定时任务的外链 webp 封面是它最主要的用武之地。
 
+### 定时推送被上传式压缩接口拦成 456：加一层「按 URL 转码」兜底
+
+定时发文报 `第 N 张正文图片(…) 远程压缩失败（HTTP 456：<script src="/_guard/html.js?js=p456"></script>）`，
+但手动点推送同一篇文章能成功——差别不在图，在调用方：
+
+- **手动推送**：编辑器 `src/lib/wechat-prepare.ts` 先在浏览器里用 Canvas 把图转成 ≤900KB 的
+  jpg 并重新入库，Worker 拿到的已经是合规图，`preparePushImage()` 直接放行，**根本不会调远程接口**；
+- **定时任务**：没有 Canvas，1MB 以上的外链 jpg 只能交给 `imageCompressUrl`；而
+  compress.scdn.io / uapis.cn 这类上传式接口普遍带 JS 反爬（加速乐 `_guard`），对 Cloudflare
+  出站请求一律返回 **456**。同一张图同一份参数用本机 curl 是 200，所以别误判成「接口挂了」或
+  「参数拼错」。
+
+**解决**（`functions/lib/wechat-draft.ts` + `functions/lib/image-transform.ts`）：
+`preparePushImage()` 按 `serverImageProcessing` → `imageCompressUrl`（POST 上传）→
+`imageTransformUrl`（GET 代理）顺序尝试，后两步都只是 I/O，免费版也能跑。默认模板是
+`https://wsrv.nl/?output=jpg&q=75&w=1440&we&bg=ffffff&url=`，地址必须以 `?url=` / `&url=`
+结尾，代码只追加 `encodeURIComponent(原图地址)`（宽高质量由配置方自己拼）。注意：
+
+- wsrv 会按域名策略拒绝部分 TLD（实测 `.xyz` 被拒，报 `Domain or TLD blocked by policy`），
+  所以站内 `/media/...` 超限图仍需浏览器侧转换；站内地址要靠 `MEDIA_PUBLIC_BASE` 或
+  `SITE_URL` 拼成绝对地址，两者都没配就跳过代理并说明原因；
+- 两条路都失败时错误里会同时列出两个原因（不静默丢图）；
+- 顺带修掉一个同类坑：封面若插进正文（`bodyCoverPosition != 'none'`），必须按**正文图**
+  （<1MB、jpg/png）的标准准备。只按封面 10MB 的宽松限制准备，会在上传正文图那一步才被拒。
+
 ### `draft/add` 的 `thumb_media_id` 必填，且必须是永久素材 id
 
 `thumb_media_id` 不能用 `uploadimg` 那种临时 URL，必须来自

@@ -73,6 +73,7 @@ const patchSchema = z
     clearImageCompressToken: z.boolean(),
     imageCompressField: z.string().trim().max(32),
     imageCompressParams: z.string().trim().max(512),
+    imageTransformUrl: z.string().trim().max(512),
     miniprogramEnabled: z.boolean(),
     miniprogramAppId: z.string().trim().max(64),
     miniprogramPath: z.string().trim().max(256),

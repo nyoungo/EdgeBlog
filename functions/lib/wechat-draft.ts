@@ -24,6 +24,7 @@ import { loadImageSource } from './media-ingest';
 import { EXT_BY_MIME, IMAGE_MAX_SIZE } from './media-file';
 import { prepareImageForUpload } from './image-codec';
 import { compressImageRemotely } from './image-compress-remote';
+import { isTransformableUrl, transformImageByUrl } from './image-transform';
 import { DECODABLE_IMAGE_MIMES } from './image-process';
 import {
   addDraft,
@@ -242,17 +243,24 @@ function withMimeExtension(filename: string, mime: string): string {
  *
  * 优先级（与设置页一致）：
  *   1. `serverImageProcessing`（Workers 付费版）→ 本地 wasm 压缩；
- *   2. 配置了 `imageCompressUrl` → 远程接口转码/压缩（Worker 只做 I/O，免费版可用）；
- *   3. 都没有 → 指名报错，提示用编辑器在浏览器侧先转。
+ *   2. 配置了 `imageCompressUrl` → 上传式远程接口（Worker 只做 I/O）；
+ *   3. 配置了 `imageTransformUrl` → 按 URL 转码的图片代理（GET，由对方下载原图并
+ *      缩放），只对公网地址生效。
+ *
+ * 2 和 3 必须串起来：上传式接口经常带 JS 反爬，Worker 的出站请求会被拦成
+ * `HTTP 456` + `_guard/html.js`，而手动推送因为浏览器先把图转好了，根本不会走到
+ * 这里，于是表现为「手动能推、定时总失败」。两步都失败时指名报错，不静默丢图。
  *
  * 合规的图直接返回，不为「重推一次」白耗远程接口的额度和时间。
  */
 async function preparePushImage(
+  env: Env,
   settings: WechatSettings,
   loaded: PushImageSource,
   label: string,
   deadline: Deadline,
   kind: 'content' | 'cover',
+  sourceUrl: string,
 ): Promise<PushImageSource> {
   if (settings.serverImageProcessing) {
     // 付费版沿用原来的行为：总是交给 wasm（内部对合规图有直通分支）。
@@ -262,24 +270,70 @@ async function preparePushImage(
   const problem = kind === 'cover' ? coverImageProblem(loaded) : contentImageProblem(loaded);
   if (!problem) return loaded;
 
+  const maxBytes = kind === 'cover' ? Math.min(COVER_MAX_BYTES, PUSH_IMAGE_TARGET_BYTES) : PUSH_IMAGE_TARGET_BYTES;
+  const failures: string[] = [];
+
   if (settings.imageCompressUrl.trim()) {
-    const remote = await compressImageRemotely(loaded, label, settings, deadline);
-    const prepared: PushImageSource = {
-      bytes: remote.bytes,
-      mime: remote.mime,
-      filename: withMimeExtension(loaded.filename, remote.mime),
-    };
-    const still = kind === 'cover' ? coverImageProblem(prepared) : contentImageProblem(prepared);
-    if (still) {
-      throw new AppError(
-        still.code,
-        `${label}${still.message}；远程压缩后仍不达标（该接口没有宽高/目标体积参数），请先用编辑器压缩后再推送`,
-      );
+    try {
+      const remote = await compressImageRemotely(loaded, label, settings, deadline);
+      const prepared: PushImageSource = {
+        bytes: remote.bytes,
+        mime: remote.mime,
+        filename: withMimeExtension(loaded.filename, remote.mime),
+      };
+      const still = kind === 'cover' ? coverImageProblem(prepared) : contentImageProblem(prepared);
+      if (!still) return prepared;
+      failures.push(`远程压缩后仍不达标（${still.message}）`);
+    } catch (err) {
+      failures.push(describeImageFailure(err, label));
     }
-    return prepared;
   }
 
-  throw new AppError(problem.code, `${label}${problem.message}；${CLIENT_PREPARE_HINT}`);
+  const absolute = absoluteImageUrl(env, sourceUrl);
+  if (absolute && isTransformableUrl(absolute)) {
+    try {
+      const transformed = await transformImageByUrl(absolute, label, settings, maxBytes, deadline);
+      const prepared: PushImageSource = {
+        bytes: transformed.bytes,
+        mime: transformed.mime,
+        filename: withMimeExtension(loaded.filename, transformed.mime),
+      };
+      const still = kind === 'cover' ? coverImageProblem(prepared) : contentImageProblem(prepared);
+      if (!still) return prepared;
+      failures.push(`图片转码后仍不达标（${still.message}）`);
+    } catch (err) {
+      failures.push(describeImageFailure(err, label));
+    }
+  } else {
+    failures.push('该图片不是公网地址，无法交给图片转码接口');
+  }
+
+  const reason = failures.length > 0 ? failures.join('；') : '没有可用的图片转码方式';
+  throw new AppError(
+    problem.code,
+    `${label}${problem.message}；${reason}；${CLIENT_PREPARE_HINT}`,
+  );
+}
+
+/** 报错文本里已经有图名时不再重复拼接，避免「封面图（封面图…）」。 */
+function describeImageFailure(err: unknown, label: string): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes(label) ? message : `${label}：${message}`;
+}
+
+/**
+ * 把站内相对地址拼成公网绝对地址（图片代理只能拉公网 URL）。
+ *
+ * 优先 `MEDIA_PUBLIC_BASE`（R2 独立域名），其次 `SITE_URL`；两者都没配置时返回
+ * null，由调用方给出明确原因，而不是拼出 localhost 或 127.0.0.1。
+ */
+function absoluteImageUrl(env: Env, url: string): string | null {
+  const raw = url.trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (!raw.startsWith('/') || raw.startsWith('//')) return null;
+  const base = (env.MEDIA_PUBLIC_BASE || env.SITE_URL || '').trim().replace(/\/+$/, '');
+  return base ? `${base}${raw}` : null;
 }
 
 /**
@@ -356,7 +410,9 @@ async function uploadContentImages(
         image.source ??
         (await loadImage(env, source, IMAGE_MAX_SIZE, `${label} 超过 8MB，无法推送`, deadline));
       // 共享的封面字节在调用方已经处理过，这里不再重复转码 / 消耗远程额度。
-      if (!shared) prepared = await preparePushImage(settings, prepared, label, deadline, 'content');
+      if (!shared) {
+        prepared = await preparePushImage(env, settings, prepared, label, deadline, 'content', source);
+      }
     } catch (err) {
       // 超时类错误已经写明卡在哪一步，不再套一层图名。
       if (err instanceof AppError && !err.message.includes(label) && !err.message.startsWith('推送超时')) {
@@ -478,8 +534,12 @@ export async function pushPostToWechatDraft(
   // 2. 封面（以及正文里已出现的同一封面地址）只下载一次，两边复用同一份字节。
   //    默认不在服务端解码：免费版 10ms CPU 跑不完 wasm，会直接 1102；
   //    配了远程压缩接口时改由它转码，Worker 只做 I/O。
+  //    封面同时插在正文里时按「正文图」的标准准备：微信正文图要求 < 1MB，
+  //    只按封面 10MB 的宽松限制准备，最后会在上传正文图那一步被拒。
+  const coverInBody = body.images.some((image) => image.shareCoverSource === true);
   ensureBudget(deadline, '取封面图');
   const coverSource = await preparePushImage(
+    env,
     settings,
     await loadImage(
       env,
@@ -490,7 +550,8 @@ export async function pushPostToWechatDraft(
     ),
     '封面图',
     deadline,
-    'cover',
+    coverInBody ? 'content' : 'cover',
+    post.cover_url,
   );
   const images: ContentImage[] = body.images.map((image) => ({
     ...image,

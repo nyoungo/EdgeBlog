@@ -683,6 +683,20 @@ export interface WechatSettings {
    * 这里统一按表单字段追加，留空则不传。
    */
   imageCompressParams: string;
+  /**
+   * 「按 URL 转码」的图片代理地址（可选，留空表示不启用）。
+   *
+   * 定时发文跑在 Worker 里：没有浏览器的 Canvas，免费版也跑不了 wasm；而上传式的
+   * 远程压缩接口（见上）经常带 JS 反爬，Cloudflare 出站请求会被拦成
+   * `HTTP 456` + `_guard/html.js`，于是每天的定时推送都卡在同一张图。这里换成 GET：
+   * 把原图的公网地址拼在地址末尾，由代理自己下载并缩放，Worker 只搬运字节。
+   *
+   * 地址必须以 `?url=` 或 `&url=` 结尾，宽度/质量/输出格式由管理员自己拼好，
+   * 代码只追加 `encodeURIComponent(原图地址)`。默认值是 wsrv.nl——它本身走
+   * Cloudflare，Worker 出站可达；但它按域名策略拒绝部分 TLD（实测 `.xyz` 被拒），
+   * 所以站内 `/media/...` 图片仍要靠浏览器侧转换或自建转码接口。
+   */
+  imageTransformUrl: string;
   /** 是否在每篇推送文章末尾追加「小程序卡片」。 */
   miniprogramEnabled: boolean;
   /** 卡片跳转的小程序 AppID。 */

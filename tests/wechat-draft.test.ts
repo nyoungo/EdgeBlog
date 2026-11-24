@@ -390,6 +390,102 @@ describe('远程图片压缩接口', () => {
   });
 });
 
+describe('按 URL 转码兜底（定时任务没有 Canvas）', () => {
+  const TRANSFORM: WechatSettings = {
+    ...SETTINGS,
+    serverImageProcessing: false,
+    imageCompressUrl: 'https://compress.example/api/compress.php',
+    imageCompressField: 'image',
+    imageCompressParams: '',
+    imageTransformUrl: 'https://proxy.example/?output=jpg&w=1440&url=',
+  };
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43]);
+  const BIG_JPEG = { bytes: new Uint8Array(1_100_000).fill(0xff), mime: 'image/jpeg', filename: 'big.jpg' };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('上传式接口被 JS 反爬拦成 456 时，改用 GET 代理转码', async () => {
+    mocks.loadImageSource.mockResolvedValue(BIG_JPEG);
+    const fetchMock = vi.fn(async (url: string) =>
+      url.startsWith('https://compress.example')
+        ? new Response('<script src="/_guard/html.js?js=p456"></script>', { status: 456 })
+        : new Response(JPEG, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await pushPostToWechatDraft({} as Env, TRANSFORM, post('只有普通文字的正文'));
+
+    // 代理只追加原图地址，参数完全来自配置。
+    const proxyCall = fetchMock.mock.calls.find(([u]) => String(u).startsWith('https://proxy.example'));
+    expect(proxyCall?.[0]).toBe(
+      `https://proxy.example/?output=jpg&w=1440&url=${encodeURIComponent(COVER_URL)}`,
+    );
+    expect(mocks.uploadCoverMaterial.mock.calls[0]?.[2]).toStrictEqual(JPEG);
+    expect(mocks.uploadCoverMaterial.mock.calls[0]?.[3]).toBe('image/jpeg');
+  });
+
+  it('两条路都失败时，报错同时带上两个原因', async () => {
+    mocks.loadImageSource.mockResolvedValue(BIG_JPEG);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('nope', { status: 502 })),
+    );
+
+    await expect(pushPostToWechatDraft({} as Env, TRANSFORM, post('普通正文'))).rejects.toThrow(
+      /远程压缩失败（HTTP 502[\s\S]*图片转码失败（HTTP 502/,
+    );
+    expect(mocks.uploadCoverMaterial).not.toHaveBeenCalled();
+  });
+
+  it('站内 /media 图片没配 SITE_URL 时不动用代理，并说明不是公网地址', async () => {
+    mocks.loadImageSource.mockResolvedValue({
+      bytes: new Uint8Array(200_000),
+      mime: 'image/webp',
+      filename: 'cover.webp',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const localPost = { ...post('只有普通文字的正文'), cover_url: '/media/uploads/cover.webp' };
+
+    await expect(
+      pushPostToWechatDraft({} as Env, { ...TRANSFORM, imageCompressUrl: '' }, localPost),
+    ).rejects.toThrow(/不是公网地址/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('配置了 SITE_URL 时把站内地址拼成绝对地址再交给代理', async () => {
+    mocks.loadImageSource.mockResolvedValue({
+      bytes: new Uint8Array(200_000),
+      mime: 'image/webp',
+      filename: 'cover.webp',
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JPEG, { status: 200, headers: { 'content-type': 'image/jpeg' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const localPost = { ...post('只有普通文字的正文'), cover_url: '/media/uploads/cover.webp' };
+
+    const env = { SITE_URL: 'https://blog.example' } as Env;
+    await pushPostToWechatDraft(
+      env,
+      { ...TRANSFORM, imageCompressUrl: '' },
+      localPost,
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(
+      `https://proxy.example/?output=jpg&w=1440&url=${encodeURIComponent(
+        'https://blog.example/media/uploads/cover.webp',
+      )}`,
+    );
+    expect(init.method).toBe('GET');
+    expect(mocks.uploadCoverMaterial.mock.calls[0]?.[3]).toBe('image/jpeg');
+  });
+});
+
 describe('推送整体超时', () => {
   it('单张图片的下载超时按剩余预算收窄，不会各自等满 30 秒', async () => {
     await pushPostToWechatDraft({} as Env, SETTINGS, post('只有普通文字的正文'), {

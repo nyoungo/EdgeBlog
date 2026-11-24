@@ -51,6 +51,7 @@ function normalize(value: unknown): WechatSettings {
       src['imageCompressParams'],
       WECHAT_DEFAULTS.imageCompressParams,
     ).trim(),
+    imageTransformUrl: str(src['imageTransformUrl'], WECHAT_DEFAULTS.imageTransformUrl).trim(),
     miniprogramEnabled: bool(src['miniprogramEnabled'], WECHAT_DEFAULTS.miniprogramEnabled),
     miniprogramAppId: str(src['miniprogramAppId'], WECHAT_DEFAULTS.miniprogramAppId).trim(),
     miniprogramPath: str(src['miniprogramPath'], WECHAT_DEFAULTS.miniprogramPath).trim(),

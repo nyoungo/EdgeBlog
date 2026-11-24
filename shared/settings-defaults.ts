@@ -227,6 +227,9 @@ export const WECHAT_DEFAULTS: WechatSettings = {
   imageCompressToken: '',
   imageCompressField: 'file',
   imageCompressParams: '',
+  // 按 URL 转码的图片代理：上传式压缩接口常带 JS 反爬（定时任务会拿到 HTTP 456），
+  // 默认再用 wsrv.nl 兜底；它走 Cloudflare，Worker 出站可达。留空表示不启用。
+  imageTransformUrl: 'https://wsrv.nl/?output=jpg&q=75&w=1440&we&bg=ffffff&url=',
   miniprogramEnabled: false,
   miniprogramAppId: '',
   miniprogramPath: '',
