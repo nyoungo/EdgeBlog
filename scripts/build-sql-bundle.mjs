@@ -30,6 +30,7 @@ const SOURCES = [
   'migrations/0009_automation_cover_agent.sql',
   'migrations/0010_wechat.sql',
   'migrations/0011_post_pinned.sql',
+  'migrations/0012_automation_cover_describe.sql',
   'seed/seed.sql',
 ];
 

@@ -150,6 +150,22 @@ Secure）、canonical / RSS 指向 localhost。这些本地覆盖项现在保持
 - 上下文要确定性压制:`ARTICLE_AGENT_TOOL_RESULT_CHARS = 3500` 截断单条工具结果,
   并让模型 `maxChars: 3000`。实测 4 页 × 3000 字 ≈ 225s,放大到 6000 字会逼近 300s 上限。
 
+### 「看图写文」:视觉输入走 content parts,且封面必须先于正文解析
+
+`ChatMessage.content` 原来只接受字符串,视觉模型需要 OpenAI 风格的分片:
+`[{ type: 'text', text }, { type: 'image_url', image_url: { url } }]`。Workers AI 的
+`@cf/qwen/qwen3.8-27b` 与 OpenAI 兼容接口都接受这个形态;`llama-3.2-11b-vision-instruct`
+顶层 `image` 参数在官方 schema 里已标记 deprecated(「use image as a part of messages now」),
+不要照旧教程写成顶层参数。
+
+顺序是硬约束:`performGeneration` 在 `cover_mode='fallback'` 且 `cover_describe=1` 时,
+必须先 `resolveFallbackCover` → `describeCoverImage`,再把描述拼进 `generateArticle`
+的写作要求。若沿用「正文先生成、后配封面」的旧顺序,描述只能影响下一轮,这轮文章拿不到。
+
+图片统一转 data URI 再发:站内 `/media/...` 是相对地址,模型侧访问不到。上限取 4MB,
+免费版每个请求只有 10ms CPU,更大的图直接跳过描述(正文照常生成),不要为了「都能描述」
+把上限放大到 8MB。
+
 ## 微信公众号草稿推送
 
 ### 推送必须带「整条链路」的总预算,单请求超时拦不住 524

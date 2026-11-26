@@ -204,9 +204,30 @@ export interface AiToolDefinition {
   };
 }
 
+/** 文本分片：与 OpenAI 的 content parts 一致。 */
+export interface AiTextPart {
+  type: 'text';
+  text: string;
+}
+
+/**
+ * 图片分片：`url` 可以是公网地址，也可以是 `data:image/...;base64,...`。
+ *
+ * Workers AI 的视觉模型（如 `@cf/qwen/qwen3.8-27b`）与 OpenAI 兼容接口都接受
+ * 这个形态；llama-3.2-vision 顶层的 `image` 参数已标记为 deprecated，统一走
+ * messages 分片即可。
+ */
+export interface AiImagePart {
+  type: 'image_url';
+  image_url: { url: string };
+}
+
+export type AiContentPart = AiTextPart | AiImagePart;
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  /** 纯文本，或文本 + 图片分片（视觉模型用）。 */
+  content: string | AiContentPart[];
   /** Tool result name (Workers AI + OpenAI both accept it). */
   name?: string;
   /** OpenAI tool round-trip id. */

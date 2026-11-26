@@ -58,6 +58,8 @@ const taskBody = z.object({
   coverMode: COVER_MODE.optional(),
   coverPrompt: z.string().trim().max(2000).optional(),
   coverUrl: z.string().trim().max(1000).nullable().optional(),
+  /** 指定封面时，是否用视觉模型看图生成正文素材。 */
+  coverDescribe: z.boolean().optional(),
   publishMode: PUBLISH_MODE.optional(),
   recurrence: RECURRENCE,
   timeOfDay: TIME,
@@ -177,22 +179,26 @@ automationRoutes.post('/', async (c) => {
   const columnId = await resolveColumnId(c.env, body.columnId);
   const tags = (body.tags ?? []).filter(Boolean);
   const enabled = body.enabled !== false;
+  const coverMode = body.coverMode ?? 'ai';
+  // 看图写文只对「指定图片」有意义；其他模式即使提交 true 也按关闭处理。
+  const coverDescribe = coverMode === 'fallback' && body.coverDescribe === true;
   const nextRunAt = enabled ? computeNextRun(schedule, new Date()) : null;
 
   const result = await run(
     c.env,
     `INSERT INTO automation_tasks
-       (name, prompt, column_id, tags_json, cover_mode, cover_prompt, cover_url, publish_mode,
+       (name, prompt, column_id, tags_json, cover_mode, cover_prompt, cover_url, cover_describe, publish_mode,
         recurrence, time_of_day, weekday, day_of_month, start_date, end_date,
         enabled, wechat_push, next_run_at, created_by, created_by_name)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     body.name,
     body.prompt,
     columnId,
     JSON.stringify(columnId == null ? tags : []),
-    body.coverMode ?? 'ai',
+    coverMode,
     body.coverPrompt ?? '',
     body.coverUrl ?? null,
+    coverDescribe ? 1 : 0,
     body.publishMode ?? 'draft',
     body.recurrence,
     body.timeOfDay,
@@ -251,12 +257,17 @@ automationRoutes.put('/:id', async (c) => {
   const enabled = body.enabled === undefined ? existing.enabled === 1 : body.enabled;
   const tags =
     body.tags !== undefined ? body.tags.filter(Boolean) : parseTagsJson(existing.tags_json);
+  // 看图写文只对「指定图片」生效；切回其他模式时自动关闭，避免残留 true。
+  const coverDescribe =
+    coverMode === 'fallback'
+      ? (body.coverDescribe ?? existing.cover_describe === 1)
+      : false;
 
   await run(
     c.env,
     `UPDATE automation_tasks SET
         name = ?, prompt = ?, column_id = ?, tags_json = ?, cover_mode = ?, cover_prompt = ?,
-        cover_url = ?, publish_mode = ?, recurrence = ?, time_of_day = ?, weekday = ?, day_of_month = ?,
+        cover_url = ?, cover_describe = ?, publish_mode = ?, recurrence = ?, time_of_day = ?, weekday = ?, day_of_month = ?,
         start_date = ?, end_date = ?, enabled = ?, wechat_push = ?, next_run_at = ?, updated_at = datetime('now')
       WHERE id = ?`,
     body.name ?? existing.name,
@@ -266,6 +277,7 @@ automationRoutes.put('/:id', async (c) => {
     coverMode,
     body.coverPrompt ?? existing.cover_prompt,
     coverUrl,
+    coverDescribe ? 1 : 0,
     body.publishMode ?? existing.publish_mode,
     merged.recurrence,
     merged.timeOfDay,

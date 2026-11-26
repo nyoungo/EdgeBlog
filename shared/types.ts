@@ -241,6 +241,8 @@ export interface AutomationTask {
   cover_mode: AutomationCoverMode;
   cover_prompt: string;
   cover_url: string | null;
+  /** 指定封面时是否用视觉模型看图生成正文素材（仅 fallback 模式生效）。 */
+  cover_describe: 0 | 1;
   publish_mode: AutomationPublishMode;
   recurrence: AutomationRecurrence;
   /** 'HH:MM'（UTC+8）。 */

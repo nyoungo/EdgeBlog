@@ -37,6 +37,8 @@ interface FormState {
   coverMode: AutomationCoverMode;
   coverPrompt: string;
   coverUrl: string;
+  /** 指定封面时，用视觉模型看图生成正文素材。 */
+  coverDescribe: boolean;
   publishMode: AutomationPublishMode;
   recurrence: AutomationRecurrence;
   timeOfDay: string;
@@ -58,6 +60,7 @@ function emptyForm(): FormState {
     coverMode: 'ai',
     coverPrompt: '',
     coverUrl: '',
+    coverDescribe: false,
     publishMode: 'draft',
     recurrence: 'daily',
     timeOfDay: '09:00',
@@ -79,6 +82,7 @@ function toForm(task: AutomationTaskView): FormState {
     coverMode: task.cover_mode,
     coverPrompt: task.cover_prompt,
     coverUrl: task.cover_url ?? '',
+    coverDescribe: task.cover_describe === 1,
     publishMode: task.publish_mode,
     recurrence: task.recurrence,
     timeOfDay: task.time_of_day,
@@ -174,6 +178,7 @@ export function AutomationPage() {
       coverMode: form.coverMode,
       coverPrompt: form.coverPrompt.trim(),
       coverUrl: form.coverMode === 'fallback' ? form.coverUrl.trim() : form.coverUrl.trim() || null,
+      coverDescribe: form.coverMode === 'fallback' && form.coverDescribe,
       publishMode: form.publishMode,
       recurrence: form.recurrence,
       timeOfDay: form.timeOfDay,
@@ -478,6 +483,13 @@ export function AutomationPage() {
                   className="mt-1 aspect-[21/9] w-full max-w-sm rounded-xl object-cover ring-1 ring-fg/10"
                 />
               )}
+              <Switch
+                checked={form.coverDescribe}
+                onChange={(next) => set('coverDescribe', next)}
+                label="用封面图生成正文素材"
+                description="执行时先解析封面，再让当前 AI 模型看图生成一段描述，作为正文写作素材；模型不支持图片时跳过，正文照常生成。"
+                className="mt-1 rounded-xl bg-surface-2/60 p-3"
+              />
             </div>
           )}
 

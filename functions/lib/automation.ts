@@ -18,7 +18,7 @@ import { computeNextRun, type ScheduleInput } from '@shared/schedule';
 import { readAiSettings } from './ai';
 import { runToolAgent } from './ai-agent';
 import { recordAudit, type AuditActor } from './audit';
-import { buildCoverPrompt, generateCoverImage, resolveFallbackCover } from './cover';
+import { buildCoverPrompt, describeCoverImage, generateCoverImage, resolveFallbackCover } from './cover';
 import { all, first, placeholders, run } from './db';
 import { nowSql } from './datetime';
 import type { Env, Role, SessionUser } from './env';
@@ -166,9 +166,26 @@ const ARTICLE_AGENT_SYSTEM_PROMPT = [
 ].join('\n');
 
 /** 用任务提示词生成一篇 Markdown 文章:先联网取数,再让模型成文。 */
-export async function generateArticle(env: Env, task: AutomationTask): Promise<GeneratedArticle> {
+export async function generateArticle(
+  env: Env,
+  task: AutomationTask,
+  coverDescription?: string | null,
+): Promise<GeneratedArticle> {
   const ai = await readAiSettings(env);
-  const instruction = `请按下面的要求写一篇完整的中文博客文章。\n\n写作要求:${task.prompt.trim()}`;
+  const instructionLines = [
+    '请按下面的要求写一篇完整的中文博客文章。',
+    '',
+    `写作要求:${task.prompt.trim()}`,
+  ];
+  // 指定封面开启「看图写文」时,画面描述作为素材;明确要求不要照抄描述本身。
+  if (coverDescription?.trim()) {
+    instructionLines.push(
+      '',
+      '本次文章配有一张封面图,画面内容如下(仅作写作素材,不要照抄这段描述,也不要编造画面之外的事实):',
+      coverDescription.trim(),
+    );
+  }
+  const instruction = instructionLines.join('\n');
 
   // 正文不再一次调用直接生成:任务提示词要求「用工具获取链接内容」,
   // 这里开放只读取数工具让模型真的去抓,否则只能凭记忆编、内容不可信。
@@ -355,10 +372,33 @@ async function performGeneration(env: Env, task: AutomationTask): Promise<Automa
     throw AppError.badRequest('AI 功能尚未启用，请先在「AI 设置」中开启');
   }
 
-  const article = await generateArticle(env, task);
+  // 「指定封面 + 看图写文」时封面必须先解析:视觉描述要作为正文素材。
+  // 其他模式仍是正文先生成、再按标题配图(封面只拿到标题)。
+  const useCoverDescription = task.cover_mode === 'fallback' && task.cover_describe === 1;
+  let coverUrl: string | null = null;
+  let coverDescription: string | null = null;
+  let coverNote = '';
+  if (useCoverDescription) {
+    coverUrl = await resolveFallbackCover(env, task.cover_url);
+    if (!coverUrl) {
+      coverNote = '；未配置可用的封面图，正文未使用封面素材';
+    } else {
+      try {
+        coverDescription = await describeCoverImage(env, coverUrl, task.prompt);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : '未知错误';
+        console.error('[automation] 封面图描述失败', err);
+        coverNote = `；封面图描述失败：${detail}`;
+      }
+    }
+  }
+
+  const article = await generateArticle(env, task, coverDescription);
 
   // 封面是可选产物:生成/下载失败时按 null 处理,不影响正文落库。
-  const coverUrl = await resolveCover(env, task, article.title);
+  if (!useCoverDescription) {
+    coverUrl = await resolveCover(env, task, article.title);
+  }
 
   const { id, slug } = await createDraftPost(env, {
     title: article.title,
@@ -371,7 +411,7 @@ async function performGeneration(env: Env, task: AutomationTask): Promise<Automa
   });
 
   const verb = task.publish_mode === 'publish' ? '已发布《' : '已生成草稿《';
-  let message = `${verb}${article.title}》`;
+  let message = `${verb}${article.title}》${coverNote}`;
 
   // 任务开启「同步到公众号」时，生成成功后推草稿。微信是可选产物：推送失败
   // 不改变文章已生成的事实，仅记一条警告（与封面失败的处理一致）。

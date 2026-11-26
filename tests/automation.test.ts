@@ -268,4 +268,36 @@ describe('generateArticle 流式成文', () => {
     const messages = calls[1].messages as Array<{ role: string; content?: string }>;
     expect(messages[messages.length - 1]?.content).toContain('立即');
   });
+
+  it('封面图描述作为写作素材拼进第一轮提示词', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const env = {
+      DB: {
+        prepare: () => ({
+          bind: () => ({
+            first: async () => ({
+              value_json: JSON.stringify({ ...AI_DEFAULTS, enabled: true, provider: 'cloudflare' }),
+            }),
+          }),
+        }),
+      },
+      AI: {
+        run: async (_model: string, inputs: Record<string, unknown>) => {
+          calls.push(inputs);
+          if (calls.length === 1) {
+            return { choices: [{ message: { content: '# 占位标题\n\n占位正文' } }] };
+          }
+          return articleSseStream(['# 雨后老街\n\n', '正文']);
+        },
+      },
+    } as unknown as Env;
+
+    const task = { id: 2, name: '看图写文', prompt: '写一篇关于城市夜景的文章' } as AutomationTask;
+    await generateArticle(env, task, '画面是一条雨后的老街，霓虹灯倒映在水洼里。');
+
+    const messages = calls[0].messages as Array<{ role: string; content: string }>;
+    const instruction = messages.find((message) => message.role === 'user')?.content ?? '';
+    expect(instruction).toContain('雨后的老街');
+    expect(instruction).toContain('不要照抄');
+  });
 });
