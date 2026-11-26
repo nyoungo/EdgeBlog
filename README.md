@@ -148,7 +148,7 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 
 > Workers 的 Custom Domain 不支持外部 DNS 的 CNAME 接入（这点与 Pages 不同）。域名托管在别处又不想迁入 Cloudflare 时，继续用 `workers.dev` 域名即可；媒体以相对路径 `/media/<key>` 保存，换域名不用迁移数据。
 
-`SITE_URL` 默认留空，canonical / RSS / sitemap / OG 会自动跟随访问域名；想固定成某个地址时，把它填进 `wrangler.jsonc` 的 `vars` 再部署一次。
+`SITE_URL` 默认不声明，canonical / RSS / sitemap / OG 会自动跟随访问域名；想固定成某个地址时，在 `wrangler.jsonc` 的 `vars` 里加一行 `"SITE_URL": "https://your.domain"` 再部署一次（`ALLOWED_ORIGINS`、`MEDIA_PUBLIC_BASE` 同理，都是按需添加）。
 
 #### 常见问题
 
@@ -212,10 +212,10 @@ npx wrangler d1 execute DB --remote --file=./migrations/<新迁移>.sql
 | --- | --- | --- |
 | `JWT_SECRET` | Dashboard Secret | 签署 JWT 的密钥，≥ 32 字符；缺失或过短时 API 直接返回 500 |
 | `ENVIRONMENT` | `wrangler.jsonc` | `production` / `development`；开发环境 Cookie 不加 `Secure`，并允许 http 内网 AI 地址 |
-| `SITE_URL` | `wrangler.jsonc` | 站点对外地址，用于 canonical / RSS / sitemap / OG；留空则自动跟随当前访问域名 |
-| `MEDIA_PUBLIC_BASE` | `wrangler.jsonc` | 媒体公开前缀，默认留空（相对路径自动跟随访问域名）；仅当 R2 绑定了独立域名时设置 |
+| `SITE_URL` | 可选（`vars`） | 站点对外地址，用于 canonical / RSS / sitemap / OG；不声明则自动跟随当前访问域名，一键部署表单里也不会出现这一项 |
+| `MEDIA_PUBLIC_BASE` | 可选（`vars`） | 媒体公开前缀，不声明则走相对路径自动跟随访问域名；仅当 R2 绑定了独立域名时需要 |
 | `SESSION_COOKIE` | `wrangler.jsonc` | 会话 Cookie 名称，默认 `eb_session` |
-| `ALLOWED_ORIGINS` | `wrangler.jsonc` | 额外允许的跨域来源，逗号分隔；同源始终允许，`*` 会被忽略 |
+| `ALLOWED_ORIGINS` | 可选（`vars`） | 额外允许的跨域来源，逗号分隔；同源始终允许，`*` 会被忽略；不声明 = 只允许同源 |
 
 绑定：`DB`（D1）、`MEDIA`（R2）、`CACHE`（KV）、`AI`（Workers AI，可选）、`ASSETS`（Worker 静态资源）。
 

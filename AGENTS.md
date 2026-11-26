@@ -74,7 +74,10 @@ Secure）、canonical / RSS 指向 localhost。这些本地覆盖项现在保持
 
 - 全部是 `wrangler.json` / `wrangler.jsonc`，**没有一个** `wrangler.toml`；
 - jsonc 允许 `//` 注释，但**不允许尾逗号**——wrangler 容忍尾逗号，仪表盘不容忍；
-- 空字符串变量是允许的（官方有 `"CUSTOM_DOMAIN": ""`），不必为此删掉 `SITE_URL`；
+- 空字符串变量解析器是允许的（官方有 `"CUSTOM_DOMAIN": ""`），但**不要用它表达「可选」**：
+  部署表单会把每个 var 变成填写框，空默认值等于要求部署的人必须填。可选项
+  （`SITE_URL` / `MEDIA_PUBLIC_BASE` / `ALLOWED_ORIGINS` / 搜索相关）一律不声明，代码按
+  `undefined` 处理；
 - `cloudflare.categories` 只用官方出现过的值（`ai` / `starter` / `storage` / `[]`）。
 
 本项目约定：只保留 `wrangler.jsonc`（严格 JSON + `//` 注释，无尾逗号），改完用

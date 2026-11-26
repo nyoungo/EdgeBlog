@@ -69,26 +69,26 @@
   // `wrangler secret put`，绝不能写在这里。
   "vars": {
     "ENVIRONMENT": "production",
-    // 站点对外地址：用于 canonical / RSS / sitemap / OG，同时自动加入 CORS / CSRF 白名单。
-    // 留空 = 自动跟随当前访问域名（workers.dev 与自定义域名都正确，推荐）。
-    // 需要固定地址时再填，例如 https://blog.example.com。
-    "SITE_URL": "",
-    // 上传图片的公开前缀，默认留空：图片以相对路径 /media/<key> 保存，
-    // 链接自动跟随访问域名（换域名、绑自定义域名都无需改数据）。
-    // 仅当把 R2 桶绑定了独立的自定义域名（例如 https://media.example.com）时才需要设置。
-    // "MEDIA_PUBLIC_BASE": "https://media.example.com",
     // Cookie name for the admin session.
-    "SESSION_COOKIE": "eb_session",
-    // Comma separated list of extra origins allowed to make credentialed CORS
-    // requests. Same-origin requests are always allowed; "*" is ignored on purpose
-    // (a wildcard plus credentials is unsafe). SITE_URL is included automatically,
-    // so this only needs to list *other* origins (leave empty when there are none).
-    "ALLOWED_ORIGINS": ""
+    "SESSION_COOKIE": "eb_session"
 
-    // Web search: the primary channel calls the Monid gateway (TinyFish free web
-    // search). Cloudflare Web Search API (AI Gateway) is the fallback when Monid is
-    // not configured or fails. Set SEARCH_PROVIDER for that fallback (default: exa).
-    // Leave these commented to use the built-in defaults.
+    // 下面这些是「不配也能跑」的可选项，故意不在这里声明：
+    // 一键部署表单会把 vars 逐项变成填写框，写成空字符串就等于要求部署的人必须
+    // 填点什么。代码里全部按 undefined 处理，效果与空字符串一致。
+    //
+    // 站点对外地址（canonical / RSS / sitemap / OG，同时自动加入 CORS / CSRF 白名单）。
+    // 不声明 = 自动跟随当前访问域名（workers.dev 与自定义域名都正确，推荐）。
+    // 需要固定地址时取消注释并改成自己的域名：
+    // "SITE_URL": "https://blog.example.com",
+    //
+    // 上传图片的公开前缀：图片以相对路径 /media/<key> 保存，换域名不用迁数据。
+    // 仅当 R2 桶绑定了独立的自定义域名时才需要设置。
+    // "MEDIA_PUBLIC_BASE": "https://media.example.com",
+    //
+    // 额外允许的跨域来源（逗号分隔）；同源始终允许，"*" 会被忽略。
+    // "ALLOWED_ORIGINS": "https://admin.example.com",
+    //
+    // 联网搜索兜底（Cloudflare Web Search API）：默认网关 default、源头 exa。
     // "AI_GATEWAY_ID": "default",
     // "SEARCH_PROVIDER": "exa",
     // "SEARCH_BYOK_ALIAS": "default"
