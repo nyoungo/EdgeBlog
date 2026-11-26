@@ -4,17 +4,18 @@
 #   1. 本地开发：`cp .dev.vars.example .dev.vars`，填入真实值；
 #   2. 一键部署（Deploy to Cloudflare 按钮）：Cloudflare 会把这里每一项
 #      当成线上 Secret 让你填写。所以**只在这里放真正的 Secret**，
-#      `ENVIRONMENT` / `SITE_URL` 这类普通变量请留在 wrangler.toml 的 [vars]。
+#      `ENVIRONMENT` / `SITE_URL` 这类普通变量请留在 wrangler.jsonc 的 vars。
+# 格式保持官方模板的 `KEY=value`（不要写 `KEY = "value"`）。
 #
 # 用于签署登录 JWT 的密钥，至少 32 个字符，务必换成自己的随机值：
 #   openssl rand -base64 48
-JWT_SECRET = "change-me"
+JWT_SECRET=change-me
 
 # ---------------------------------------------------------------------------
 # 本地开发可选项（保持注释，一键部署不会读取它们）。
 # 只在用 `npm run dev`（Vite，http://localhost:5173）写后台时需要取消注释，
 # 否则浏览器会因跨域与 http 下的 Secure Cookie 拒绝登录。
 # ---------------------------------------------------------------------------
-# ENVIRONMENT = "development"
-# SITE_URL = "http://localhost:8788"
-# ALLOWED_ORIGINS = "http://localhost:5173"
+# ENVIRONMENT=development
+# SITE_URL=http://localhost:8788
+# ALLOWED_ORIGINS=http://localhost:5173

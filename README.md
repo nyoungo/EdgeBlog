@@ -110,7 +110,7 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 
 ## 部署到 Cloudflare Workers
 
-本项目部署为 **Worker**（而非 Pages）：定时发文依赖 Worker 的 **Cron Trigger** 按固定频率唤醒，Pages 不支持定时触发。Worker 同时通过 `[assets]` 提供 `dist/` 里的静态资源，`run_worker_first` 让所有请求先经过 Worker。
+本项目部署为 **Worker**（而非 Pages）：定时发文依赖 Worker 的 **Cron Trigger** 按固定频率唤醒，Pages 不支持定时触发。Worker 同时通过 `assets` 提供 `dist/` 里的静态资源，`run_worker_first` 让所有请求先经过 Worker。
 
 ### 一键部署
 
@@ -120,7 +120,7 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 
 1. 授权 GitHub。Cloudflare 会把仓库克隆到**你自己的账号**下，得到一个可以继续开发的副本。
 2. 确认 Worker 名称与资源名，填写 `JWT_SECRET`。
-3. 点击 **Deploy**。Cloudflare 读取 `wrangler.toml`，自动创建同名 D1 / KV / R2 与 Workers AI 绑定并回填 ID，然后构建并部署。
+3. 点击 **Deploy**。Cloudflare 读取 `wrangler.jsonc`，自动创建同名 D1 / KV / R2 与 Workers AI 绑定并回填 ID，然后构建并部署。
 
 | 配置项 | 值 |
 | --- | --- |
@@ -148,7 +148,7 @@ JWT + HttpOnly Cookie      ·  PBKDF2-SHA256        ·  DOMPurify
 
 > Workers 的 Custom Domain 不支持外部 DNS 的 CNAME 接入（这点与 Pages 不同）。域名托管在别处又不想迁入 Cloudflare 时，继续用 `workers.dev` 域名即可；媒体以相对路径 `/media/<key>` 保存，换域名不用迁移数据。
 
-`SITE_URL` 默认留空，canonical / RSS / sitemap / OG 会自动跟随访问域名；想固定成某个地址时，把它填进 `wrangler.toml` 的 `[vars]` 再部署一次。
+`SITE_URL` 默认留空，canonical / RSS / sitemap / OG 会自动跟随访问域名；想固定成某个地址时，把它填进 `wrangler.jsonc` 的 `vars` 再部署一次。
 
 #### 常见问题
 
@@ -170,7 +170,7 @@ cd EdgeBlog
 npm install
 npx wrangler login
 
-# 创建资源（名字可自定义，创建后把 ID 填回 wrangler.toml）
+# 创建资源（名字可自定义，创建后把 ID 填回 wrangler.jsonc）
 npx wrangler d1 create edge-blog
 npx wrangler kv namespace create CACHE
 npx wrangler r2 bucket create edge-blog-media
@@ -184,7 +184,7 @@ npm run deploy
 
 后续更新：`git pull && npm run deploy`。
 
-> 绑定名 `DB`、`MEDIA`、`CACHE`、`AI`、`ASSETS` 不要修改。`[ai] binding = "AI"` 让 Worker 直接调用 Workers AI（默认 AI 服务商，无需 API Key）；不需要 AI 时可以删掉这段绑定与 `[triggers]`，后台的 AI 与定时发文入口会自动隐藏。`[triggers]` 的 `crons = ["*/5 * * * *"]` 只是轮询频率，与具体任务的执行时刻无关。
+> 绑定名 `DB`、`MEDIA`、`CACHE`、`AI`、`ASSETS` 不要修改。`"ai": { "binding": "AI" }` 让 Worker 直接调用 Workers AI（默认 AI 服务商，无需 API Key）；不需要 AI 时可以删掉这段绑定与 `triggers`，后台的 AI 与定时发文入口会自动隐藏。`triggers.crons` 的 `["*/5 * * * *"]` 只是轮询频率，与具体任务的执行时刻无关。
 
 也可以完全不用命令行：在 D1 的 **Console** 里粘贴 [`db/init.sql`](db/init.sql) 的全文（只适用于空库），再在 Worker 的 **Settings → Variables and Secrets** 里添加 `JWT_SECRET`。
 
@@ -211,11 +211,11 @@ npx wrangler d1 execute DB --remote --file=./migrations/<新迁移>.sql
 | 变量 | 配置位置 | 说明 |
 | --- | --- | --- |
 | `JWT_SECRET` | Dashboard Secret | 签署 JWT 的密钥，≥ 32 字符；缺失或过短时 API 直接返回 500 |
-| `ENVIRONMENT` | `wrangler.toml` | `production` / `development`；开发环境 Cookie 不加 `Secure`，并允许 http 内网 AI 地址 |
-| `SITE_URL` | `wrangler.toml` | 站点对外地址，用于 canonical / RSS / sitemap / OG；留空则自动跟随当前访问域名 |
-| `MEDIA_PUBLIC_BASE` | `wrangler.toml` | 媒体公开前缀，默认留空（相对路径自动跟随访问域名）；仅当 R2 绑定了独立域名时设置 |
-| `SESSION_COOKIE` | `wrangler.toml` | 会话 Cookie 名称，默认 `eb_session` |
-| `ALLOWED_ORIGINS` | `wrangler.toml` | 额外允许的跨域来源，逗号分隔；同源始终允许，`*` 会被忽略 |
+| `ENVIRONMENT` | `wrangler.jsonc` | `production` / `development`；开发环境 Cookie 不加 `Secure`，并允许 http 内网 AI 地址 |
+| `SITE_URL` | `wrangler.jsonc` | 站点对外地址，用于 canonical / RSS / sitemap / OG；留空则自动跟随当前访问域名 |
+| `MEDIA_PUBLIC_BASE` | `wrangler.jsonc` | 媒体公开前缀，默认留空（相对路径自动跟随访问域名）；仅当 R2 绑定了独立域名时设置 |
+| `SESSION_COOKIE` | `wrangler.jsonc` | 会话 Cookie 名称，默认 `eb_session` |
+| `ALLOWED_ORIGINS` | `wrangler.jsonc` | 额外允许的跨域来源，逗号分隔；同源始终允许，`*` 会被忽略 |
 
 绑定：`DB`（D1）、`MEDIA`（R2）、`CACHE`（KV）、`AI`（Workers AI，可选）、`ASSETS`（Worker 静态资源）。
 
@@ -278,7 +278,7 @@ scripts/                密码哈希、SQL 合并、部署前数据库自举
 public/                 静态资源
 docs/screenshots/       README 界面截图
 index.html              SPA 外壳（首屏防闪烁脚本、SEO / 配置注入占位）
-wrangler.toml           Worker + 静态资源 + Cron Trigger + D1 / R2 / KV 绑定
+wrangler.jsonc           Worker + 静态资源 + Cron Trigger + D1 / R2 / KV 绑定
 .dev.vars.example       本地开发与一键部署共用的 Secret 模板
 ```
 
@@ -295,7 +295,7 @@ wrangler.toml           Worker + 静态资源 + Cron Trigger + D1 / R2 / KV 绑�
 
 AI 功能默认关闭，不会迁移或覆盖已有配置。后台「AI 设置」页（`/admin/ai`）提供两种接入方式：
 
-- **Cloudflare Workers AI（默认）**：通过 `wrangler.toml` 中的 `[ai] binding = "AI"` 直接调用，无需 API Key。默认模型 `@cf/meta/llama-3.3-70b-instruct-fp8-fast`，可在设置页手动输入或拉取其他文本生成模型。
+- **Cloudflare Workers AI（默认）**：通过 `wrangler.jsonc` 中的 `"ai": { "binding": "AI" }` 直接调用，无需 API Key。默认模型 `@cf/meta/llama-3.3-70b-instruct-fp8-fast`，可在设置页手动输入或拉取其他文本生成模型。
 - **OpenAI / DeepSeek / 自定义 OpenAI 兼容接口**：保存 API Key 后自动拉取模型列表，可配置 Base URL、温度、最大 Tokens、请求超时与提示词。已有配置会继续按原样工作。
 - **请求超时**：单次 AI 请求的最长等待时间，默认 300 秒（5 分钟），可调 10–900 秒。Workers AI 的非流式请求另有约 120 秒硬上限，长文写作走流式，不受该上限影响。
 
@@ -320,7 +320,7 @@ Monid 搜索（推荐配置）：在后台「AI 设置 → 联网搜索」填入
 Cloudflare 兜底通道（可选；Monid 未配置或失败时使用）：
 
 1. Cloudflare Dashboard → **AI Gateway** → 选中网关（默认 `default`）→ **Provider Keys** → 添加 Exa Key，别名填 `default`（即 BYOK，费用由 Exa 直接结算，可用每月 $10 免费额度）。
-2. 需要换网关/供应商时，在 `wrangler.toml` 的 `[vars]` 里设置 `AI_GATEWAY_ID`、`SEARCH_PROVIDER`（`ceramic` / `exa` / `linkup`）、`SEARCH_BYOK_ALIAS`；省略 `SEARCH_BYOK_ALIAS` 时按 AI Gateway credits 计费。
+2. 需要换网关/供应商时，在 `wrangler.jsonc` 的 `vars` 里设置 `AI_GATEWAY_ID`、`SEARCH_PROVIDER`（`ceramic` / `exa` / `linkup`）、`SEARCH_BYOK_ALIAS`；省略 `SEARCH_BYOK_ALIAS` 时按 AI Gateway credits 计费。
 
 > 两条通道都失败（或都未配置）时，助手会明确回报失败原因，不会编造搜索结果。
 

@@ -23,7 +23,7 @@ export interface Env {
   MEDIA: R2Bucket;
   /** KV namespace used for settings cache + rate-limit counters. */
   CACHE: KVNamespace;
-  /** Static asset fetcher (the `[assets]` binding in wrangler.toml). */
+  /** Static asset fetcher (the `assets` binding in wrangler.jsonc). */
   ASSETS: Fetcher;
   /** Workers AI binding. Optional so local Vite dev / unbound envs still boot. */
   AI?: Ai;

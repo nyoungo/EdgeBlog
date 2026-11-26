@@ -4,7 +4,7 @@
 
 ### `run_worker_first = true` 时 `_headers` / `_redirects` 失效
 
-`wrangler.toml` 里配置了 `[assets] run_worker_first = true`，所有请求都会先进入
+`wrangler.jsonc` 里配置了 `"assets": { "run_worker_first": true }`，所有请求都会先进入
 `functions/worker.ts`。此时静态资源目录下的 `_headers`、`_redirects` **不会**作用于
 经过 Worker 的响应（Cloudflare 只在「直接由 assets 提供」的响应上应用它们）。
 
@@ -19,8 +19,8 @@
 
 ### Pages 不支持 Cron Trigger
 
-定时任务必须部署为 Worker（`export default { fetch, scheduled }` + `wrangler.toml`
-的 `[triggers] crons`）。cron 表达式是部署级的、无法按任务动态生成，所以本项目采用
+定时任务必须部署为 Worker（`export default { fetch, scheduled }` + `wrangler.jsonc`
+的 `triggers.crons`）。cron 表达式是部署级的、无法按任务动态生成，所以本项目采用
 「固定高频轮询（`*/5 * * * *`）+ `automation_tasks.next_run_at` 判到期」的方案；
 排期字段按 UTC+8 语义收/发，换算成 UTC 后存入 `next_run_at`。
 
@@ -35,7 +35,7 @@ DNS record or on a zone you do not own."* 域名只能挂在 `workers.dev` 或�
 **解决**：要么把域名 NS 迁到 Cloudflare（成为本账户 zone）后再加 Custom Domain；要么
 接受用 `<name>.<子域>.workers.dev` 对外（`SITE_URL` 指向它即可）。本项目最终走的是
 前一条：把 `068800.xyz` 的 DNS 迁到 Cloudflare 后，`www.068800.xyz` 作为 Custom
-Domain 绑定到本 Worker（apex `068800.xyz` 302 跳 `www`），`wrangler.toml` 的
+Domain 绑定到本 Worker（apex `068800.xyz` 302 跳 `www`），`wrangler.jsonc` 的
 `SITE_URL` 相应改为 `https://www.068800.xyz`。
 
 > 注意区分：`functions/worker.ts` 的 `isPreviewHost()` 只把 `*.pages.dev` /
@@ -55,11 +55,30 @@ Domain 绑定到本 Worker（apex `068800.xyz` 302 跳 `www`），`wrangler.toml
 按钮流程会读取仓库里的 `.dev.vars.example`（或 `.env.example`）让用户逐项填写 Secret。
 这个文件里只能放真正的 Secret：早期模板里的 `ENVIRONMENT=development`、
 `SITE_URL=http://localhost:8788`、`ALLOWED_ORIGINS=http://localhost:5173` 会被原样写成
-线上 Secret 并覆盖 `wrangler.toml` 的 `[vars]`，结果是线上以开发模式运行（Cookie 不带
+线上 Secret 并覆盖 `wrangler.jsonc` 的 `vars`，结果是线上以开发模式运行（Cookie 不带
 Secure）、canonical / RSS 指向 localhost。这些本地覆盖项现在保持注释，用户按需取消注释。
+格式按官方模板写成 `KEY=value`（不要 `KEY = "value"`），避免按钮的 dotenv 解析器出错。
 
 `JWT_SECRET` 的示例值故意写成不足 32 字符：留着它部署会直接 500 并提示补密钥，
 比用一个「长度合法但公开」的占位值安全。
+
+### 一键部署按钮的配置解析器比 wrangler 更严：用 `wrangler.jsonc`，不写尾逗号
+
+点按钮直接报「解析 Wrangler 配置文件时出现问题。请在 Workers SDK 存储库中提交问题。」
+时，别只盯着 `wrangler.*`：这个报错来自 `template-from-worker` 端点，实际校验的是
+整份模板元数据（`package.json` 的 `cloudflare` 块、`.dev.vars.example` 也在其中），
+所以信息会指向错误的文件；并且判定结果按仓库缓存约 30 分钟，**改完要开无痕窗口重试**，
+否则看到的还是旧结论。
+
+已核实的边界（对照官方 41 个按钮模板）：
+
+- 全部是 `wrangler.json` / `wrangler.jsonc`，**没有一个** `wrangler.toml`；
+- jsonc 允许 `//` 注释，但**不允许尾逗号**——wrangler 容忍尾逗号，仪表盘不容忍；
+- 空字符串变量是允许的（官方有 `"CUSTOM_DOMAIN": ""`），不必为此删掉 `SITE_URL`；
+- `cloudflare.categories` 只用官方出现过的值（`ai` / `starter` / `storage` / `[]`）。
+
+本项目约定：只保留 `wrangler.jsonc`（严格 JSON + `//` 注释，无尾逗号），改完用
+`npx wrangler deploy --dry-run` 验证；`.dev.vars.example` 一律写 `KEY=value`。
 
 ### 一键部署的数据库自举看表结构，不要用 `d1 migrations apply`
 

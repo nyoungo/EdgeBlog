@@ -275,8 +275,8 @@ export function AiSettingsPage() {
               )}
             >
               {bindingAvailable
-                ? '已检测到 AI 绑定（wrangler.toml 中的 [ai] binding = "AI"），无需 API Key。Workers AI 会按 Cloudflare 账户的免费额度/用量计费。'
-                : '未检测到 AI 绑定。请在 wrangler.toml 中添加 [ai] binding = "AI"，或在 Pages 控制台的 Bindings 中配置 Workers AI，然后重新部署。'}
+                ? '已检测到 AI 绑定（wrangler.jsonc 中的 "ai": { "binding": "AI" }），无需 API Key。Workers AI 会按 Cloudflare 账户的免费额度/用量计费。'
+                : '未检测到 AI 绑定。请在 wrangler.jsonc 中添加 "ai": { "binding": "AI" }，或在控制台的 Bindings 中配置 Workers AI，然后重新部署。'}
             </div>
           ) : (
             <>

@@ -7,7 +7,7 @@
   "cloudflare": {
     "label": "Edge Blog",
     "products": ["Workers", "D1", "R2", "KV", "Workers AI"],
-    "categories": ["blog", "cms"],
+    "categories": [],
     "bindings": {
       "JWT_SECRET": {
         "description": "用于签署登录会话（JWT）的密钥，至少 32 个字符。用 `openssl rand -base64 48` 生成，**不要保留示例值**；缺失或过短时后台接口会返回 500。"

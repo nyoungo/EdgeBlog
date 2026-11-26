@@ -471,7 +471,7 @@ export async function aiChatComplete(
 
   if (ai.provider === 'cloudflare') {
     if (!aiBindingAvailable(env) || !env.AI) {
-      throw AppError.badRequest('未检测到 Workers AI 绑定，请检查 wrangler.toml 或 Pages 控制台的 AI 绑定');
+      throw AppError.badRequest('未检测到 Workers AI 绑定，请检查 wrangler.jsonc 或控制台的 AI 绑定');
     }
 
     const aiBinding = env.AI;
@@ -886,7 +886,7 @@ export async function aiChatStream(
 
   if (ai.provider === 'cloudflare') {
     if (!aiBindingAvailable(env) || !env.AI) {
-      throw AppError.badRequest('未检测到 Workers AI 绑定，请检查 wrangler.toml 或 Pages 控制台的 AI 绑定');
+      throw AppError.badRequest('未检测到 Workers AI 绑定，请检查 wrangler.jsonc 或控制台的 AI 绑定');
     }
 
     const aiBinding = env.AI;
@@ -1066,7 +1066,7 @@ export async function listAiModels(
 
   if (provider === 'cloudflare') {
     if (!aiBindingAvailable(env) || !env.AI) {
-      throw AppError.badRequest('未检测到 Workers AI 绑定,请检查 wrangler.toml 或 Pages 控制台的 AI 绑定');
+      throw AppError.badRequest('未检测到 Workers AI 绑定,请检查 wrangler.jsonc 或控制台的 AI 绑定');
     }
     try {
       const list = await withTimeout(

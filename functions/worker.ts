@@ -12,7 +12,7 @@
  *   4. HTML 导航                         -> 注入 SEO meta 的应用外壳
  *   5. 其余                              -> 静态资源（assets binding）
  *
- * `wrangler.toml` 里通过 `[assets] run_worker_first = true` 让所有请求先经过
+ * `wrangler.jsonc` 里通过 `"assets": { "run_worker_first": true }` 让所有请求先经过
  * 本 Worker，因此上面的顺序就是最终顺序。
  */
 import { api } from './api';
@@ -234,7 +234,7 @@ export default {
   },
 
   /**
-   * Cron Trigger 入口（见 wrangler.toml 的 [triggers]）。
+   * Cron Trigger 入口（见 wrangler.jsonc 的 triggers）。
    * 采用「高频轮询 + 到期执行」：把到期的自动化任务跑掉即可。
    */
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
