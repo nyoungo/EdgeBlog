@@ -1,6 +1,13 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import type { AutomationCoverMode, AutomationPublishMode, AutomationRecurrence, AutomationTaskView, ColumnSummary } from '@shared/types';
+import type {
+  AutomationCoverMode,
+  AutomationPublishMode,
+  AutomationRecurrence,
+  AutomationTaskView,
+  ColumnSummary,
+  WechatArticleType,
+} from '@shared/types';
 import {
   computeNextRun,
   RECURRENCE_LABELS,
@@ -49,6 +56,8 @@ interface FormState {
   enabled: boolean;
   /** 生成成功后是否同步推送到微信公众号草稿箱。 */
   wechatPush: boolean;
+  /** 同步到公众号时的消息类型：图文消息 / 图片消息（贴图）。 */
+  wechatArticleType: WechatArticleType;
 }
 
 function emptyForm(): FormState {
@@ -70,6 +79,7 @@ function emptyForm(): FormState {
     endDate: '',
     enabled: true,
     wechatPush: false,
+    wechatArticleType: 'news',
   };
 }
 
@@ -92,6 +102,7 @@ function toForm(task: AutomationTaskView): FormState {
     endDate: task.end_date ?? '',
     enabled: task.enabled === 1,
     wechatPush: task.wechat_push === 1,
+    wechatArticleType: task.wechat_article_type,
   };
 }
 
@@ -188,6 +199,7 @@ export function AutomationPage() {
       endDate: form.endDate.trim() || null,
       enabled: form.enabled,
       wechatPush: form.wechatPush,
+      wechatArticleType: form.wechatArticleType,
     };
 
     setSaving(true);
@@ -304,7 +316,11 @@ export function AutomationPage() {
                       <Badge tone={task.publish_mode === 'publish' ? 'brand' : 'neutral'}>
                         {task.publish_mode === 'publish' ? '直接发布' : '存草稿'}
                       </Badge>
-                      {task.wechat_push === 1 && <Badge tone="brand">同步公众号</Badge>}
+                      {task.wechat_push === 1 && (
+                        <Badge tone="brand">
+                          {task.wechat_article_type === 'newspic' ? '公众号贴图' : '公众号图文'}
+                        </Badge>
+                      )}
                       {status && <Badge tone={status.tone}>{status.label}</Badge>}
                     </div>
 
@@ -581,6 +597,20 @@ export function AutomationPage() {
               description="生成成功后自动推送到公众号草稿箱；需先在「公众号设置」中启用并配置凭据，失败只记警告不影响发文"
             />
           </div>
+
+          {form.wechatPush && (
+            <div className="sm:col-span-2">
+              <Select
+                label="推送类型"
+                value={form.wechatArticleType}
+                onChange={(e) => set('wechatArticleType', e.target.value as WechatArticleType)}
+                hint="图文消息按文章排版完整推送；图片消息（贴图）只发图片与纯文字，最多 20 张，适合轻量内容"
+              >
+                <option value="news">图文消息</option>
+                <option value="newspic">图片消息（贴图）</option>
+              </Select>
+            </div>
+          )}
         </form>
       </Modal>
 

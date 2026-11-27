@@ -626,6 +626,31 @@ ALTER TABLE automation_tasks
   ADD COLUMN cover_describe INTEGER NOT NULL DEFAULT 0 CHECK (cover_describe IN (0, 1));
 
 -- ---------------------------------------------------------------------------
+-- migrations/0013_wechat_article_type.sql
+-- ---------------------------------------------------------------------------
+
+-- ============================================================================
+-- Edge Blog — migration 0013
+--   * automation_tasks.wechat_article_type —— 推公众号时用图文消息还是图片消息
+--   * wechat_drafts.article_type            —— 既有草稿的消息类型
+--   * wechat_drafts.images_json             —— newspic 永久素材 id 缓存
+--
+-- 图片消息的 image_media_id 必须是永久素材 id（每篇最多 20 张），而永久素材有
+-- 数量上限，重复推送必须复用旧 id；所以把 [{ url, mediaId }] 缓存在映射表里。
+-- ============================================================================
+
+ALTER TABLE automation_tasks
+  ADD COLUMN wechat_article_type TEXT NOT NULL DEFAULT 'news'
+    CHECK (wechat_article_type IN ('news', 'newspic'));
+
+ALTER TABLE wechat_drafts
+  ADD COLUMN article_type TEXT NOT NULL DEFAULT 'news'
+    CHECK (article_type IN ('news', 'newspic'));
+
+ALTER TABLE wechat_drafts
+  ADD COLUMN images_json TEXT NOT NULL DEFAULT '[]';
+
+-- ---------------------------------------------------------------------------
 -- seed/seed.sql
 -- ---------------------------------------------------------------------------
 

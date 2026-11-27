@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import type { AiSettingsView, ColumnSummary, MediaItem, PostDetail, PostStatus, WechatLengthReport, WechatSettingsView } from '@shared/types';
+import type {
+  AiSettingsView,
+  ColumnSummary,
+  MediaItem,
+  PostDetail,
+  PostStatus,
+  WechatArticleType,
+  WechatLengthReport,
+  WechatSettingsView,
+} from '@shared/types';
 import { ApiError, api } from '../../lib/api';
 import { prepareWechatAssets } from '../../lib/wechat-prepare';
 import { parseSqlDate } from '../../lib/format';
@@ -105,6 +114,8 @@ export function PostEditorPage() {
   const [wechatReady, setWechatReady] = useState(false);
   const [wechatPushing, setWechatPushing] = useState(false);
   const [wechatLength, setWechatLength] = useState<WechatLengthReport | null>(null);
+  /** 本次推送的消息类型：图文消息 / 图片消息（贴图）。 */
+  const [wechatType, setWechatType] = useState<WechatArticleType>('news');
 
   const draftKey = `${DRAFT_PREFIX}${routeSlug ?? 'new'}`;
   const [baseline, setBaseline] = useState<string>(() => JSON.stringify(EMPTY));
@@ -202,8 +213,9 @@ export function PostEditorPage() {
 
   // 公众号正文长度预检:微信「2 万字符」统计的是渲染后的 HTML,和 Markdown
   // 字数差好几倍,所以输入停顿后按推送同一套逻辑算一遍,提前暴露超限。
+  // 图片消息的正文是纯文本、上限另有口径,不适用这套 HTML 统计,直接跳过。
   useEffect(() => {
-    if (!wechatReady) {
+    if (!wechatReady || wechatType !== 'news') {
       setWechatLength(null);
       return;
     }
@@ -225,7 +237,7 @@ export function PostEditorPage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [wechatReady, form.contentMd, form.coverUrl]);
+  }, [wechatReady, wechatType, form.contentMd, form.coverUrl]);
 
   // 专栏列表（含隐藏专栏）：文章可以发到隐藏专栏，编辑时也要能选回原专栏。
   const columns = useAsync(
@@ -322,8 +334,16 @@ export function PostEditorPage() {
       error('标题不能为空');
       return;
     }
-    if (!form.coverUrl.trim()) {
-      error('推送草稿需要封面图，请先设置封面');
+    if (wechatType === 'news' && !form.coverUrl.trim()) {
+      error('推送图文消息需要封面图，请先设置封面');
+      return;
+    }
+    if (
+      wechatType === 'newspic' &&
+      !form.coverUrl.trim() &&
+      !/!\[[^\]]*\]\([^)]+\)/.test(form.contentMd)
+    ) {
+      error('推送图片消息至少需要一张图片，请设置封面或在正文中插入图片');
       return;
     }
     setWechatPushing(true);
@@ -344,11 +364,12 @@ export function PostEditorPage() {
       }
       const { data } = await api.post<{
         updated: boolean;
+        articleType: WechatArticleType;
         imageCount: number;
         repaired: boolean;
         contentMd?: string;
         coverUrl?: string | null;
-      }>(`/wechat/posts/${postId}/draft`);
+      }>(`/wechat/posts/${postId}/draft`, { articleType: wechatType });
       // 服务端自动修复过图片时会改写正文/封面地址，必须同步回编辑器，
       // 否则下一次保存会把修复前的旧图地址覆盖回去，推送又失败。
       if (data.repaired && data.contentMd !== undefined) {
@@ -361,10 +382,11 @@ export function PostEditorPage() {
       const skipped = prepared.warnings.length
         ? `；${prepared.warnings.length} 张图片未能在浏览器侧转换`
         : '';
+      const unit = data.articleType === 'newspic' ? '张图片' : '张正文图';
       success(
         data.updated
-          ? `已更新公众号草稿（同步 ${data.imageCount} 张正文图${fixed}${skipped}）`
-          : `已推送到公众号草稿（同步 ${data.imageCount} 张正文图${fixed}${skipped}）`,
+          ? `已更新公众号草稿（同步 ${data.imageCount} ${unit}${fixed}${skipped}）`
+          : `已推送到公众号草稿（同步 ${data.imageCount} ${unit}${fixed}${skipped}）`,
       );
     } catch (err) {
       error(err instanceof ApiError ? err.message : '推送失败');
@@ -497,16 +519,29 @@ export function PostEditorPage() {
             </span>
           )}
           {editing && wechatReady && (
-            <Button
-              type="button"
-              variant="secondary"
-              loading={wechatPushing}
-              disabled={saving}
-              onClick={() => void pushToWechat()}
-            >
-              <Icon name="globe" size={16} />
-              推送到公众号草稿
-            </Button>
+            <>
+              <Select
+                aria-label="公众号推送类型"
+                value={wechatType}
+                onChange={(e) => setWechatType(e.target.value as WechatArticleType)}
+                wrapperClassName="w-36"
+                className="h-10 py-0 text-xs"
+                title="图文消息按文章排版推送；图片消息（贴图）只发图片与纯文字"
+              >
+                <option value="news">图文消息</option>
+                <option value="newspic">图片消息（贴图）</option>
+              </Select>
+              <Button
+                type="button"
+                variant="secondary"
+                loading={wechatPushing}
+                disabled={saving}
+                onClick={() => void pushToWechat()}
+              >
+                <Icon name="globe" size={16} />
+                推送到公众号草稿
+              </Button>
+            </>
           )}
           <Button type="submit" loading={saving}>
             <Icon name="save" size={16} />

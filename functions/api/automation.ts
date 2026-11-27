@@ -47,6 +47,7 @@ automationRoutes.use('*', requireAuth);
 const RECURRENCE = z.enum(['once', 'daily', 'weekly', 'monthly']);
 const COVER_MODE = z.enum(['ai', 'agent', 'fallback', 'none']);
 const PUBLISH_MODE = z.enum(['draft', 'publish']);
+const WECHAT_ARTICLE_TYPE = z.enum(['news', 'newspic']);
 const DATE = z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式应为 YYYY-MM-DD');
 const TIME = z.string().trim().regex(/^\d{1,2}:\d{2}$/, '时间格式应为 HH:MM');
 
@@ -69,6 +70,8 @@ const taskBody = z.object({
   endDate: DATE.nullable().optional(),
   enabled: z.boolean().optional(),
   wechatPush: z.boolean().optional(),
+  /** 同步到公众号时的消息类型：图文消息 / 图片消息（贴图）。 */
+  wechatArticleType: WECHAT_ARTICLE_TYPE.optional(),
 });
 
 const taskUpdateBody = taskBody.partial();
@@ -189,8 +192,8 @@ automationRoutes.post('/', async (c) => {
     `INSERT INTO automation_tasks
        (name, prompt, column_id, tags_json, cover_mode, cover_prompt, cover_url, cover_describe, publish_mode,
         recurrence, time_of_day, weekday, day_of_month, start_date, end_date,
-        enabled, wechat_push, next_run_at, created_by, created_by_name)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        enabled, wechat_push, wechat_article_type, next_run_at, created_by, created_by_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     body.name,
     body.prompt,
     columnId,
@@ -208,6 +211,7 @@ automationRoutes.post('/', async (c) => {
     body.endDate ?? null,
     enabled ? 1 : 0,
     body.wechatPush ? 1 : 0,
+    body.wechatArticleType ?? 'news',
     nextRunAt,
     user.id,
     await displayName(c.env, user),
@@ -268,7 +272,8 @@ automationRoutes.put('/:id', async (c) => {
     `UPDATE automation_tasks SET
         name = ?, prompt = ?, column_id = ?, tags_json = ?, cover_mode = ?, cover_prompt = ?,
         cover_url = ?, cover_describe = ?, publish_mode = ?, recurrence = ?, time_of_day = ?, weekday = ?, day_of_month = ?,
-        start_date = ?, end_date = ?, enabled = ?, wechat_push = ?, next_run_at = ?, updated_at = datetime('now')
+        start_date = ?, end_date = ?, enabled = ?, wechat_push = ?, wechat_article_type = ?,
+        next_run_at = ?, updated_at = datetime('now')
       WHERE id = ?`,
     body.name ?? existing.name,
     body.prompt ?? existing.prompt,
@@ -287,6 +292,7 @@ automationRoutes.put('/:id', async (c) => {
     merged.endDate ?? null,
     enabled ? 1 : 0,
     body.wechatPush === undefined ? existing.wechat_push : body.wechatPush ? 1 : 0,
+    body.wechatArticleType ?? existing.wechat_article_type,
     enabled ? computeNextRun(merged, new Date()) : null,
     id,
   );

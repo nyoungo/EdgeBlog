@@ -357,6 +357,33 @@ Worker 把图片 POST 过去、拿回二进制，全程 I/O，不占 CPU。实�
 > （接口不会因此报错，静默不生效）——所以这是需要人工在微信里预览点测的环节，代码层面
 > 只能保证标签写对、属性不被过滤。
 
+### 图片消息（贴图 newspic）与图文消息是两套接口，不能只改 `article_type`
+
+`draft/add` 支持 `article_type: "newspic"`（后台叫「图片消息」，俗称贴图 / 小绿书）。
+它和图文消息（`news`）的差异不止一个字段，代码里分成两条链路
+（`wechat-draft.ts` 的 `pushNewspicDraft()`）：
+
+| | 图文消息 `news` | 图片消息 `newspic` |
+| --- | --- | --- |
+| 封面 | `thumb_media_id` 必填，来自 `material/add_material` | 不传；`image_list` 首张即封面 |
+| 图片 | 正文图走 `media/uploadimg`，只回 URL | 每张都要 `image_media_id`，必须是永久素材 id |
+| 张数 | 不限（受正文 2 万字符约束） | 最多 20 张 |
+| 正文 | 内联样式 HTML，支持图片/表格/小程序卡片 | 只支持纯文本（少量商品标签），HTML 会被过滤 |
+
+要点：
+
+- `media/uploadimg` 返回的是 `mmbiz.qpic.cn` 地址，**拿不到 media_id**，不能用于
+  newspic；必须走 `material/add_material?type=image`（现有的 `uploadPermanentImage()`）。
+- 永久素材有总额度（图片素材约 5000 个），而草稿更新不会自动回收旧素材。所以
+  `wechat_drafts.images_json` 缓存 `[{ url, mediaId }]`，按去掉 fragment 的 URL 复用；
+  重复推送同一篇只上传新增图片。删图后旧素材不会消失，这是接口限制。
+- 图片消息的正文由 `renderWechatPlainText()` 生成（Markdown → HTML → 纯文本），
+  不走 `buildWechatBody()`：后者会插入正文封面和小程序卡片，那些 HTML 对 newspic
+  无意义且会被过滤。纯图片文章没有可见文字时用摘要/标题兜底（`content` 必填）。
+- 编辑器与定时任务都按“本次推送/本任务”选类型，不改全局默认：
+  `POST /api/wechat/posts/:id/draft` 接受 `{ articleType }`；
+  `automation_tasks.wechat_article_type` 存每个任务的类型。
+
 ### 微信几乎总以 HTTP 200 返回，错误藏在 `errcode`
 
 `stale`/`expired` access_token 不会是非 2xx，而是 `{errcode: 40001|42001|40014}`。

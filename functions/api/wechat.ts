@@ -159,6 +159,15 @@ wechatRoutes.post('/posts/:id/draft', async (c) => {
   const post = await getPostById(c.env, id);
   if (!post) throw AppError.notFound('文章不存在');
 
+  // 推送类型由编辑器选择；老客户端不发请求体时保持图文消息，行为与升级前一致。
+  const rawBody: unknown = await c.req.json().catch(() => null);
+  const articleType =
+    typeof rawBody === 'object' &&
+    rawBody !== null &&
+    (rawBody as { articleType?: unknown }).articleType === 'newspic'
+      ? 'newspic'
+      : 'news';
+
   // 阅读原文指向部署站点；SITE_URL 未配置时不下发该字段。
   const siteUrl = (c.env.SITE_URL ?? '').trim() || undefined;
 
@@ -169,6 +178,7 @@ wechatRoutes.post('/posts/:id/draft', async (c) => {
     siteUrl,
     actor: user,
     budgetMs: WECHAT_PUSH_BUDGET_MS,
+    articleType,
   });
   await recordAudit(c.env, user, 'wechat.push', 'post', id, {
     mediaId: result.mediaId,
@@ -195,6 +205,7 @@ wechatRoutes.get('/posts/:id/draft', async (c) => {
   return ok(c, {
     pushed: draft !== null,
     mediaId: draft?.media_id ?? null,
+    articleType: draft?.article_type ?? null,
     pushedAt: draft?.pushed_at ?? null,
   });
 });

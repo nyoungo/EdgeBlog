@@ -25,6 +25,7 @@ interface DraftRow {
   post_id: number;
   media_id: string;
   thumb_media_id: string | null;
+  article_type: 'news' | 'newspic';
   pushed_at: string;
   title: string;
   slug: string;
@@ -500,7 +501,8 @@ export function WechatSettingsPage() {
                       {draft.title}
                     </Link>
                     <p className="mt-0.5 text-xs text-faint">
-                      推送于 {formatUtc8(draft.pushed_at)} · 草稿 ID {draft.media_id.slice(0, 12)}…
+                      {draft.article_type === 'newspic' ? '图片消息' : '图文消息'} · 推送于{' '}
+                      {formatUtc8(draft.pushed_at)} · 草稿 ID {draft.media_id.slice(0, 12)}…
                     </p>
                   </div>
                   <a

@@ -486,6 +486,72 @@ describe('按 URL 转码兜底（定时任务没有 Canvas）', () => {
   });
 });
 
+describe('图片消息（贴图 newspic）', () => {
+  it('封面与正文图都走永久素材接口，并按 newspic 结构写草稿', async () => {
+    mocks.uploadCoverMaterial
+      .mockResolvedValueOnce('permanent-cover-id')
+      .mockResolvedValueOnce('permanent-body-id');
+
+    const result = await pushPostToWechatDraft(
+      {} as Env,
+      SETTINGS,
+      post('正文\n\n![配图](https://images.example/photo.jpg)'),
+      { articleType: 'newspic' },
+    );
+
+    // 图片消息不能用 uploadimg（它只回 URL，拿不到 image_media_id）。
+    expect(mocks.uploadContentImage).not.toHaveBeenCalled();
+    expect(mocks.uploadCoverMaterial).toHaveBeenCalledTimes(2);
+    const article = mocks.addDraft.mock.calls[0]?.[2] as {
+      articleType: string;
+      imageMediaIds: string[];
+      thumbMediaId: string | null;
+    };
+    expect(article.articleType).toBe('newspic');
+    expect(article.imageMediaIds).toEqual(['permanent-cover-id', 'permanent-body-id']);
+    expect(article.thumbMediaId).toBeNull();
+    expect(result.articleType).toBe('newspic');
+    expect(result.imageCount).toBe(2);
+  });
+
+  it('重复推送时复用缓存里的永久素材 id，只上传新图片并走 draft/update', async () => {
+    mocks.first.mockResolvedValue({
+      id: 1,
+      post_id: 7,
+      media_id: 'existing-draft',
+      thumb_media_id: 'permanent-cover-id',
+      article_type: 'newspic',
+      images_json: JSON.stringify([{ url: COVER_URL, mediaId: 'permanent-cover-id' }]),
+      pushed_at: '2026-01-01 00:00:00',
+    });
+
+    await pushPostToWechatDraft(
+      {} as Env,
+      SETTINGS,
+      post('正文\n\n![配图](https://images.example/photo.jpg)'),
+      { articleType: 'newspic' },
+    );
+
+    // 封面命中缓存 → 只下载/上传正文那张。
+    expect(mocks.loadImageSource).toHaveBeenCalledTimes(1);
+    expect(mocks.uploadCoverMaterial).toHaveBeenCalledTimes(1);
+    expect(mocks.addDraft).not.toHaveBeenCalled();
+    expect(mocks.updateDraft).toHaveBeenCalled();
+    const article = mocks.updateDraft.mock.calls[0]?.[3] as { imageMediaIds: string[] };
+    expect(article.imageMediaIds[0]).toBe('permanent-cover-id');
+  });
+
+  it('没有封面也没有正文图时直接报错，不发起微信调用', async () => {
+    const p = { ...post('只有文字，没有图片。'), cover_url: null };
+
+    await expect(
+      pushPostToWechatDraft({} as Env, SETTINGS, p, { articleType: 'newspic' }),
+    ).rejects.toThrow(/至少需要一张图片/);
+    expect(mocks.loadImageSource).not.toHaveBeenCalled();
+    expect(mocks.addDraft).not.toHaveBeenCalled();
+  });
+});
+
 describe('推送整体超时', () => {
   it('单张图片的下载超时按剩余预算收窄，不会各自等满 30 秒', async () => {
     await pushPostToWechatDraft({} as Env, SETTINGS, post('只有普通文字的正文'), {

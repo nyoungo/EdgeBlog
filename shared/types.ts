@@ -257,6 +257,8 @@ export interface AutomationTask {
   enabled: 0 | 1;
   /** 生成成功后是否同步推送到微信公众号草稿箱。 */
   wechat_push: 0 | 1;
+  /** 同步到公众号时的消息类型：图文消息 / 图片消息（贴图）。 */
+  wechat_article_type: WechatArticleType;
   next_run_at: string | null;
   last_run_at: string | null;
   last_status: AutomationLastStatus | null;
@@ -630,6 +632,17 @@ export type AiSettingsView = Omit<AiSettings, 'apiKey' | 'monidApiKey'> & {
 /* ------------------------------------------------------- wechat (admin) */
 
 /**
+ * 公众号草稿的消息类型。
+ *
+ *   * `news`    —— 图文消息：`thumb_media_id` 必填，正文是 HTML，正文图走 uploadimg；
+ *   * `newspic` —— 图片消息（俗称「贴图 / 小绿书」）：`image_info.image_list` 必填，
+ *                  每张图必须是永久素材 media_id，最多 20 张，首张即封面；正文只能是纯文本。
+ *
+ * 两种类型的图片接口与 content 口径完全不同，不能互相复用，详见 `wechat-draft.ts`。
+ */
+export type WechatArticleType = 'news' | 'newspic';
+
+/**
  * 微信公众号「服务端接口」配置（草稿推送用）。
  *
  * 与 AI 设置同样存放在 `settings` 表的私有命名空间 `wechat` 中，
@@ -764,11 +777,13 @@ export interface WechatLengthReport {
 export interface WechatPushResult {
   /** 新草稿 media_id，或更新既有草稿时为 null。 */
   mediaId: string | null;
+  /** 本次推送使用的消息类型。 */
+  articleType: WechatArticleType;
   /** 是否为更新既有草稿（去重命中）。 */
   updated: boolean;
-  /** 上传到正文的图片数量。 */
+  /** 上传/复用的图片数量（news 为正文图，newspic 为图片消息的全部图片）。 */
   imageCount: number;
-  /** 封面永久素材 id。 */
+  /** 封面永久素材 id；newspic 为第一张图片的 media_id。 */
   thumbMediaId: string;
   title: string;
 }

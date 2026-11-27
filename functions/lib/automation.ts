@@ -426,8 +426,10 @@ async function performGeneration(env: Env, task: AutomationTask): Promise<Automa
         const push = await pushPostToWechatWithRepair(env, wechat, post, {
           siteUrl: (env.SITE_URL ?? '').trim() || undefined,
           actor: await taskSessionUser(env, task),
+          articleType: task.wechat_article_type,
         });
-        message += `；已同步到公众号${push.updated ? '（更新既有草稿）' : ''}${push.repaired ? '（图片已自动修复并重推）' : ''}`;
+        const kind = push.articleType === 'newspic' ? '图片消息' : '图文消息';
+        message += `；已同步到公众号${kind}${push.updated ? '（更新既有草稿）' : ''}${push.repaired ? '（图片已自动修复并重推）' : ''}`;
       } catch (err) {
         const detail = err instanceof Error ? err.message : '未知错误';
         console.error('[automation] 同步公众号草稿失败', err);

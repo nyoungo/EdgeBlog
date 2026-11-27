@@ -251,17 +251,43 @@ export async function uploadCoverMaterial(
 
 /** draft/add / draft/update 共用的一篇文章结构。 */
 export interface WechatArticle {
+  /** 默认图文消息；`newspic` 为图片消息（贴图）。 */
+  articleType?: 'news' | 'newspic';
   title: string;
   author: string;
   digest: string;
   content: string;
   contentSourceUrl: string;
-  thumbMediaId: string;
+  /** 图文消息必填；图片消息不使用该字段。 */
+  thumbMediaId: string | null;
   needOpenComment: 0 | 1;
   onlyFansCanComment: 0 | 1;
+  /**
+   * 图片消息的图片永久素材 id，最多 20 张，首张即封面。
+   * 必须是 `material/add_material?type=image` 返回的 media_id（不是 uploadimg 的 URL）。
+   */
+  imageMediaIds?: string[];
 }
 
 function articlePayload(article: WechatArticle): Record<string, unknown> {
+  // 图片消息：正文只收纯文本，图片通过 image_info.image_list 传永久素材 id。
+  // 不传 thumb_media_id / digest —— 文档里它们只对图文消息有意义。
+  if (article.articleType === 'newspic') {
+    const payload: Record<string, unknown> = {
+      article_type: 'newspic',
+      title: article.title,
+      content: article.content,
+      need_open_comment: article.needOpenComment,
+      only_fans_can_comment: article.onlyFansCanComment,
+      image_info: {
+        image_list: (article.imageMediaIds ?? []).map((imageMediaId) => ({ image_media_id: imageMediaId })),
+      },
+    };
+    if (article.author) payload.author = article.author;
+    if (article.contentSourceUrl) payload.content_source_url = article.contentSourceUrl;
+    return payload;
+  }
+
   const payload: Record<string, unknown> = {
     article_type: 'news',
     title: article.title,

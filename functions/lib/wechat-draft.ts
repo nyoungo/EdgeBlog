@@ -15,7 +15,7 @@
  * 浏览器只能看到「请求失败」。需要转换的图片由文章编辑器在浏览器侧（Canvas）
  * 先转好再落库；只有付费版才建议打开 `serverImageProcessing`。
  */
-import type { Post, WechatPushResult, WechatSettings } from '@shared/types';
+import type { Post, WechatArticleType, WechatPushResult, WechatSettings } from '@shared/types';
 import { AppError } from './errors';
 import type { Env } from './env';
 import { all, first, run } from './db';
@@ -35,6 +35,7 @@ import {
   WECHAT_TIMEOUT_MS,
 } from './wechat';
 import {
+  renderWechatPlainText,
   substituteWechatImages,
   truncateChars,
   validateWechatContent,
@@ -43,6 +44,7 @@ import {
 } from './wechat-render';
 import {
   buildWechatBody,
+  imageSourceKey,
   miniProgramCardFromSettings,
   type WechatBodyImage,
 } from './wechat-length';
@@ -122,16 +124,44 @@ export interface WechatDraftRecord {
   post_id: number;
   media_id: string;
   thumb_media_id: string | null;
+  article_type: WechatArticleType;
+  /** newspic 已上传的永久素材缓存：`[{ url, mediaId }]`。 */
+  images_json: string;
   pushed_at: string;
+}
+
+/** 图片消息已上传的永久素材；按去掉 fragment 的 URL 复用，避免重复占用素材额度。 */
+interface CachedPushImage {
+  url: string;
+  mediaId: string;
 }
 
 /** 取某篇文章已推送过的草稿映射（用于去重/更新）。 */
 export async function getWechatDraft(env: Env, postId: number): Promise<WechatDraftRecord | null> {
   return first<WechatDraftRecord>(
     env,
-    'SELECT id, post_id, media_id, thumb_media_id, pushed_at FROM wechat_drafts WHERE post_id = ?',
+    `SELECT id, post_id, media_id, thumb_media_id, article_type, images_json, pushed_at
+       FROM wechat_drafts WHERE post_id = ?`,
     postId,
   );
+}
+
+/** 解析 images_json；损坏或格式不符时按空缓存处理（下次重新上传即可）。 */
+function parseCachedImages(raw: string | null | undefined): CachedPushImage[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      if (typeof item !== 'object' || item === null) return [];
+      const { url, mediaId } = item as Record<string, unknown>;
+      return typeof url === 'string' && typeof mediaId === 'string' && url && mediaId
+        ? [{ url, mediaId }]
+        : [];
+    });
+  } catch {
+    return [];
+  }
 }
 
 /** 记录/更新草稿映射。 */
@@ -140,18 +170,24 @@ async function upsertWechatDraft(
   postId: number,
   mediaId: string,
   thumbMediaId: string,
+  articleType: WechatArticleType,
+  images: CachedPushImage[],
 ): Promise<void> {
   await run(
     env,
-    `INSERT INTO wechat_drafts (post_id, media_id, thumb_media_id, pushed_at)
-     VALUES (?, ?, ?, datetime('now'))
+    `INSERT INTO wechat_drafts (post_id, media_id, thumb_media_id, article_type, images_json, pushed_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(post_id) DO UPDATE SET
        media_id = excluded.media_id,
        thumb_media_id = excluded.thumb_media_id,
+       article_type = excluded.article_type,
+       images_json = excluded.images_json,
        pushed_at = datetime('now')`,
     postId,
     mediaId,
     thumbMediaId,
+    articleType,
+    JSON.stringify(images),
   );
 }
 
@@ -437,21 +473,28 @@ async function uploadContentImages(
 }
 
 /** 上传封面为永久素材；字节已在调用方处理过，这里只做微信侧的格式/体积兜底。 */
-async function uploadCover(
+/**
+ * 上传一张永久图片素材，返回 media_id。
+ *
+ * 图文消息的封面与图片消息的每一张图都走这个接口（`material/add_material?type=image`），
+ * 它与正文图用的 `media/uploadimg` 不是一回事：后者只回一个 URL，拿不到 media_id。
+ */
+async function uploadPermanentImage(
   env: Env,
   settings: WechatSettings,
   prepared: PushImageSource,
+  label: string,
   deadline: Deadline,
 ): Promise<string> {
-  ensureBudget(deadline, '上传封面图');
+  ensureBudget(deadline, `上传${label}`);
   if (prepared.bytes.byteLength > COVER_MAX_BYTES) {
     throw AppError.payloadTooLarge(
-      `封面图体积 ${Math.round(prepared.bytes.byteLength / 1024)}KB，超过微信封面 10MB 上限`,
+      `${label} 体积 ${Math.round(prepared.bytes.byteLength / 1024)}KB，超过微信图片素材 10MB 上限`,
     );
   }
   if (!COVER_MIMES.has(prepared.mime)) {
     throw AppError.unsupportedMedia(
-      `封面图是 ${prepared.mime || '未知格式'}，微信封面只支持 jpg/png/gif/bmp，请转换后再推送`,
+      `${label} 是 ${prepared.mime || '未知格式'}，微信图片素材只支持 jpg/png/gif/bmp，请转换后再推送`,
     );
   }
   return uploadCoverMaterial(
@@ -471,6 +514,8 @@ export interface PushDraftOptions {
   updateExisting?: boolean;
   /** 整条推送的时间预算（毫秒），默认 `WECHAT_PUSH_BUDGET_MS`。 */
   budgetMs?: number;
+  /** 消息类型，默认 `news`（图文消息）；`newspic` 为图片消息（贴图）。 */
+  articleType?: WechatArticleType;
 }
 
 /**
@@ -516,11 +561,18 @@ export async function pushPostToWechatDraft(
 ): Promise<WechatPushResult> {
   const markdown = (post.content_md ?? '').trim();
   if (!markdown) throw AppError.badRequest('文章正文为空,无法推送');
+
+  const deadline = new Deadline(options.budgetMs ?? WECHAT_PUSH_BUDGET_MS);
+  // 去重映射只读一次：图文消息用它决定 add/update，图片消息还用它复用永久素材 id。
+  const existing = options.updateExisting === false ? null : await getWechatDraft(env, post.id);
+
+  if (options.articleType === 'newspic') {
+    return pushNewspicDraft(env, settings, post, options, deadline, existing);
+  }
+
   if (!post.cover_url) {
     throw AppError.badRequest('推送草稿需要封面图:请先在文章中设置封面(微信 thumb_media_id 必填)');
   }
-
-  const deadline = new Deadline(options.budgetMs ?? WECHAT_PUSH_BUDGET_MS);
 
   // 1. 装配正文:渲染、插入正文封面、追加小程序卡片。
   //    与编辑器预检共用同一份逻辑,保证字符数口径一致。
@@ -567,13 +619,14 @@ export async function pushPostToWechatDraft(
   if (sizeError) throw AppError.badRequest(sizeError);
 
   // 5. 封面永久素材（复用上面压缩好的字节）。
-  const thumbMediaId = await uploadCover(env, settings, coverSource, deadline);
+  const thumbMediaId = await uploadPermanentImage(env, settings, coverSource, '封面图', deadline);
 
   const title = truncateChars(post.title.trim() || '未命名文章', WECHAT_TITLE_MAX);
   const digest = truncateChars(post.excerpt?.trim() ?? '', WECHAT_DIGEST_MAX);
   const sourceUrl = publicSourceUrl(options.siteUrl, post.slug);
 
   const article = {
+    articleType: 'news' as const,
     title,
     author: settings.author,
     digest,
@@ -586,7 +639,6 @@ export async function pushPostToWechatDraft(
 
   // 6. 新建或更新草稿（去重）。
   ensureBudget(deadline, '写入草稿');
-  const existing = options.updateExisting === false ? null : await getWechatDraft(env, post.id);
   let mediaId: string;
   let updated = false;
   if (existing) {
@@ -596,9 +648,175 @@ export async function pushPostToWechatDraft(
   } else {
     mediaId = await addDraft(env, settings, article, deadline);
   }
-  await upsertWechatDraft(env, post.id, mediaId, thumbMediaId);
+  await upsertWechatDraft(env, post.id, mediaId, thumbMediaId, 'news', []);
 
-  return { mediaId, updated, imageCount: imageUrls.length, thumbMediaId, title };
+  return {
+    mediaId,
+    articleType: 'news',
+    updated,
+    imageCount: imageUrls.length,
+    thumbMediaId,
+    title,
+  };
+}
+
+/** 图片消息最多 20 张（微信 `image_info.image_list` 的硬上限）。 */
+const NEWSPIC_MAX_IMAGES = 20;
+
+interface NewspicImage {
+  url: string;
+  /** 报错时的定位信息，如「封面图」「图片消息第 2 张图片(...)」。 */
+  label: string;
+}
+
+/**
+ * 图片消息（贴图）：正文是纯文本，图片全部作为永久素材放进 `image_info`。
+ *
+ * 与图文消息的差异（都已核对 `draft/add` 文档）：
+ *   * `image_media_id` 必须是 `material/add_material?type=image` 的永久 media_id，
+ *     不能用正文图的 `uploadimg` URL；
+ *   * 最多 20 张，首张即封面；
+ *   * `content` 只支持纯文本，HTML 标签会被过滤，所以走 `renderWechatPlainText`；
+ *   * `thumb_media_id` 不需要传。
+ *
+ * 永久素材有总额度，重复推送同一篇时按 URL 复用 `wechat_drafts.images_json`
+ * 里缓存的 media_id，既不重复上传，也不重复占用素材额度。
+ */
+async function pushNewspicDraft(
+  env: Env,
+  settings: WechatSettings,
+  post: Post,
+  options: PushDraftOptions,
+  deadline: Deadline,
+  existing: WechatDraftRecord | null,
+): Promise<WechatPushResult> {
+  const markdown = (post.content_md ?? '').trim();
+  const rendered = renderWechatPlainText(markdown);
+
+  // 顺序：封面优先（首张即封面），然后是正文里按出现顺序的图片；同一地址只保留一次。
+  const images: NewspicImage[] = [];
+  const seen = new Set<string>();
+  const collect = (url: string) => {
+    const value = url.trim();
+    if (!value) return;
+    const key = imageSourceKey(value);
+    if (seen.has(key)) return;
+    seen.add(key);
+    images.push({ url: value, label: '' });
+  };
+  if (post.cover_url) collect(post.cover_url);
+  for (const url of rendered.images) collect(url);
+
+  if (images.length === 0) {
+    throw AppError.badRequest(
+      '图片消息至少需要一张图片：请先在文章中设置封面，或在正文中插入图片',
+    );
+  }
+  if (images.length > NEWSPIC_MAX_IMAGES) {
+    throw AppError.badRequest(
+      `图片消息最多 ${NEWSPIC_MAX_IMAGES} 张图片，当前 ${images.length} 张，请删减后再推送`,
+    );
+  }
+  images.forEach((image, index) => {
+    image.label =
+      post.cover_url && index === 0
+        ? '封面图'
+        : `图片消息第 ${index + 1} 张图片(${image.url})`;
+  });
+
+  // 只有旧草稿也是图片消息时才复用缓存，避免把图文消息的封面误当成图片列表。
+  const cached = new Map<string, string>();
+  if (existing?.article_type === 'newspic') {
+    for (const item of parseCachedImages(existing.images_json)) {
+      cached.set(imageSourceKey(item.url), item.mediaId);
+    }
+  }
+
+  const mediaIds: string[] = [];
+  const uploaded: CachedPushImage[] = [];
+  for (const image of images) {
+    const key = imageSourceKey(image.url);
+    const reused = cached.get(key);
+    if (reused) {
+      mediaIds.push(reused);
+      uploaded.push({ url: key, mediaId: reused });
+      continue;
+    }
+
+    ensureBudget(deadline, `取${image.label}`);
+    let prepared: PushImageSource;
+    try {
+      const loaded = await loadImage(
+        env,
+        image.url,
+        COVER_MAX_BYTES,
+        `${image.label} 超过微信图片素材 10MB 上限`,
+        deadline,
+      );
+      // 永久素材接口的格式/体积比正文图宽松（≤10MB、jpg/png/gif/bmp），
+      // 所以按 'cover' 口径准备；配置了服务端压缩时仍会统一缩到 1440px/900KB。
+      prepared = await preparePushImage(
+        env,
+        settings,
+        loaded,
+        image.label,
+        deadline,
+        'cover',
+        image.url,
+      );
+    } catch (err) {
+      if (
+        err instanceof AppError &&
+        !err.message.includes(image.label) &&
+        !err.message.startsWith('推送超时')
+      ) {
+        throw new AppError(err.code, `${image.label}：${err.message}`, err.details);
+      }
+      throw err;
+    }
+    mediaIds.push(await uploadPermanentImage(env, settings, prepared, image.label, deadline));
+    uploaded.push({ url: key, mediaId: mediaIds[mediaIds.length - 1] as string });
+  }
+
+  // 正文只收纯文本；纯图片文章没有可见文字时用摘要/标题兜底（content 是必填字段）。
+  const content = rendered.text || post.excerpt?.trim() || post.title;
+  const sizeError = validateWechatContent(content, Array.from(markdown).length);
+  if (sizeError) throw AppError.badRequest(sizeError.replace('公众号正文', '图片消息正文'));
+
+  const title = truncateChars(post.title.trim() || '未命名文章', WECHAT_TITLE_MAX);
+  const article = {
+    articleType: 'newspic' as const,
+    title,
+    author: settings.author,
+    digest: '',
+    content,
+    contentSourceUrl: publicSourceUrl(options.siteUrl, post.slug),
+    thumbMediaId: null,
+    needOpenComment: (settings.openComment ? 1 : 0) as 0 | 1,
+    onlyFansCanComment: (settings.openComment && settings.onlyFansCanComment ? 1 : 0) as 0 | 1,
+    imageMediaIds: mediaIds,
+  };
+
+  ensureBudget(deadline, '写入草稿');
+  let mediaId: string;
+  let updated = false;
+  if (existing) {
+    await updateDraft(env, settings, existing.media_id, article, deadline);
+    mediaId = existing.media_id;
+    updated = true;
+  } else {
+    mediaId = await addDraft(env, settings, article, deadline);
+  }
+  await upsertWechatDraft(env, post.id, mediaId, mediaIds[0] ?? '', 'newspic', uploaded);
+
+  return {
+    mediaId,
+    articleType: 'newspic',
+    updated,
+    imageCount: mediaIds.length,
+    thumbMediaId: mediaIds[0] ?? '',
+    title,
+  };
 }
 
 /** 把已推送的草稿真正发表（publish_mode=publish 时可选用）。 */
@@ -614,7 +832,8 @@ export async function publishWechatDraft(
 export async function listWechatDrafts(env: Env, limit = 50): Promise<Array<WechatDraftRecord & { title: string; slug: string }>> {
   return all(
     env,
-    `SELECT d.id, d.post_id, d.media_id, d.thumb_media_id, d.pushed_at, p.title, p.slug
+    `SELECT d.id, d.post_id, d.media_id, d.thumb_media_id, d.article_type, d.pushed_at,
+            p.title, p.slug
        FROM wechat_drafts d JOIN posts p ON p.id = d.post_id
       ORDER BY d.pushed_at DESC LIMIT ?`,
     limit,

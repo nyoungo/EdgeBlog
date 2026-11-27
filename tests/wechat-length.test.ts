@@ -1,7 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { buildWechatBody, measureWechatBody, WECHAT_IMAGE_URL_CHARS } from '../functions/lib/wechat-length';
+import { renderWechatPlainText } from '../functions/lib/wechat-render';
 
 const COVER = 'https://images.example/cover.jpg';
+
+describe('renderWechatPlainText（图片消息正文）', () => {
+  it('剥掉全部 HTML 标签与内联样式，保留段落换行和图片地址清单', () => {
+    const result = renderWechatPlainText(
+      '# 标题\n\n正文 **加粗** 与 [链接](https://example.com)。\n\n![配图](https://images.example/a.jpg)\n\n- 第一项\n- 第二项',
+    );
+
+    expect(result.text).toContain('标题');
+    expect(result.text).toContain('正文 加粗 与 链接。');
+    expect(result.text).toContain('• 第一项');
+    expect(result.text).not.toContain('<');
+    expect(result.text).not.toContain('style=');
+    expect(result.images).toEqual(['https://images.example/a.jpg']);
+  });
+});
 
 describe('buildWechatBody', () => {
   it('正文没有封面图时,按 bodyCoverPosition 插入一张封面并标记复用封面字节', () => {

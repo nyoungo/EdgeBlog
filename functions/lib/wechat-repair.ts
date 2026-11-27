@@ -43,7 +43,7 @@ const REPUSH_RESERVE_MS = 45_000;
 const REPAIRABLE_CODES = new Set<string>(['PAYLOAD_TOO_LARGE', 'UNSUPPORTED_MEDIA_TYPE']);
 
 /** 错误描述里必须能定位到具体图片，否则不是图片问题。 */
-const REPAIRABLE_MESSAGE = /正文图|正文图片|封面图|小程序卡片配图/;
+const REPAIRABLE_MESSAGE = /正文图|正文图片|封面图|小程序卡片配图|图片消息/;
 
 export function isRepairableWechatError(err: unknown): err is AppError {
   return (

@@ -238,6 +238,62 @@ export function renderWechatContent(markdown: string): WechatRenderedContent {
   return { html, images };
 }
 
+/** marked 渲染文本时会转义的常见实体；用于把 HTML 还原成纯文本。 */
+const HTML_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+};
+
+function decodeHtmlEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (match, code: string) => {
+    if (code.startsWith('#x') || code.startsWith('#X')) {
+      const point = Number.parseInt(code.slice(2), 16);
+      return Number.isFinite(point) ? String.fromCodePoint(point) : match;
+    }
+    if (code.startsWith('#')) {
+      const point = Number.parseInt(code.slice(1), 10);
+      return Number.isFinite(point) ? String.fromCodePoint(point) : match;
+    }
+    return HTML_ENTITIES[code.toLowerCase()] ?? match;
+  });
+}
+
+/**
+ * 把渲染后的正文 HTML 还原成纯文本。
+ *
+ * 图片消息（newspic）的 `content` 只接受纯文本（与少量商品标签），HTML 标签、
+ * 内联样式、表格、小程序卡片都会被微信过滤或拒绝。所以这里只保留可见文字：
+ * 块级标签换行、列表项加项目符号、`<br>` 换行，其余标签一律剥掉。
+ */
+export function htmlToPlainText(html: string): string {
+  const text = (html ?? '')
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<hr[^>]*>/gi, '\n')
+    .replace(/<\/(?:p|div|h[1-6]|blockquote|pre|li|tr|table)>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<\/(?:td|th)>/gi, ' ')
+    .replace(/<[^>]+>/g, '');
+  return decodeHtmlEntities(text)
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * 图片消息的正文：Markdown → 纯文本 + 按出现顺序的图片地址。
+ *
+ * 与 `buildWechatBody` 不同，这里不插入正文封面、也不追加小程序卡片——
+ * 图片消息的图片走 `image_info.image_list`，正文只放文字。
+ */
+export function renderWechatPlainText(markdown: string): { text: string; images: string[] } {
+  const rendered = renderWechatContent(markdown ?? '');
+  return { text: htmlToPlainText(rendered.html), images: rendered.images };
+}
+
 /**
  * 把正文里的图片占位符替换成真实 URL。
  * `urls` 与 `renderWechatContent().images` 一一对应。
